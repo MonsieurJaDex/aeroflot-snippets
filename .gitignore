@@ -1,2 +1,3 @@
-/target
-/target/*
+# backend
+/backend/target/*
+/backend/assets/*

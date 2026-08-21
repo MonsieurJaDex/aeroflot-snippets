@@ -1,6 +1,5 @@
 use crate::types::*;
-use std::collections::{HashMap, VecDeque};
-
+use std::collections::{HashMap, HashSet, VecDeque};
 
 // start-to-end path finding BFS
 pub fn bfs(matrix: &MapMatrix<i32>, start: Point<i32>, end: Point<i32>) -> Vec<Point<i32>> {
@@ -66,14 +65,18 @@ pub fn bfs(matrix: &MapMatrix<i32>, start: Point<i32>, end: Point<i32>) -> Vec<P
     return vec![];
 }
 
-
-pub fn find_nearest(matrix: &MapMatrix<i32>, target: Point<i32>, target_value: i32) -> Vec<Point<i32>> {
+pub fn find_nearest(
+    matrix: &MapMatrix<i32>,
+    start: Point<i32>,
+    target_value: i32,
+    road_points: &HashSet<i32>,
+) -> Vec<Point<i32>> {
     let mut q = VecDeque::<Point<i32>>::new();
     let mut path = HashMap::<Point<i32>, Point<i32>>::new();
     let mut route = Vec::<Point<i32>>::new();
 
-    q.push_back(target);
-    path.insert(target, Point::new(-1, -1));
+    q.push_back(start);
+    path.insert(start, Point::new(-1, -1));
 
     while let Some(p) = q.pop_front() {
         let directions = [(1, 0), (0, 1), (-1, 0), (0, -1)];
@@ -95,16 +98,14 @@ pub fn find_nearest(matrix: &MapMatrix<i32>, target: Point<i32>, target_value: i
             }
 
             let next_point = Point::new(next_x, next_y); // next point object
+            let value = &row[next_x as usize]; // value of next point
 
-            if path.contains_key(&next_point) {
+            if !road_points.contains(value) || path.contains_key(&next_point) {
                 continue;
             }
 
             path.insert(next_point, p);
 
-            // TODO: use value for roads
-            let value = &row[next_x as usize]; // value of next point
-            
             if value.ne(&target_value) {
                 q.push_back(next_point);
                 continue;
@@ -124,4 +125,3 @@ pub fn find_nearest(matrix: &MapMatrix<i32>, target: Point<i32>, target_value: i
 
     return route;
 }
-

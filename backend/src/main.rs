@@ -1,5 +1,9 @@
-mod types;
+use std::collections::HashSet;
+
 mod bfs;
+mod error;
+mod parser;
+mod types;
 
 fn main() {
     let tilemap: types::MapMatrix<i32> = vec![
@@ -85,7 +89,7 @@ fn main() {
         ],
     ];
 
-    let route = bfs::find_nearest(&tilemap, types::Point::new(14, 7), 167);
+    let roads: HashSet<i32> = HashSet::from([157]);
+    let route = bfs::find_nearest(&tilemap, types::Point::new(15, 6), 167, &roads);
     println!("{:?}", route);
-
 }
