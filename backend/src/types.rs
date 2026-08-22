@@ -3,6 +3,7 @@ use std::error::Error;
 
 use crate::error;
 
+// serialize, deserialize to cache in custom file
 #[derive(Debug)]
 pub struct MapMatrix<T>(pub Vec<Vec<T>>);
 

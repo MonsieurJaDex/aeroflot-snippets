@@ -2,4 +2,4 @@
 /backend/target/*
 /backend/assets/*
 
-.DS_Store
+/.DS_Store
