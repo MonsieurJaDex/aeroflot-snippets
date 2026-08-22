@@ -3,6 +3,7 @@ use std::{error::Error, fmt};
 #[derive(Debug)]
 pub enum CommonErrors {
     InvalidArgument(String),
+    IncorrectLayer(String),
 }
 
 impl fmt::Display for CommonErrors {
