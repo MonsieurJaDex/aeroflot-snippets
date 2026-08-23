@@ -4,6 +4,7 @@ use std::{error::Error, fmt};
 pub enum CommonErrors {
     InvalidArgument(String),
     IncorrectLayer(String),
+    IncorrectPath(String),
 }
 
 impl fmt::Display for CommonErrors {
