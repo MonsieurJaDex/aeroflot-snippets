@@ -1,15 +1,28 @@
-use serde::{Deserialize, Serialize};
+use num_traits::PrimInt;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::error::Error;
 
 use crate::error;
 
-// serialize, deserialize to cache in custom file
-#[derive(Debug)]
-pub struct MapMatrix<T>(pub Vec<Vec<T>>);
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JsonMatrix {
+    pub map: String,
+}
+
+impl JsonMatrix {
+    pub fn new(map: String) -> Self {
+        Self { map }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MapMatrix<T>(pub Vec<Vec<T>>)
+where
+    T: PrimInt;
 
 impl<T> MapMatrix<T>
 where
-    T: Copy,
+    T: PrimInt,
 {
     pub fn new(width: usize, height: usize, initial: T) -> Self {
         let v = vec![vec![initial; width]; height];
