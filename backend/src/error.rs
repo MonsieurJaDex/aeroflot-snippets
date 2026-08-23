@@ -10,8 +10,7 @@ pub enum CommonErrors {
 
 impl fmt::Display for CommonErrors {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // TODO
-        f.write_str("TBA...")
+        f.write_str(format!("{:?}", self).as_str())
     }
 }
 
