@@ -4,6 +4,11 @@ use std::error::Error;
 
 use crate::error;
 
+#[derive(Debug, Deserialize)]
+pub struct TmjDto<T: PrimInt, U: PrimInt> {
+    pub layers: Vec<TiledLayer<T, U>>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JsonMatrix {
     pub map: String,

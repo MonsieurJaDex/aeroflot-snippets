@@ -7,7 +7,7 @@ mod types;
 
 fn main() {
     // let map = parser::parse_map::<i64>("./assets/map.tmj", Some("./assets/parsed/map.json"));
-    let map = parser::parse_from_json("./assets/parsed/map.json");
+    let map = parser::parse_from_json::<i64>("./assets/parsed/map.json");
 
     let map = match map {
         Ok(m) => m,
@@ -23,5 +23,5 @@ fn main() {
     ]);
     let route = bfs::find_nearest(&map, types::Point::new(0, 0), 407, &roads);
 
-    println!("{:?}", route);
+    println!("{:?}", map);
 }

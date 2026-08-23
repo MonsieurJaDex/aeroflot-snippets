@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use crate::{
     error,
-    types::{self, JsonMatrix, MapMatrix},
+    types::{self, JsonMatrix, MapMatrix, TmjDto},
 };
 
 // map parser (tmj -> MapMatrix)
@@ -26,15 +26,11 @@ where
     T: DeserializeOwned + Serialize + PrimInt + Debug + Copy + Hash,
 {
     let path = path.trim();
-    let content: String = match fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) => return Err(Box::new(e)),
-    };
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let raw_map: TmjDto<T, u64> = serde_json::from_reader(reader)?;
 
-    let json_data: serde_json::Value = serde_json::from_str(&content)?;
-
-    let layers: Vec<types::TiledLayer<T, u64>> =
-        serde_json::from_value(json_data["layers"].clone())?;
+    let layers: Vec<types::TiledLayer<T, u64>> = raw_map.layers;
 
     if layers.is_empty() {
         return Err(Box::new(error::CommonErrors::IncorrectLayer(
@@ -49,28 +45,33 @@ where
     );
 
     for layer in layers {
+        if layer.width == 0 {
+            return Err(Box::new(error::CommonErrors::IncorrectFileContent(
+                format!("Zero layer width catched at layer: {}", layer.name),
+            )));
+        }
+
         let chunks = layer.data.chunks(layer.width as usize);
 
         for (matrix_row, chunk_row) in matrix.0.iter_mut().zip(chunks) {
             for (matrix_cell, chunk_cell) in matrix_row.iter_mut().zip(chunk_row) {
-                if chunk_cell == &T::zero() {
+                if chunk_cell.is_zero() {
                     continue;
                 }
-                matrix_cell.clone_from(chunk_cell);
+                *matrix_cell = *chunk_cell
             }
         }
     }
 
     match save_path {
         Some(p) => {
-            let mut fs = File::create(p)?;
+            let mut file = File::create(p)?;
 
-            let stringified = serde_json::to_string(&matrix.clone())?;
+            let stringified = serde_json::to_string(&matrix)?;
             let json_matrix = JsonMatrix::new(stringified);
 
-            let stringified = serde_json::to_string(&json_matrix)?;
-
-            _ = fs.write_all(stringified.as_bytes());
+            let wrapper_str = serde_json::to_string(&json_matrix)?;
+            file.write_all(wrapper_str.as_bytes())?;
         }
         None => (),
     }
@@ -80,7 +81,7 @@ where
 
 pub fn parse_from_json<T>(path: &str) -> Result<MapMatrix<T>, Box<dyn Error>>
 where
-    T: PrimInt + Serialize + DeserializeOwned,
+    T: DeserializeOwned + Serialize + PrimInt + Debug + Copy + Hash,
 {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
