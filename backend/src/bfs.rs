@@ -1,12 +1,10 @@
-use num_traits::PrimInt;
-
 use crate::types::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 // start-to-end path finding BFS
-pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Vec<Point<i64>> {
+pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Route<i64> {
     if start.eq(&end) {
-        return vec![end];
+        return Route::new(vec![end]);
     }
 
     let mut q: VecDeque<Point<i64>> = VecDeque::new();
@@ -43,7 +41,7 @@ pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Vec<P
             }
 
             // TODO: use value for roads
-            let value = &row[next_x as usize]; // value of next point
+            let _value = &row[next_x as usize]; // value of next point
 
             path.insert(next_point, p);
 
@@ -57,14 +55,14 @@ pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Vec<P
                 }
 
                 route.reverse();
-                return route;
+                return Route::new(route);
             } else {
                 q.push_back(next_point);
             }
         }
     }
 
-    return vec![];
+    return Route::new(vec![]);
 }
 
 // Предполагается, что где-то определены:
@@ -76,17 +74,17 @@ pub fn find_nearest(
     start: Point<i64>,
     target_value: i64,
     road_points: &HashSet<i64>,
-) -> Vec<Point<i64>> {
+) -> Route<i64> {
     if start.1 < 0 || start.1 >= matrix.0.len() as i64 {
-        return vec![];
+        return Route::new(vec![]);
     }
     let row_len = matrix.0[start.1 as usize].len() as i64;
     if start.0 < 0 || start.0 >= row_len {
-        return vec![];
+        return Route::new(vec![]);
     }
 
     if matrix.0[start.1 as usize][start.0 as usize] == target_value {
-        return vec![start];
+        return Route::new(vec![]);
     }
 
     let mut q = VecDeque::new();
@@ -137,12 +135,12 @@ pub fn find_nearest(
                 }
 
                 route.reverse();
-                return route;
+                return Route::new(route);
             }
 
             q.push_back(next_point);
         }
     }
 
-    vec![]
+    Route::new(vec![])
 }

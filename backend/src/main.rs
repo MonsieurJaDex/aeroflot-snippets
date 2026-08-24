@@ -1,4 +1,9 @@
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    hash::{BuildHasherDefault, DefaultHasher, Hash, Hasher},
+};
+
+use crate::types::Route;
 
 mod bfs;
 mod error;
@@ -23,5 +28,5 @@ fn main() {
     ]);
     let route = bfs::find_nearest(&map, types::Point::new(0, 0), 407, &roads);
 
-    println!("{:?}", map);
+    println!("{:?}", route);
 }
