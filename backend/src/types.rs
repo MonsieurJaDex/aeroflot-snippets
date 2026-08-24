@@ -1,6 +1,9 @@
 use num_traits::PrimInt;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::error::Error;
+use serde::{Deserialize, Serialize};
+use std::{
+    error::Error,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use crate::error;
 
@@ -59,44 +62,16 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Point<T>(pub T, pub T); // Point(x, y)
+pub struct Point<T>(pub T, pub T)
+where
+    T: PrimInt + Copy; // Point(x, y)
 
-impl<T> Point<T> {
+impl<T> Point<T>
+where
+    T: PrimInt + Copy,
+{
     pub fn new(x: T, y: T) -> Self {
         Self(x, y)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum EngineerType {
-    Electronic,
-    Mechanical,
-}
-
-pub struct Engineers<T> {
-    pub points: Vec<Point<T>>,
-    pub types: Vec<EngineerType>,
-    pub tile: Vec<T>,
-}
-
-impl<T> Engineers<T> {
-    fn new(
-        _points: Vec<Point<T>>,
-        _types: Vec<EngineerType>,
-        _tile: Vec<T>,
-    ) -> Result<Self, Box<dyn Error>> {
-        let len_sum = _points.len() + _types.len() + _tile.len();
-        if len_sum == 0 || len_sum % 3 != 0 {
-            return Err(Box::new(error::CommonErrors::InvalidArgument(
-                "arguments should have equal length and more than a zero".to_string(),
-            )));
-        }
-
-        Ok(Self {
-            points: _points,
-            types: _types,
-            tile: _tile,
-        })
     }
 }
 
@@ -115,4 +90,36 @@ pub struct TiledLayer<T, U> {
     pub width: u32,
     pub x: U,
     pub y: U,
+}
+
+#[derive(Debug)]
+pub struct Route<T: PrimInt>(Vec<Point<T>>);
+
+impl<T: PrimInt + Hash> Route<T> {
+    pub fn new(path: Vec<Point<T>>) -> Self {
+        Self(path)
+    }
+
+    // method for computing route direction indepenent hash
+    pub fn compute_universal_key(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+
+        if self.0.len() < 2 {
+            self.0.hash(&mut hasher);
+            return hasher.finish();
+        }
+
+        let first = self.0.first().unwrap();
+        let last = self.0.last().unwrap();
+
+        let is_forward = (first.0, first.1) <= (last.0, last.1);
+
+        if is_forward {
+            self.0.iter().for_each(|el| el.hash(&mut hasher));
+        } else {
+            self.0.iter().rev().for_each(|el| el.hash(&mut hasher));
+        }
+
+        hasher.finish()
+    }
 }

@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+
 mod bfs;
 mod error;
 mod parser;
@@ -23,5 +24,5 @@ fn main() {
     ]);
     let route = bfs::find_nearest(&map, types::Point::new(0, 0), 407, &roads);
 
-    println!("{:?}", map);
+    println!("{:?}", route);
 }

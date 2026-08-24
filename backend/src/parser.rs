@@ -1,16 +1,13 @@
 use std::{
-    collections::HashSet,
     error::Error,
     fmt::Debug,
-    fs::{self, File},
+    fs::File,
     hash::Hash,
-    io::{BufReader, ErrorKind, Read, Write},
-    path::Path,
+    io::{BufReader, Write},
 };
 
 use num_traits::PrimInt;
 use serde::{Serialize, de::DeserializeOwned};
-use serde_json::{Value, json};
 
 use crate::{
     error,
