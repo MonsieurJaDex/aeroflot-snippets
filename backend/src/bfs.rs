@@ -1,5 +1,12 @@
+use num_traits::PrimInt;
+
 use crate::types::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    hash::Hash,
+    ops::Index,
+    slice::SliceIndex,
+};
 
 // start-to-end path finding BFS
 pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Route<i64> {
@@ -69,26 +76,29 @@ pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Route
 // pub struct Point<T> { pub x: T, pub y: T } или pub struct Point<T>(pub T, pub T);
 // pub struct MapMatrix<T>(pub Vec<Vec<T>>);
 
-pub fn find_nearest(
-    matrix: &MapMatrix<i64>,
-    start: Point<i64>,
-    target_value: i64,
-    road_points: &HashSet<i64>,
-) -> Route<i64> {
-    if start.1 < 0 || start.1 >= matrix.0.len() as i64 {
+pub fn find_nearest<T>(
+    matrix: &MapMatrix<T>,
+    start: Point<T>,
+    target_value: T,
+    road_points: &HashSet<T>,
+) -> Route<T>
+where
+    T: PrimInt + Copy + Hash,
+{
+    if start.1 < T::zero() || start.1 >= T::from(matrix.0.len()).unwrap() {
         return Route::new(vec![]);
     }
-    let row_len = matrix.0[start.1 as usize].len() as i64;
-    if start.0 < 0 || start.0 >= row_len {
+    let row_len = matrix.0[start.1.to_usize().unwrap()].len() as i64;
+    if start.0 < T::zero() || start.0 >= T::from(row_len).unwrap() {
         return Route::new(vec![]);
     }
 
-    if matrix.0[start.1 as usize][start.0 as usize] == target_value {
+    if matrix.0[start.1.to_usize().unwrap()][start.0.to_usize().unwrap()] == target_value {
         return Route::new(vec![]);
     }
 
     let mut q = VecDeque::new();
-    let mut parent_map: HashMap<Point<i64>, Option<Point<i64>>> = HashMap::new();
+    let mut parent_map: HashMap<Point<T>, Option<Point<T>>> = HashMap::new();
 
     q.push_back(start);
     parent_map.insert(start, None);
@@ -97,21 +107,21 @@ pub fn find_nearest(
 
     while let Some(p) = q.pop_front() {
         for (dx, dy) in directions {
-            let next_x = p.0 + dx;
-            let next_y = p.1 + dy;
+            let next_x = p.0 + T::from(dx).unwrap();
+            let next_y = p.1 + T::from(dy).unwrap();
 
-            if next_y < 0 || next_y >= matrix.0.len() as i64 {
+            if next_y < T::zero() || next_y >= T::from(matrix.0.len()).unwrap() {
                 continue;
             }
 
-            let row = &matrix.0[next_y as usize];
+            let row = &matrix.0[next_y.to_usize().unwrap()];
 
-            if next_x < 0 || next_x >= row.len() as i64 {
+            if next_x < T::zero() || next_x >= T::from(row.len()).unwrap() {
                 continue;
             }
 
             let next_point = Point::new(next_x, next_y);
-            let value = row[next_x as usize];
+            let value = row[next_x.to_usize().unwrap()];
 
             let is_target = value == target_value;
 
