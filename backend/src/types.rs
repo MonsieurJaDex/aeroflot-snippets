@@ -115,9 +115,11 @@ impl<T: PrimInt + Hash> Route<T> {
         let is_forward = (first.0, first.1) <= (last.0, last.1);
 
         if is_forward {
-            self.0.iter().for_each(|el| el.hash(&mut hasher));
+            first.hash(&mut hasher);
+            last.hash(&mut hasher);
         } else {
-            self.0.iter().rev().for_each(|el| el.hash(&mut hasher));
+            last.hash(&mut hasher);
+            first.hash(&mut hasher);
         }
 
         hasher.finish()

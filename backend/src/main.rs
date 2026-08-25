@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-
 mod bfs;
 mod error;
 mod parser;
