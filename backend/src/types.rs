@@ -61,7 +61,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct Point<T>(pub T, pub T)
 where
     T: PrimInt + Copy; // Point(x, y)
@@ -92,7 +92,7 @@ pub struct TiledLayer<T, U> {
     pub y: U,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Route<T: PrimInt>(Vec<Point<T>>);
 
 impl<T: PrimInt + Hash> Route<T> {
