@@ -2,4 +2,18 @@
 /backend/target/*
 /backend/assets/*
 
+# frontend (если появится npm/сборка)
+/frontend/node_modules/
+/frontend/dist/
+npm-debug.log*
+
+# OS / editor junk
 /.DS_Store
+Thumbs.db
+Desktop.ini
+/.vscode/
+/.idea/
+
+# секреты/локальные конфиги
+.env
+.env.local

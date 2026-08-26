@@ -1,7 +1,6 @@
 use crate::types::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-// start-to-end path finding BFS
 pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Route<i64> {
     if start.eq(&end) {
         return Route::new(vec![end]);
@@ -16,32 +15,27 @@ pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Route
     while let Some(p) = q.pop_front() {
         let directions = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
-        // iterate over 4 directions with respect to current point
         for (dx, dy) in directions {
-            // evaluate next point's coords
             let next_x = p.0 + dx;
             let next_y = p.1 + dy;
 
-            // if row out of range
             if next_y < 0 || next_y >= matrix.0.len() as i64 {
                 continue;
             }
 
             let row = &matrix.0[next_y as usize];
 
-            // if x out of row's range
             if next_x < 0 || next_x >= row.len() as i64 {
                 continue;
             }
 
-            let next_point = Point::new(next_x, next_y); // next point object
+            let next_point = Point::new(next_x, next_y);
 
             if path.contains_key(&next_point) {
                 continue;
             }
 
-            // TODO: use value for roads
-            let _value = &row[next_x as usize]; // value of next point
+            let _value = &row[next_x as usize];
 
             path.insert(next_point, p);
 
@@ -64,10 +58,6 @@ pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Route
 
     return Route::new(vec![]);
 }
-
-// Предполагается, что где-то определены:
-// pub struct Point<T> { pub x: T, pub y: T } или pub struct Point<T>(pub T, pub T);
-// pub struct MapMatrix<T>(pub Vec<Vec<T>>);
 
 pub fn find_nearest(
     matrix: &MapMatrix<i64>,

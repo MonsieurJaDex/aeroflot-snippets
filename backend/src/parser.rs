@@ -14,7 +14,6 @@ use crate::{
     types::{self, JsonMatrix, MapMatrix, TmjDto},
 };
 
-// map parser (tmj -> MapMatrix)
 pub fn parse_map<T>(
     path: &str,
     save_path: Option<&str>,

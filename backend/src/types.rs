@@ -64,7 +64,7 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Point<T>(pub T, pub T)
 where
-    T: PrimInt + Copy; // Point(x, y)
+    T: PrimInt + Copy;
 
 impl<T> Point<T>
 where
@@ -100,7 +100,6 @@ impl<T: PrimInt + Hash> Route<T> {
         Self(path)
     }
 
-    // method for computing route direction indepenent hash
     pub fn compute_universal_key(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
 
