@@ -1,5 +1,6 @@
 # backend
 /backend/target/*
 /backend/assets/*
+/backend/.cargo
 
 /.DS_Store
