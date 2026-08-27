@@ -4,8 +4,6 @@ use crate::types::*;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     hash::Hash,
-    ops::Index,
-    slice::SliceIndex,
 };
 
 // start-to-end path finding BFS
