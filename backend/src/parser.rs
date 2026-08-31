@@ -60,23 +60,20 @@ where
         }
     }
 
-    match save_path {
-        Some(p) => {
-            let mut file = File::create(p)?;
+    if let Some(p) = save_path {
+        let mut file = File::create(p)?;
 
-            let stringified = serde_json::to_string(&matrix)?;
-            let json_matrix = JsonMatrix::new(stringified);
+        let stringified = serde_json::to_string(&matrix)?;
+        let json_matrix = JsonMatrix::new(stringified);
 
-            let wrapper_str = serde_json::to_string(&json_matrix)?;
-            file.write_all(wrapper_str.as_bytes())?;
-        }
-        None => (),
+        let wrapper_str = serde_json::to_string(&json_matrix)?;
+        file.write_all(wrapper_str.as_bytes())?;
     }
 
     Ok(matrix)
 }
 
-pub fn parse_from_json<T>(path: &str) -> Result<MapMatrix<T>, Box<dyn Error>>
+pub fn parse_from_json<T>(path: &str) -> Result<MapMatrix<T>, Box<dyn std::error::Error>>
 where
     T: DeserializeOwned + Serialize + PrimInt + Debug + Copy + Hash,
 {

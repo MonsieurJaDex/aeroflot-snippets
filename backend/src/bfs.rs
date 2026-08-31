@@ -56,7 +56,7 @@ pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Route
 
                 while current.ne(&Point::new(-1, -1)) {
                     route.push(current);
-                    current = path.get(&current).unwrap().clone();
+                    current = *path.get(&current).unwrap();
                 }
 
                 route.reverse();
@@ -67,7 +67,7 @@ pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Route
         }
     }
 
-    return Route::new(vec![]);
+    Route::new(vec![])
 }
 
 // Предполагается, что где-то определены:

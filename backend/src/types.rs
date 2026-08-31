@@ -42,7 +42,7 @@ where
     }
 
     pub fn from_vec(initial: Vec<Vec<T>>) -> Result<Self, Box<dyn Error>> {
-        if initial.len() == 0 {
+        if initial.is_empty() {
             return Err(Box::new(error::CommonErrors::InvalidArgument(
                 "initial vector is empty".to_string(),
             )));
@@ -92,7 +92,7 @@ pub struct TiledLayer<T, U> {
     pub y: U,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Route<T: PrimInt>(Vec<Point<T>>);
 
 impl<T: PrimInt + Hash> Route<T> {
@@ -123,5 +123,30 @@ impl<T: PrimInt + Hash> Route<T> {
         }
 
         hasher.finish()
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct WebResponse<T: PrimInt + Copy> {
+    pub width: usize,
+    pub height: usize,
+    pub matrix: MapMatrix<T>,
+}
+
+impl<T: PrimInt + Copy> WebResponse<T> {
+    pub fn new(matrix: MapMatrix<T>) -> Result<Self, Box<dyn Error>> {
+        if matrix.0.is_empty() {
+            return Err(Box::new(error::CommonErrors::InvalidArgument(
+                "got empty matrix".to_string(),
+            )));
+        }
+
+        let width = matrix.0[0].len();
+        let height = matrix.0.len();
+        Ok(Self {
+            matrix,
+            width,
+            height,
+        })
     }
 }
