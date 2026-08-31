@@ -4,8 +4,22 @@ use std::{
     error::Error,
     hash::{DefaultHasher, Hash, Hasher},
 };
+use utoipa::{OpenApi, ToSchema};
 
 use crate::error;
+use crate::router::__path_get_map;
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(get_map),
+    components(schemas(
+        MapMatrix<u8>
+    )),
+    tags(
+        (name="Aeroflot", description="Aeroflot dispatcher management API")
+    )
+)]
+pub struct ApiDoc;
 
 #[derive(Debug, Deserialize)]
 pub struct TmjDto<T: PrimInt, U: PrimInt> {
@@ -23,7 +37,7 @@ impl JsonMatrix {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct MapMatrix<T>(pub Vec<Vec<T>>)
 where
     T: PrimInt;

@@ -1,10 +1,12 @@
-use std::{collections::HashSet, error::Error, io, sync::Arc};
+use std::{collections::HashSet, sync::Arc};
 
 use axum::{Json, Router, routing::get};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
-use crate::router::get_map;
+use crate::{router::get_map, types::ApiDoc};
 
 mod bfs;
 mod error;
@@ -58,6 +60,7 @@ async fn main() {
 
     let app = Router::new()
         .nest("/api", api_routes)
+        .merge(SwaggerUi::new("/swagger").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3001")
         .await
