@@ -4,3 +4,6 @@
 /backend/.cargo
 
 /.DS_Store
+
+# MISC
+.env

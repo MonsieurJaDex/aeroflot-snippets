@@ -14,7 +14,7 @@ impl fmt::Display for CommonErrors {
     }
 }
 
-impl Error for CommonErrors {
+impl std::error::Error for CommonErrors {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         None
     }
