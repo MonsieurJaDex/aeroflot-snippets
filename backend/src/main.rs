@@ -1,10 +1,19 @@
-use std::{collections::HashSet, error::Error, io, sync::Arc};
+use crate::types::doc::ApiDoc;
+use std::{collections::HashSet, sync::Arc, time::Duration};
+use utoipa::OpenApi;
 
-use axum::{Json, Router, routing::get};
-use tower_http::trace::TraceLayer;
+use axum::{Json, Router, http::StatusCode, routing::get};
+use tower_http::{
+    compression::CompressionLayer,
+    limit::RequestBodyLimitLayer,
+    request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
+    timeout::TimeoutLayer,
+    trace::TraceLayer,
+};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use utoipa_swagger_ui::SwaggerUi;
 
-use crate::router::get_map;
+use crate::{router::get_map, types::map::Point};
 
 mod bfs;
 mod error;
@@ -14,14 +23,6 @@ mod types;
 
 #[tokio::main]
 async fn main() {
-    match dotenvy::dotenv() {
-        Ok(p) => println!("{}", p.to_str().unwrap()),
-        Err(_) => {
-            println!(".env file was not found in this directory or at parents");
-            std::process::exit(1);
-        }
-    }
-
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -47,7 +48,7 @@ async fn main() {
         3221225879, 3221225798, 1610613200, 1610613199, 1610613143, 29,
     ]);
 
-    let route = bfs::find_nearest::<i64>(&map, types::Point::new(0, 0), 407, &roads);
+    let route = bfs::find_nearest::<i64>(&map, Point::new(0, 0), 407, &roads);
 
     let shared_map = Arc::new(map);
 
@@ -58,7 +59,17 @@ async fn main() {
 
     let app = Router::new()
         .nest("/api", api_routes)
-        .layer(TraceLayer::new_for_http());
+        .merge(SwaggerUi::new("/swagger").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new())
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(10),
+        ))
+        .layer(RequestBodyLimitLayer::new(1024 * 1024))
+        .layer(PropagateRequestIdLayer::x_request_id())
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid));
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3001")
         .await
         .unwrap();

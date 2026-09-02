@@ -1,10 +1,12 @@
+use crate::types::map::Route;
 use num_traits::PrimInt;
 
-use crate::types::*;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     hash::Hash,
 };
+
+use crate::types::map::{MapMatrix, Point};
 
 // start-to-end path finding BFS
 pub fn bfs(matrix: &MapMatrix<i64>, start: Point<i64>, end: Point<i64>) -> Route<i64> {
