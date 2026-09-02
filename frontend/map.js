@@ -1,6 +1,6 @@
 const CONFIG = {
   mapCandidates: ["../et.tmj", "./et.tmj", "/et.tmj"],
-  apiCandidates: ["http://127.0.0.1:3001/api/map"],
+  apiCandidates: ["http://127.0.0.1:3001/"],
   tilesetImage: {
     enabled: false,
     path: "assets/tilemap_packed.png",
