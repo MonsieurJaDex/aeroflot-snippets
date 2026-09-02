@@ -8,7 +8,7 @@ use axum::{
 use num_traits::PrimInt;
 use serde::Serialize;
 
-use crate::types::MapMatrix;
+use crate::types::map::MapMatrix;
 
 #[utoipa::path(
     get,

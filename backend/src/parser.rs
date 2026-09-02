@@ -11,14 +11,15 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     error,
-    types::{self, JsonMatrix, MapMatrix, TmjDto},
+    types::{
+        json::JsonMatrix,
+        json::{TiledLayer, TmjDto},
+        map::MapMatrix,
+    },
 };
 
 // map parser (tmj -> MapMatrix)
-pub fn parse_map<T>(
-    path: &str,
-    save_path: Option<&str>,
-) -> Result<types::MapMatrix<T>, Box<dyn Error>>
+pub fn parse_map<T>(path: &str, save_path: Option<&str>) -> Result<MapMatrix<T>, Box<dyn Error>>
 where
     T: DeserializeOwned + Serialize + PrimInt + Debug + Copy + Hash,
 {
@@ -27,7 +28,7 @@ where
     let reader = BufReader::new(file);
     let raw_map: TmjDto<T, u64> = serde_json::from_reader(reader)?;
 
-    let layers: Vec<types::TiledLayer<T, u64>> = raw_map.layers;
+    let layers: Vec<TiledLayer<T, u64>> = raw_map.layers;
 
     if layers.is_empty() {
         return Err(Box::new(error::CommonErrors::IncorrectLayer(
