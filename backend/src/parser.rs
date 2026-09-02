@@ -13,7 +13,7 @@ use crate::{
     error,
     types::{
         json::JsonMatrix,
-        json::{TiledLayer, TmjDto},
+        json::{TiledLayer, TmjFile},
         map::MapMatrix,
     },
 };
@@ -26,7 +26,7 @@ where
     let path = path.trim();
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let raw_map: TmjDto<T, u64> = serde_json::from_reader(reader)?;
+    let raw_map: TmjFile<T, u64> = serde_json::from_reader(reader)?;
 
     let layers: Vec<TiledLayer<T, u64>> = raw_map.layers;
 

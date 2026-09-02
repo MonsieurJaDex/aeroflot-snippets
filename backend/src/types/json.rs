@@ -2,7 +2,7 @@ use num_traits::PrimInt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
-pub struct TmjDto<T: PrimInt, U: PrimInt> {
+pub struct TmjFile<T: PrimInt, U: PrimInt> {
     pub layers: Vec<TiledLayer<T, U>>,
 }
 

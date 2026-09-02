@@ -1,4 +1,4 @@
-use crate::types::api::ApiDoc;
+use crate::types::doc::ApiDoc;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use utoipa::OpenApi;
 
