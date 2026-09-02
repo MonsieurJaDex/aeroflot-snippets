@@ -1,7 +1,10 @@
 use std::{collections::HashSet, sync::Arc};
 
 use axum::{Json, Router, routing::get};
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
+    trace::TraceLayer,
+};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -16,14 +19,6 @@ mod types;
 
 #[tokio::main]
 async fn main() {
-    match dotenvy::dotenv() {
-        Ok(p) => println!("{}", p.to_str().unwrap()),
-        Err(_) => {
-            println!(".env file was not found in this directory or at parents");
-            std::process::exit(1);
-        }
-    }
-
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -61,7 +56,10 @@ async fn main() {
     let app = Router::new()
         .nest("/api", api_routes)
         .merge(SwaggerUi::new("/swagger").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .layer(TraceLayer::new_for_http());
+        .layer(TraceLayer::new_for_http())
+        .layer(PropagateRequestIdLayer::x_request_id())
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid));
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3001")
         .await
         .unwrap();
