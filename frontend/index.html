@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Aeroflot ОТО | Диспетчерская карта</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="sidebar">
+    <div class="brand-row">
+      <div>
+        <p class="eyebrow">ОТО / ПЕРРОН</p>
+        <h1>Диспетчерская карта</h1>
+      </div>
+      <span class="status-dot" title="Симуляция активна"></span>
+    </div>
+
+    <section class="request-panel">
+      <div class="section-heading">
+        <h2>Новая заявка</h2>
+        <span class="live-label">LIVE</span>
+      </div>
+      <label>Стоянка ВС
+        <select id="stand-select"></select>
+      </label>
+      <label>Тип неисправности
+        <select id="fault-select">
+          <option value="airframe">Планер и двигатель</option>
+          <option value="avionics">Авионика</option>
+        </select>
+      </label>
+      <button id="assign-button" type="button">Найти инженера</button>
+      <div id="assignment-result" class="assignment-result" aria-live="polite">Выбери стоянку и тип неисправности.</div>
+    </section>
+
+    <section>
+      <h2>Слои карты</h2>
+      <div id="layers-list">Загрузка карты…</div>
+    </section>
+
+    <section>
+      <h2>Координаты</h2>
+      <div id="tile-info">Кликни по карте, чтобы выбрать клетку.</div>
+    </section>
+
+    <section>
+      <h2>Легенда</h2>
+      <div id="legend"></div>
+    </section>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="map.js"></script>
+</body>
+</html>
