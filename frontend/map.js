@@ -1,5 +1,6 @@
 const CONFIG = {
   mapCandidates: ["../et.tmj", "./et.tmj", "/et.tmj"],
+  apiCandidates: ["http://127.0.0.1:3001/api/map"],
   tilesetImage: {
     enabled: false,
     path: "assets/tilemap_packed.png",
@@ -78,6 +79,18 @@ function clamp(v) {
 }
 
 async function loadMap() {
+  for (const path of CONFIG.apiCandidates) {
+    try {
+      const res = await fetch(path);
+      if (!res.ok) continue;
+      const payload = await res.json();
+      const matrix = Array.isArray(payload) ? payload : payload.matrix;
+      if (!Array.isArray(matrix) || !Array.isArray(matrix[0])) continue;
+      return mapFromMatrix(matrix);
+    } catch (e) {
+    }
+  }
+
   for (const path of CONFIG.mapCandidates) {
     try {
       const res = await fetch(path);
@@ -92,6 +105,26 @@ async function loadMap() {
     "Не удалось найти et.tmj. Запусти статический сервер из корня репозитория " +
       "(например: python -m http.server) и открой frontend/index.html через него."
   );
+}
+
+function mapFromMatrix(matrix) {
+  const height = matrix.length;
+  const width = matrix[0].length;
+  return {
+    width,
+    height,
+    tilewidth: 16,
+    tileheight: 16,
+    layers: [
+      {
+        name: "дорога",
+        type: "tilelayer",
+        width,
+        height,
+        data: matrix.flat(),
+      },
+    ],
+  };
 }
 
 function buildTileGrid(tmj) {
@@ -122,24 +155,24 @@ function renderCanvas(tmj, grid) {
   canvas.height = tmj.height * tileH;
   const ctx = canvas.getContext("2d");
 
-  ctx.fillStyle = "#eef2f4";
+  ctx.fillStyle = "#1b252d";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   for (let row = 0; row < tmj.height; row++) {
     for (let col = 0; col < tmj.width; col++) {
       const cells = grid[row][col];
       if (cells.some((cell) => cell.layerName === "дорога")) {
-        ctx.fillStyle = "#b8c1c9";
+        ctx.fillStyle = "#42515d";
         ctx.fillRect(col * tileW, row * tileH, tileW, tileH);
       }
       if (cells.some((cell) => cell.layerName === "здание")) {
-        ctx.fillStyle = "#c8d0d7";
+        ctx.fillStyle = "#28343d";
         ctx.fillRect(col * tileW + 1, row * tileH + 1, tileW - 2, tileH - 2);
       }
     }
   }
 
-  ctx.strokeStyle = "rgba(94, 111, 124, 0.14)";
+  ctx.strokeStyle = "rgba(195, 215, 225, 0.08)";
   ctx.lineWidth = 1;
   for (let col = 0; col <= tmj.width; col++) ctx.moveTo(col * tileW, 0), ctx.lineTo(col * tileW, canvas.height);
   for (let row = 0; row <= tmj.height; row++) ctx.moveTo(0, row * tileH), ctx.lineTo(canvas.width, row * tileH);
@@ -240,7 +273,7 @@ async function main() {
     const eta = Math.max(1, Math.ceil(winner.distance / 4));
     const route = [agentPoint(winner.agent), standPoint(stand)];
     if (routeLayer) map.removeLayer(routeLayer);
-    routeLayer = L.polyline(route, { color: "#1167d8", weight: 5, opacity: 0.9, dashArray: "10 8" }).addTo(map);
+    routeLayer = L.polyline(route, { color: "#e30613", weight: 5, opacity: 0.9, dashArray: "10 8" }).addTo(map);
     result.className = "assignment-result success";
     result.innerHTML = `<strong>${winner.agent.name}</strong><br>${winner.agent.skillName}<br>ETA: <strong>${eta} мин</strong> · лимит 15 мин<br>Маршрут построен`;
     map.fitBounds(routeLayer.getBounds(), { padding: [80, 80], maxZoom: 3 });

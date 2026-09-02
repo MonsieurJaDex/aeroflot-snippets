@@ -7,3 +7,7 @@
 
 # MISC
 .env
+
+# local runtime artifacts
+*.exe
+*.log
