@@ -12,9 +12,9 @@ use serde::{Serialize, de::DeserializeOwned};
 use crate::{
     error,
     types::{
-        json::JsonMatrix,
-        json::{TiledLayer, TmjFile},
         map::MapMatrix,
+        tmj::JsonMatrix,
+        tmj::{TiledLayer, TmjFile},
     },
 };
 
