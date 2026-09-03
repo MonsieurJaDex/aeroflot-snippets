@@ -29,7 +29,7 @@ impl AppConfig {
     }
 
     pub fn new() -> Result<Self> {
-        dotenvy::dotenv()?;
+        _ = dotenvy::dotenv();
 
         let host: Ipv4Addr = AppConfig::parse_env("host")?;
         let port: u16 = AppConfig::parse_env("port")?;
