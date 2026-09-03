@@ -44,26 +44,59 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-pub struct Point<T>(pub T, pub T)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ToSchema)]
+pub struct Point<T>
 where
-    T: PrimInt + Copy; // Point(x, y)
+    T: PrimInt + Copy,
+{
+    pub x: T,
+    pub y: T,
+}
 
 impl<T> Point<T>
 where
     T: PrimInt + Copy,
 {
     pub fn new(x: T, y: T) -> Self {
-        Self(x, y)
+        Self { x, y }
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
+impl<T> Serialize for Point<T>
+where
+    T: PrimInt + Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        (self.x, self.y).serialize(serializer)
+    }
+}
+
+impl<'de, T> Deserialize<'de> for Point<T>
+where
+    T: PrimInt + Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let (x, y) = <(T, T)>::deserialize(deserializer)?;
+        Ok(Self { x, y })
+    }
+}
+
+#[derive(Debug, Serialize, Clone, ToSchema)]
 pub struct Route<T: PrimInt>(Vec<Point<T>>);
 
 impl<T: PrimInt + Hash> Route<T> {
     pub fn new(path: Vec<Point<T>>) -> Self {
         Self(path)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len() - 1
     }
 
     // method for computing route direction indepenent hash
@@ -78,7 +111,7 @@ impl<T: PrimInt + Hash> Route<T> {
         let first = self.0.first().unwrap();
         let last = self.0.last().unwrap();
 
-        let is_forward = (first.0, first.1) <= (last.0, last.1);
+        let is_forward = (first.x, first.y) <= (last.x, last.y);
 
         if is_forward {
             first.hash(&mut hasher);

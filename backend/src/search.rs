@@ -1,4 +1,5 @@
 use crate::types::map::Route;
+use anyhow::{Ok, Result, anyhow};
 use num_traits::PrimInt;
 
 use std::{
@@ -14,20 +15,28 @@ pub fn bfs<T>(
     start: Point<T>,
     end: Point<T>,
     road_points: &HashSet<T>,
-) -> Route<T>
+) -> Result<Route<T>>
 where
     T: PrimInt + Copy + Hash,
 {
-    if start.1 < T::zero() || start.1 >= T::from(matrix.0.len()).unwrap() {
-        return Route::new(vec![]);
+    let row_len = matrix.0[start.y.to_usize().unwrap()].len() as i64;
+
+    if start.y < T::zero() || start.y >= T::from(matrix.0.len()).unwrap() {
+        return Err(anyhow!("start y coordinate out of matrix"));
     }
-    let row_len = matrix.0[start.1.to_usize().unwrap()].len() as i64;
-    if start.0 < T::zero() || start.0 >= T::from(row_len).unwrap() {
-        return Route::new(vec![]);
+    if start.x < T::zero() || start.x >= T::from(row_len).unwrap() {
+        return Err(anyhow!("start x coordinate out of matrix"));
+    }
+
+    if end.y < T::zero() || end.y >= T::from(matrix.0.len()).unwrap() {
+        return Err(anyhow!("end y coordinate out of matrix"));
+    }
+    if end.x < T::zero() || end.x >= T::from(row_len).unwrap() {
+        return Err(anyhow!("end x coordinate out of matrix"));
     }
 
     if start == end {
-        return Route::new(vec![start]);
+        return Ok(Route::new(vec![start]));
     }
 
     let mut q = VecDeque::new();
@@ -40,8 +49,8 @@ where
 
     while let Some(p) = q.pop_front() {
         for (dx, dy) in directions {
-            let next_x = p.0 + T::from(dx).unwrap();
-            let next_y = p.1 + T::from(dy).unwrap();
+            let next_x = p.x + T::from(dx).unwrap();
+            let next_y = p.y + T::from(dy).unwrap();
 
             if next_y < T::zero() || next_y >= T::from(matrix.0.len()).unwrap() {
                 continue;
@@ -76,14 +85,14 @@ where
                 }
 
                 route.reverse();
-                return Route::new(route);
+                return Ok(Route::new(route));
             }
 
             q.push_back(next_point);
         }
     }
 
-    Route::new(vec![])
+    Ok(Route::new(vec![]))
 }
 
 pub fn find_nearest<T>(
@@ -95,15 +104,15 @@ pub fn find_nearest<T>(
 where
     T: PrimInt + Copy + Hash,
 {
-    if start.1 < T::zero() || start.1 >= T::from(matrix.0.len()).unwrap() {
+    if start.y < T::zero() || start.y >= T::from(matrix.0.len()).unwrap() {
         return Route::new(vec![]);
     }
-    let row_len = matrix.0[start.1.to_usize().unwrap()].len() as i64;
-    if start.0 < T::zero() || start.0 >= T::from(row_len).unwrap() {
+    let row_len = matrix.0[start.y.to_usize().unwrap()].len() as i64;
+    if start.x < T::zero() || start.x >= T::from(row_len).unwrap() {
         return Route::new(vec![]);
     }
 
-    if matrix.0[start.1.to_usize().unwrap()][start.0.to_usize().unwrap()] == target_value {
+    if matrix.0[start.y.to_usize().unwrap()][start.x.to_usize().unwrap()] == target_value {
         return Route::new(vec![]);
     }
 
@@ -117,8 +126,8 @@ where
 
     while let Some(p) = q.pop_front() {
         for (dx, dy) in directions {
-            let next_x = p.0 + T::from(dx).unwrap();
-            let next_y = p.1 + T::from(dy).unwrap();
+            let next_x = p.x + T::from(dx).unwrap();
+            let next_y = p.y + T::from(dy).unwrap();
 
             if next_y < T::zero() || next_y >= T::from(matrix.0.len()).unwrap() {
                 continue;

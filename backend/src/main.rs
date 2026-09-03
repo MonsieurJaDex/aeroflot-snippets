@@ -1,8 +1,18 @@
-use crate::types::doc::ApiDoc;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use crate::{
+    router::get_route,
+    types::{
+        config::{AppConfig, AppState},
+        doc::ApiDoc,
+    },
+};
+use std::{collections::HashSet, process, sync::Arc, time::Duration};
 use utoipa::OpenApi;
 
-use axum::{Json, Router, http::StatusCode, routing::get};
+use axum::{
+    Json, Router,
+    http::StatusCode,
+    routing::{get, post},
+};
 use tower_http::{
     compression::CompressionLayer,
     limit::RequestBodyLimitLayer,
@@ -15,10 +25,11 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{router::get_map, types::map::Point};
 
-mod bfs;
 mod error;
+mod models;
 mod parser;
 mod router;
+mod search;
 mod types;
 
 #[tokio::main]
@@ -30,6 +41,15 @@ async fn main() {
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
+
+    // load configuration
+    let app_config: Arc<AppConfig> = match AppConfig::new() {
+        Ok(cfg) => Arc::new(cfg),
+        Err(e) => {
+            println!("Error during app configuration loading: {}", e);
+            process::exit(-1);
+        }
+    };
 
     // let map = parser::parse_map::<i64>("./assets/map.tmj", None);
 
@@ -48,14 +68,17 @@ async fn main() {
         3221225879, 3221225798, 1610613200, 1610613199, 1610613143, 29,
     ]);
 
-    let route = bfs::find_nearest::<i64>(&map, Point::new(0, 0), 407, &roads);
+    let route = search::find_nearest::<i64>(&map, Point::new(0, 0), 466, &roads);
 
-    let shared_map = Arc::new(map);
+    let app_state = Arc::new(AppState {
+        road_points: roads,
+        map: map,
+    });
 
     let api_routes = Router::new()
         .route("/map", get(get_map))
-        .route("/route", get(async || Json(route)))
-        .with_state(shared_map);
+        .route("/getRoute", post(get_route))
+        .with_state(Arc::clone(&app_state));
 
     let app = Router::new()
         .nest("/api", api_routes)
@@ -70,9 +93,10 @@ async fn main() {
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid));
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3001")
-        .await
-        .unwrap();
+    let listener =
+        tokio::net::TcpListener::bind(format!("{}:{}", &app_config.host, &app_config.port))
+            .await
+            .unwrap();
 
     _ = axum::serve(listener, app).await;
 }

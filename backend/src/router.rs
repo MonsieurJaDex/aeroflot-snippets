@@ -1,22 +1,95 @@
-use std::sync::Arc;
+use std::{hash::Hash, sync::Arc};
 
 use axum::{
     Json,
+    body::Body,
     extract::State,
-    response::{IntoResponse, Response},
+    http::{Response, StatusCode},
+    response::IntoResponse,
 };
 use num_traits::PrimInt;
 use serde::Serialize;
+use utoipa::ToSchema;
 
-use crate::types::map::MapMatrix;
+use crate::types::{
+    config::AppState,
+    dto::{GetRouteRequest, GetRouteResponse},
+    map::{MapMatrix, Point, Route},
+};
 
 #[utoipa::path(
     get,
     path="/api/map",
     responses(
-        (status=200, description="Return actual map", body=MapMatrix<u8>)
+        (status=200, description="Return actual map", body=MapMatrix<i8>)
     )
 )]
-pub async fn get_map<T: PrimInt + Serialize>(State(map): State<Arc<MapMatrix<T>>>) -> Response {
-    Json(&*map).into_response()
+pub async fn get_map<T: PrimInt + Serialize>(
+    State(app_state): State<Arc<AppState<T>>>,
+) -> Response<Body> {
+    Json(&app_state.map).into_response()
+}
+
+// #[utoipa::path(
+//     post,
+//     path="/api/assign",
+//     description="Assign an engineer to requested point",
+//     responses(
+//         (status=200,
+//         description="Requested engineer found and assigned to target point",
+//         body=GetRouteResponse<i8>
+//         )
+//     )
+// )]
+// pub async fn assign_engineer<T: PrimInt + Serialize>(
+//     State(map): State<Arc<MapMatrix<T>>>,
+// ) -> Response {
+//     todo!()
+// }
+
+#[utoipa::path(
+    post,
+    path="/api/getRoute",
+    description="Classic Point-to-Point BFS",
+    request_body=GetRouteRequest<i8>,
+    responses(
+        (
+            status=200,
+            description="Successful path findingm returning a point sequence as route",
+            body=GetRouteResponse<i8>
+        ),
+        (
+            status=400,
+            description="Error caused by incorrect input data",
+            body=String
+        )
+    )
+)]
+pub async fn get_route<T>(
+    State(app_state): State<Arc<AppState<T>>>,
+    Json(payload): Json<GetRouteRequest<T>>,
+) -> Result<(StatusCode, Json<GetRouteResponse<T>>), (StatusCode, String)>
+where
+    T: PrimInt + Hash + ToSchema,
+{
+    let res = crate::search::bfs(
+        &app_state.map,
+        Point::new(payload.start_point[0], payload.start_point[1]),
+        Point::new(payload.end_point[0], payload.end_point[1]),
+        &app_state.road_points,
+    );
+
+    match res {
+        Ok(r) => {
+            let len = r.len();
+            Ok((
+                StatusCode::OK,
+                Json(GetRouteResponse {
+                    route: r,
+                    distance: len,
+                }),
+            ))
+        }
+        Err(e) => Err((StatusCode::BAD_REQUEST, e.to_string())),
+    }
 }

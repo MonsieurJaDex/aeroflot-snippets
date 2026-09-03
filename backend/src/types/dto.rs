@@ -1,7 +1,13 @@
 use num_traits::PrimInt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use utoipa::ToSchema;
+use uuid::Uuid;
 
-use crate::{error, types::map::MapMatrix};
+use crate::{
+    error,
+    types::map::{MapMatrix, Point, Route},
+};
 
 #[derive(Debug, Serialize)]
 pub struct MatrixResponse<T: PrimInt + Copy> {
@@ -26,4 +32,20 @@ impl<T: PrimInt + Copy> MatrixResponse<T> {
             height,
         })
     }
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct GetRouteResponse<T: PrimInt + Copy + ToSchema> {
+    // TODO: add assigned engineer object here
+    pub route: Route<T>,
+    pub distance: usize,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct GetRouteRequest<T: PrimInt> {
+    #[schema(example = json!([0, 0]))]
+    pub start_point: [T; 2],
+
+    #[schema(example = json!([1, 1]))]
+    pub end_point: [T; 2],
 }
