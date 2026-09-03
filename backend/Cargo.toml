@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.104"
 axum = { version = "0.8.9", features = ["macros"] }
 dotenvy = "0.15.7"
 num-traits = "0.2.19"
@@ -16,3 +17,5 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 utoipa = "5.5.0"
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+uuid = { version = "1.26.0", features = ["v4"] }
+validator = { version = "0.21.0", features = ["derive"] }
