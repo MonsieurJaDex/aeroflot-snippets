@@ -1,15 +1,18 @@
 use crate::{
+    database::establish_connection,
+    models::engineer::EngineerRow,
     router::get_route,
     types::{
         config::{AppConfig, AppState},
         doc::ApiDoc,
     },
 };
+use diesel::{Expression, QueryDsl, RunQueryDsl, SelectableHelper};
 use std::{collections::HashSet, process, sync::Arc, time::Duration};
 use utoipa::OpenApi;
 
 use axum::{
-    Json, Router,
+    Router,
     http::StatusCode,
     routing::{get, post},
 };
@@ -25,6 +28,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{router::get_map, types::map::Point};
 
+mod database;
 mod error;
 mod models;
 mod parser;
@@ -34,14 +38,6 @@ mod types;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "aeroflot-snippets=debug,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
     // load configuration
     let app_config: Arc<AppConfig> = match AppConfig::new() {
         Ok(cfg) => Arc::new(cfg),
@@ -51,9 +47,29 @@ async fn main() {
         }
     };
 
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "aeroflot-snippets=debug,tower_http=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    let conn = &mut establish_connection(&app_config.database_url)
+        .expect("Databse connection establishment failed");
+
+    use self::database::schema::engineers::dsl::*;
+
+    let results = engineers
+        .select(EngineerRow::as_select())
+        .load(conn)
+        .unwrap();
+
+    dbg!(results);
+
     // let map = parser::parse_map::<i64>("./assets/map.tmj", None);
 
-    let map = parser::parse_from_json::<i64>("./assets/parsed/map.json");
+    let map = parser::parse_from_json("./assets/parsed/map.json");
 
     let map = match map {
         Ok(m) => m,
@@ -68,7 +84,7 @@ async fn main() {
         3221225879, 3221225798, 1610613200, 1610613199, 1610613143, 29,
     ]);
 
-    let route = search::find_nearest::<i64>(&map, Point::new(0, 0), 466, &roads);
+    let _route = search::find_nearest(&map, Point::new(0, 0), 466, &roads);
 
     let app_state = Arc::new(AppState {
         road_points: roads,

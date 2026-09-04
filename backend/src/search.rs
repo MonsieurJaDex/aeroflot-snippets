@@ -1,37 +1,34 @@
 use crate::types::map::Route;
 use anyhow::{Ok, Result, anyhow};
-use num_traits::PrimInt;
 
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    hash::Hash,
-};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::types::map::{MapMatrix, Point};
 
 // start-to-end path finding BFS
-pub fn bfs<T>(
-    matrix: &MapMatrix<T>,
-    start: Point<T>,
-    end: Point<T>,
-    road_points: &HashSet<T>,
-) -> Result<Route<T>>
-where
-    T: PrimInt + Copy + Hash,
-{
-    let row_len = matrix.0[start.y.to_usize().unwrap()].len() as i64;
+pub fn bfs(
+    matrix: &MapMatrix,
+    start: Point,
+    end: Point,
+    road_points: &HashSet<i64>,
+) -> Result<Route> {
+    let row_len = matrix
+        .0
+        .get(start.0 as usize)
+        .ok_or_else(|| anyhow!("row index out of matrix bound"))?
+        .len();
 
-    if start.y < T::zero() || start.y >= T::from(matrix.0.len()).unwrap() {
+    if start.1 < 0 || start.1 as usize >= matrix.0.len() {
         return Err(anyhow!("start y coordinate out of matrix"));
     }
-    if start.x < T::zero() || start.x >= T::from(row_len).unwrap() {
+    if start.0 < 0 || start.0 as usize >= row_len {
         return Err(anyhow!("start x coordinate out of matrix"));
     }
 
-    if end.y < T::zero() || end.y >= T::from(matrix.0.len()).unwrap() {
+    if end.1 < 0 || end.1 as usize >= matrix.0.len() {
         return Err(anyhow!("end y coordinate out of matrix"));
     }
-    if end.x < T::zero() || end.x >= T::from(row_len).unwrap() {
+    if end.0 < 0 || end.0 as usize >= row_len {
         return Err(anyhow!("end x coordinate out of matrix"));
     }
 
@@ -40,7 +37,7 @@ where
     }
 
     let mut q = VecDeque::new();
-    let mut parent_map: HashMap<Point<T>, Option<Point<T>>> = HashMap::new();
+    let mut parent_map: HashMap<Point, Option<Point>> = HashMap::new();
 
     q.push_back(start);
     parent_map.insert(start, None);
@@ -49,21 +46,21 @@ where
 
     while let Some(p) = q.pop_front() {
         for (dx, dy) in directions {
-            let next_x = p.x + T::from(dx).unwrap();
-            let next_y = p.y + T::from(dy).unwrap();
+            let next_x = p.0 + dx;
+            let next_y = p.1 + dy;
 
-            if next_y < T::zero() || next_y >= T::from(matrix.0.len()).unwrap() {
+            if next_y < 0 || next_y as usize >= matrix.0.len() {
                 continue;
             }
 
-            let row = &matrix.0[next_y.to_usize().unwrap()];
+            let row = &matrix.0[next_y as usize];
 
-            if next_x < T::zero() || next_x >= T::from(row.len()).unwrap() {
+            if next_x < 0 || next_x as usize >= row.len() {
                 continue;
             }
 
             let next_point = Point::new(next_x, next_y);
-            let value = row[next_x.to_usize().unwrap()];
+            let value = row[next_x as usize];
 
             if !road_points.contains(&value) {
                 continue;
@@ -95,29 +92,26 @@ where
     Ok(Route::new(vec![]))
 }
 
-pub fn find_nearest<T>(
-    matrix: &MapMatrix<T>,
-    start: Point<T>,
-    target_value: T,
-    road_points: &HashSet<T>,
-) -> Route<T>
-where
-    T: PrimInt + Copy + Hash,
-{
-    if start.y < T::zero() || start.y >= T::from(matrix.0.len()).unwrap() {
+pub fn find_nearest(
+    matrix: &MapMatrix,
+    start: Point,
+    target_value: i64,
+    road_points: &HashSet<i64>,
+) -> Route {
+    if start.1 < 0 || start.1 as usize >= matrix.0.len() {
         return Route::new(vec![]);
     }
-    let row_len = matrix.0[start.y.to_usize().unwrap()].len() as i64;
-    if start.x < T::zero() || start.x >= T::from(row_len).unwrap() {
+    let row_len = matrix.0[start.1 as usize].len() as i64;
+    if start.0 < 0 || start.0 >= row_len {
         return Route::new(vec![]);
     }
 
-    if matrix.0[start.y.to_usize().unwrap()][start.x.to_usize().unwrap()] == target_value {
+    if matrix.0[start.1 as usize][start.0 as usize] == target_value {
         return Route::new(vec![]);
     }
 
     let mut q = VecDeque::new();
-    let mut parent_map: HashMap<Point<T>, Option<Point<T>>> = HashMap::new();
+    let mut parent_map: HashMap<Point, Option<Point>> = HashMap::new();
 
     q.push_back(start);
     parent_map.insert(start, None);
@@ -126,21 +120,21 @@ where
 
     while let Some(p) = q.pop_front() {
         for (dx, dy) in directions {
-            let next_x = p.x + T::from(dx).unwrap();
-            let next_y = p.y + T::from(dy).unwrap();
+            let next_x = p.0 + dx;
+            let next_y = p.1 + dy;
 
-            if next_y < T::zero() || next_y >= T::from(matrix.0.len()).unwrap() {
+            if next_y < 0 || next_y as usize >= matrix.0.len() {
                 continue;
             }
 
-            let row = &matrix.0[next_y.to_usize().unwrap()];
+            let row = &matrix.0[next_y as usize];
 
-            if next_x < T::zero() || next_x >= T::from(row.len()).unwrap() {
+            if next_x < 0 || next_x as usize >= row.len() {
                 continue;
             }
 
             let next_point = Point::new(next_x, next_y);
-            let value = row[next_x.to_usize().unwrap()];
+            let value = row[next_x as usize];
 
             let is_target = value == target_value;
 

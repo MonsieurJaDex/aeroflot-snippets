@@ -6,6 +6,9 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 axum = { version = "0.8.9", features = ["macros"] }
+chrono = "0.4.45"
+diesel = { version = "2.3.13", features = ["postgres", "uuid", "chrono"] }
+diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 dotenvy = "0.15.7"
 num-traits = "0.2.19"
 serde = { version="1.0.229", features=["derive"] }
@@ -17,5 +20,5 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 utoipa = "5.5.0"
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
-uuid = { version = "1.26.0", features = ["v4"] }
+uuid = { version = "1.26.0", features = ["v4", "serde"] }
 validator = { version = "0.21.0", features = ["derive"] }

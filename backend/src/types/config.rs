@@ -1,19 +1,14 @@
-use std::{
-    collections::HashSet,
-    env,
-    net::{AddrParseError, Ipv4Addr},
-    str::FromStr,
-};
+use std::{collections::HashSet, env, net::Ipv4Addr, str::FromStr};
 
-use anyhow::{Context, Result, anyhow};
-use num_traits::PrimInt;
+use anyhow::{Context, Result};
 
-use crate::types::map::{MapMatrix, Point};
+use crate::types::map::MapMatrix;
 
 pub struct AppConfig {
     pub host: Ipv4Addr,
     pub port: u16,
     pub debug: bool,
+    pub database_url: String,
 }
 
 impl AppConfig {
@@ -34,13 +29,19 @@ impl AppConfig {
         let host: Ipv4Addr = AppConfig::parse_env("host")?;
         let port: u16 = AppConfig::parse_env("port")?;
         let debug: bool = AppConfig::parse_env("debug")?;
+        let database_url: String = AppConfig::parse_env("database_url")?;
 
-        anyhow::Result::Ok(Self { host, port, debug })
+        anyhow::Result::Ok(Self {
+            host,
+            port,
+            debug,
+            database_url,
+        })
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct AppState<T: PrimInt> {
-    pub road_points: HashSet<T>,
-    pub map: MapMatrix<T>,
+pub struct AppState {
+    pub road_points: HashSet<i64>,
+    pub map: MapMatrix,
 }
