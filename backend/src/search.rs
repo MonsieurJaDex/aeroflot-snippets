@@ -12,7 +12,11 @@ pub fn bfs(
     end: Point,
     road_points: &HashSet<i64>,
 ) -> Result<Route> {
-    let row_len = matrix.0[start.0 as usize].len();
+    let row_len = matrix
+        .0
+        .get(start.0 as usize)
+        .ok_or_else(|| anyhow!("row index out of matrix bound"))?
+        .len();
 
     if start.1 < 0 || start.1 as usize >= matrix.0.len() {
         return Err(anyhow!("start y coordinate out of matrix"));

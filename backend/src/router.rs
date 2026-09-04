@@ -63,7 +63,7 @@ pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
 pub async fn get_route(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GetRouteRequest>,
-) -> Result<(StatusCode, Json<GetRouteResponse>), (StatusCode, String)> {
+) -> Response<Body> {
     let res = crate::search::bfs(
         &app_state.map,
         Point::new(payload.start_point.0, payload.start_point.1),
@@ -72,16 +72,7 @@ pub async fn get_route(
     );
 
     match res {
-        Ok(r) => {
-            let len = r.len();
-            Ok((
-                StatusCode::OK,
-                Json(GetRouteResponse {
-                    route: r,
-                    distance: len,
-                }),
-            ))
-        }
-        Err(e) => Err((StatusCode::BAD_REQUEST, e.to_string())),
+        Ok(r) => (StatusCode::OK, Json(r)).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     }
 }

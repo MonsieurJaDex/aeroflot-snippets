@@ -2,27 +2,23 @@ use diesel::{Selectable, deserialize::Queryable};
 use uuid::Uuid;
 use validator::Validate;
 
-use crate::types::{enums::EngineerType, map::Point};
-
 #[derive(Validate)]
-pub struct Engineer {
+pub struct Dispatcher {
     pub id: Uuid,
+    pub name: String,
 
     #[validate(email)]
     pub email: String,
 
     pub password_hash: String,
-
-    pub engineer_type: EngineerType,
-    pub position: Point,
 }
 
-#[derive(Debug, Queryable, Selectable)]
-#[diesel(table_name = crate::database::schema::engineers)]
+#[derive(Queryable, Selectable)]
+#[diesel(table_name = crate::database::schema::dispatchers)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct EngineerRow {
+pub struct DispatcherRow {
     pub id: Uuid,
+    pub name: String,
     pub email: String,
     pub password_hash: String,
-    pub engineer_type: EngineerType,
 }
