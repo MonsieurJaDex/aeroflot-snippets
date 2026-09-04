@@ -9,7 +9,7 @@ use std::{collections::HashSet, process, sync::Arc, time::Duration};
 use utoipa::OpenApi;
 
 use axum::{
-    Json, Router,
+    Router,
     http::StatusCode,
     routing::{get, post},
 };
@@ -34,6 +34,8 @@ mod types;
 
 #[tokio::main]
 async fn main() {
+    // TODO: refactor under code to modules, add diesel functionality, propably validation, remove generics,
+    // add to routers IntoResponse returns and error enums
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -53,7 +55,7 @@ async fn main() {
 
     // let map = parser::parse_map::<i64>("./assets/map.tmj", None);
 
-    let map = parser::parse_from_json::<i64>("./assets/parsed/map.json");
+    let map = parser::parse_from_json("./assets/parsed/map.json");
 
     let map = match map {
         Ok(m) => m,
@@ -68,7 +70,7 @@ async fn main() {
         3221225879, 3221225798, 1610613200, 1610613199, 1610613143, 29,
     ]);
 
-    let route = search::find_nearest::<i64>(&map, Point::new(0, 0), 466, &roads);
+    let _route = search::find_nearest(&map, Point::new(0, 0), 466, &roads);
 
     let app_state = Arc::new(AppState {
         road_points: roads,

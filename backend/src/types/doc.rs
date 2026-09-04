@@ -7,8 +7,8 @@ use crate::types::map::{MapMatrix, Point};
 #[openapi(
     paths(get_map, get_route),
     components(schemas(
-        MapMatrix<i8>,
-        Point<i8>,
+        MapMatrix,
+        Point,
     )),
     tags(
         (name="Aeroflot", description="Aeroflot dispatcher management API")

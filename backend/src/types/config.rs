@@ -1,14 +1,13 @@
 use std::{
     collections::HashSet,
     env,
-    net::{AddrParseError, Ipv4Addr},
+    net::Ipv4Addr,
     str::FromStr,
 };
 
-use anyhow::{Context, Result, anyhow};
-use num_traits::PrimInt;
+use anyhow::{Context, Result};
 
-use crate::types::map::{MapMatrix, Point};
+use crate::types::map::MapMatrix;
 
 pub struct AppConfig {
     pub host: Ipv4Addr,
@@ -40,7 +39,7 @@ impl AppConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct AppState<T: PrimInt> {
-    pub road_points: HashSet<T>,
-    pub map: MapMatrix<T>,
+pub struct AppState {
+    pub road_points: HashSet<i64>,
+    pub map: MapMatrix,
 }

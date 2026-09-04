@@ -1,4 +1,4 @@
-use std::{hash::Hash, sync::Arc};
+use std::sync::Arc;
 
 use axum::{
     Json,
@@ -7,26 +7,21 @@ use axum::{
     http::{Response, StatusCode},
     response::IntoResponse,
 };
-use num_traits::PrimInt;
-use serde::Serialize;
-use utoipa::ToSchema;
 
 use crate::types::{
     config::AppState,
     dto::{GetRouteRequest, GetRouteResponse},
-    map::{MapMatrix, Point, Route},
+    map::{MapMatrix, Point},
 };
 
 #[utoipa::path(
     get,
     path="/api/map",
     responses(
-        (status=200, description="Return actual map", body=MapMatrix<i8>)
+        (status=200, description="Return actual map", body=MapMatrix)
     )
 )]
-pub async fn get_map<T: PrimInt + Serialize>(
-    State(app_state): State<Arc<AppState<T>>>,
-) -> Response<Body> {
+pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
     Json(&app_state.map).into_response()
 }
 
@@ -51,12 +46,12 @@ pub async fn get_map<T: PrimInt + Serialize>(
     post,
     path="/api/getRoute",
     description="Classic Point-to-Point BFS",
-    request_body=GetRouteRequest<i8>,
+    request_body=GetRouteRequest,
     responses(
         (
             status=200,
             description="Successful path findingm returning a point sequence as route",
-            body=GetRouteResponse<i8>
+            body=GetRouteResponse
         ),
         (
             status=400,
@@ -65,17 +60,14 @@ pub async fn get_map<T: PrimInt + Serialize>(
         )
     )
 )]
-pub async fn get_route<T>(
-    State(app_state): State<Arc<AppState<T>>>,
-    Json(payload): Json<GetRouteRequest<T>>,
-) -> Result<(StatusCode, Json<GetRouteResponse<T>>), (StatusCode, String)>
-where
-    T: PrimInt + Hash + ToSchema,
-{
+pub async fn get_route(
+    State(app_state): State<Arc<AppState>>,
+    Json(payload): Json<GetRouteRequest>,
+) -> Result<(StatusCode, Json<GetRouteResponse>), (StatusCode, String)> {
     let res = crate::search::bfs(
         &app_state.map,
-        Point::new(payload.start_point[0], payload.start_point[1]),
-        Point::new(payload.end_point[0], payload.end_point[1]),
+        Point::new(payload.start_point.0, payload.start_point.1),
+        Point::new(payload.end_point.0, payload.end_point.1),
         &app_state.road_points,
     );
 

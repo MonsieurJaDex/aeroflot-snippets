@@ -1,21 +1,15 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use num_traits::PrimInt;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::error;
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
-pub struct MapMatrix<T>(pub Vec<Vec<T>>)
-where
-    T: PrimInt;
+pub struct MapMatrix(pub Vec<Vec<i64>>);
 
-impl<T> MapMatrix<T>
-where
-    T: PrimInt,
-{
-    pub fn new(width: usize, height: usize, initial: T) -> Self {
+impl MapMatrix {
+    pub fn new(width: usize, height: usize, initial: i64) -> Self {
         let v = vec![vec![initial; width]; height];
         Self(v)
     }
@@ -24,7 +18,7 @@ where
         Self(vec![vec![]])
     }
 
-    pub fn from_vec(initial: Vec<Vec<T>>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_vec(initial: Vec<Vec<i64>>) -> Result<Self, Box<dyn std::error::Error>> {
         if initial.is_empty() {
             return Err(Box::new(error::CommonErrors::InvalidArgument(
                 "initial vector is empty".to_string(),
@@ -44,54 +38,20 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ToSchema)]
-pub struct Point<T>
-where
-    T: PrimInt + Copy,
-{
-    pub x: T,
-    pub y: T,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ToSchema, Serialize, Deserialize)]
+pub struct Point(pub i64, pub i64);
 
-impl<T> Point<T>
-where
-    T: PrimInt + Copy,
-{
-    pub fn new(x: T, y: T) -> Self {
-        Self { x, y }
-    }
-}
-
-impl<T> Serialize for Point<T>
-where
-    T: PrimInt + Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        (self.x, self.y).serialize(serializer)
-    }
-}
-
-impl<'de, T> Deserialize<'de> for Point<T>
-where
-    T: PrimInt + Deserialize<'de>,
-{
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let (x, y) = <(T, T)>::deserialize(deserializer)?;
-        Ok(Self { x, y })
+impl Point {
+    pub fn new(x: i64, y: i64) -> Self {
+        Self(x, y)
     }
 }
 
 #[derive(Debug, Serialize, Clone, ToSchema)]
-pub struct Route<T: PrimInt>(Vec<Point<T>>);
+pub struct Route(Vec<Point>);
 
-impl<T: PrimInt + Hash> Route<T> {
-    pub fn new(path: Vec<Point<T>>) -> Self {
+impl Route {
+    pub fn new(path: Vec<Point>) -> Self {
         Self(path)
     }
 
@@ -111,7 +71,7 @@ impl<T: PrimInt + Hash> Route<T> {
         let first = self.0.first().unwrap();
         let last = self.0.last().unwrap();
 
-        let is_forward = (first.x, first.y) <= (last.x, last.y);
+        let is_forward = (first.0, first.1) <= (last.0, last.1);
 
         if is_forward {
             first.hash(&mut hasher);

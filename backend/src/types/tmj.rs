@@ -1,9 +1,8 @@
-use num_traits::PrimInt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
-pub struct TmjFile<T: PrimInt, U: PrimInt> {
-    pub layers: Vec<TiledLayer<T, U>>,
+pub struct TmjFile {
+    pub layers: Vec<TiledLayer>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -18,10 +17,10 @@ impl JsonMatrix {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TiledLayer<T, U> {
-    pub data: Vec<T>,
-    pub height: U,
-    pub id: U,
+pub struct TiledLayer {
+    pub data: Vec<i64>,
+    pub height: i64,
+    pub id: i64,
     pub name: String,
     pub opacity: f32,
 
@@ -30,6 +29,6 @@ pub struct TiledLayer<T, U> {
 
     pub visible: bool,
     pub width: u32,
-    pub x: U,
-    pub y: U,
+    pub x: i64,
+    pub y: i64,
 }
