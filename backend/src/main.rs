@@ -42,7 +42,7 @@ async fn main() {
     let app_config: Arc<AppConfig> = match AppConfig::new() {
         Ok(cfg) => Arc::new(cfg),
         Err(e) => {
-            println!("Error during app configuration loading: {}", e);
+            tracing::error!("Error during app configuration loading: {}", e);
             process::exit(-1);
         }
     };
@@ -50,22 +50,23 @@ async fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "aeroflot-snippets=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "aeroflot_snippets=info,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // TODO: подключить весь diesel к AppState и интегрировать (возможно добавить разделение), продолжить писать API,
-    // отделить parser из бэкенда в tools, r2d2
-
     // let map = parser::parse_map::<i64>("./assets/map.tmj", None);
 
+    tracing::info!("Loading map from JSON...");
     let map = parser::parse_from_json("./assets/parsed/map.json");
 
     let map = match map {
-        Ok(m) => m,
+        Ok(m) => {
+            tracing::info!("Map loaded successfully");
+            m
+        }
         Err(e) => {
-            println!("{}", e);
+            tracing::error!("{}", e);
             std::process::exit(1);
         }
     };
@@ -77,10 +78,14 @@ async fn main() {
 
     let _route = search::find_nearest(&map, Point::new(0, 0), 466, &roads);
 
+    tracing::info!("Attempting to establish database connection...");
     let db_pool = match establish_connection(&app_config.database_url) {
-        Ok(pool) => pool,
+        Ok(pool) => {
+            tracing::info!("Database connection successful. Pool initialized");
+            pool
+        }
         Err(e) => {
-            println!("Error during database pool initialization: {}", e);
+            tracing::error!("Error during database pool initialization: {}", e);
             process::exit(1);
         }
     };
@@ -109,10 +114,10 @@ async fn main() {
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid));
 
-    let listener =
-        tokio::net::TcpListener::bind(format!("{}:{}", &app_config.host, &app_config.port))
-            .await
-            .unwrap();
+    let server_addr = format!("{}:{}", &app_config.host, &app_config.port);
+
+    let listener = tokio::net::TcpListener::bind(&server_addr).await.unwrap();
+    tracing::info!("Running sever at: http://{server_addr}");
 
     _ = axum::serve(listener, app).await;
 }
