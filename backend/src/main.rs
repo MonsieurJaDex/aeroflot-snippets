@@ -55,17 +55,8 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let conn = &mut establish_connection(&app_config.database_url)
-        .expect("Databse connection establishment failed");
-
-    use self::database::schema::engineers::dsl::*;
-
-    let results = engineers
-        .select(EngineerRow::as_select())
-        .load(conn)
-        .unwrap();
-
-    dbg!(results);
+    // TODO: подключить весь diesel к AppState и интегрировать (возможно добавить разделение), продолжить писать API,
+    // отделить parser из бэкенда в tools, r2d2
 
     // let map = parser::parse_map::<i64>("./assets/map.tmj", None);
 
@@ -86,9 +77,18 @@ async fn main() {
 
     let _route = search::find_nearest(&map, Point::new(0, 0), 466, &roads);
 
+    let db_pool = match establish_connection(&app_config.database_url) {
+        Ok(pool) => pool,
+        Err(e) => {
+            println!("Error during database pool initialization: {}", e);
+            process::exit(1);
+        }
+    };
+
     let app_state = Arc::new(AppState {
         road_points: roads,
         map: map,
+        db_pool: db_pool,
     });
 
     let api_routes = Router::new()

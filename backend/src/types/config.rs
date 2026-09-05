@@ -1,6 +1,10 @@
 use std::{collections::HashSet, env, net::Ipv4Addr, str::FromStr};
 
 use anyhow::{Context, Result};
+use diesel::{
+    PgConnection,
+    r2d2::{ConnectionManager, Pool},
+};
 
 use crate::types::map::MapMatrix;
 
@@ -44,4 +48,5 @@ impl AppConfig {
 pub struct AppState {
     pub road_points: HashSet<i64>,
     pub map: MapMatrix,
+    pub db_pool: Pool<ConnectionManager<PgConnection>>,
 }
