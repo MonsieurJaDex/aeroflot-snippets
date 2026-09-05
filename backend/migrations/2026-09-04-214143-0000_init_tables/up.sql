@@ -26,7 +26,8 @@ CREATE TYPE aircraft_issue AS ENUM (
     'metal_debris_in_oil_filter',
     'radar_failure_or_false_reading',
     'comms_loss_or_distortion',
-    'ins_gyro_drift'
+    'ins_gyro_drift',
+    'other'
 );
 
 CREATE TABLE dispatchers (
