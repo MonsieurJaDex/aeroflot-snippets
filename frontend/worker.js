@@ -46,7 +46,7 @@ function renderTask() {
     return;
   }
 
-  taskContent.innerHTML = `<strong>ВС на стоянке ${task.stand}</strong><br>${task.fault}<br>Маршрут: ${task.distanceCells} клеток`;
+  taskContent.innerHTML = `<strong>ВС на стоянке ${task.stand}</strong><br>${task.fault}<br>${routeInstruction(task.route)}<br>Маршрут: ${task.distanceCells} клеток`;
   taskState.textContent = task.accepted ? "В РАБОТЕ" : "НОВОЕ";
   acceptButton.hidden = task.accepted;
   routePreview.hidden = false;
@@ -76,6 +76,17 @@ function renderRouteMap(task) {
 
 function mapIcon(className) {
   return L.divIcon({ className, html: "", iconSize: [18, 18], iconAnchor: [9, 9] });
+}
+
+function routeInstruction(route) {
+  const [startX, startY] = route[0];
+  const [endX, endY] = route.at(-1);
+  const vertical = endY - startY;
+  const horizontal = endX - startX;
+  const steps = [];
+  if (vertical) steps.push(`${Math.abs(vertical)} клеток ${vertical < 0 ? "вверх" : "вниз"}`);
+  if (horizontal) steps.push(`${Math.abs(horizontal)} клеток ${horizontal < 0 ? "влево" : "вправо"}`);
+  return steps.length ? `Двигайтесь: ${steps.join(", затем ")}.` : "Вы уже на месте.";
 }
 
 selectedWorker.addEventListener("change", () => {

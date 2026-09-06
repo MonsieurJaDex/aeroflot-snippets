@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Aeroflot ОТО | Диспетчерская карта</title>
+  <title>Aeroflot ОТО | Рабочее место</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -11,58 +11,25 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
-  <div id="sidebar">
-    <div class="brand-row">
-      <div>
-        <p class="eyebrow">ОТО / ПЕРРОН</p>
-        <h1>Диспетчерская карта</h1>
-      </div>
-      <a class="role-link" href="worker.html">Экран инженера</a>
+<body class="role-page">
+  <main class="role-shell">
+    <p class="eyebrow">АЭРОФЛОТ / ОТО</p>
+    <h1>Выберите рабочее место</h1>
+    <p class="role-copy">Оперативное техническое обслуживание воздушных судов на перроне.</p>
+    <div class="role-grid">
+      <a class="role-card" href="dispatcher.html">
+        <span class="role-card-number">01</span>
+        <h2>Диспетчер</h2>
+        <p>Заявки, сотрудники, назначение и контроль маршрута.</p>
+        <span>Открыть диспетчерскую</span>
+      </a>
+      <a class="role-card" href="worker.html">
+        <span class="role-card-number">02</span>
+        <h2>Инженер ОТО</h2>
+        <p>Новое задание, маршрут к воздушному судну и подтверждение.</p>
+        <span>Открыть рабочее место</span>
+      </a>
     </div>
-
-    <section class="request-panel">
-      <div class="section-heading">
-        <h2>Новая заявка</h2>
-        <span class="live-label">LIVE</span>
-      </div>
-      <label>Стоянка ВС
-        <select id="stand-select"></select>
-      </label>
-      <label>Тип неисправности
-        <select id="fault-select">
-          <option value="airframe">Планер и двигатель</option>
-          <option value="avionics">Авионика</option>
-        </select>
-      </label>
-      <button id="assign-button" type="button">Назначить инженера</button>
-      <div id="assignment-result" class="assignment-result" aria-live="polite">Выбери стоянку и тип неисправности.</div>
-    </section>
-
-    <section>
-      <h2>Отображение</h2>
-      <div id="layers-list">
-        <label class="layer-row"><input id="toggle-staff" type="checkbox" checked /> Сотрудники</label>
-        <label class="layer-row"><input id="toggle-stands" type="checkbox" checked /> Стоянки ВС</label>
-        <label class="layer-row"><input id="toggle-route" type="checkbox" checked /> Маршрут</label>
-        <label class="layer-row"><input id="toggle-grid" type="checkbox" /> Сетка</label>
-      </div>
-    </section>
-
-    <section>
-      <h2>Координаты</h2>
-      <div id="tile-info">Кликни по карте, чтобы выбрать клетку.</div>
-    </section>
-
-    <section>
-      <h2>Легенда</h2>
-      <div id="legend"></div>
-    </section>
-  </div>
-
-  <div id="map"></div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="map.js"></script>
+  </main>
 </body>
 </html>

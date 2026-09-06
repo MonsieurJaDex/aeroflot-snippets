@@ -61,6 +61,17 @@ body { display: flex; overflow: hidden; }
 .route-marker { width: 12px; height: 12px; background: var(--blue); border: 3px solid #f2f4f6; border-radius: 50%; box-shadow: 0 1px 6px #0009; }
 .role-link { color: var(--text); font-size: 11px; font-weight: 700; text-decoration: none; border: 1px solid var(--border); border-radius: 4px; padding: 7px 8px; white-space: nowrap; }
 .role-link:hover { border-color: var(--blue); color: var(--blue); }
+.role-page { display: block; min-height: 100%; overflow: auto; background: linear-gradient(125deg, #07090c, #101d27 64%, #182b37); }
+.role-shell { width: min(900px, calc(100% - 40px)); margin: 0 auto; padding: min(14vh, 130px) 0 64px; }
+.role-shell h1 { max-width: 620px; margin: 0; font-family: "PT Sans Narrow", sans-serif; font-size: clamp(42px, 7vw, 70px); line-height: .94; letter-spacing: .015em; }
+.role-copy { max-width: 440px; margin: 22px 0 40px; color: var(--muted); font-size: 17px; line-height: 1.5; }
+.role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.role-card { min-height: 245px; display: flex; flex-direction: column; justify-content: space-between; padding: 22px; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: 6px; background: rgba(16,21,27,.85); transition: border-color .2s ease, transform .2s ease, background .2s ease; }
+.role-card:hover { border-color: var(--blue); background: #15222c; transform: translateY(-3px); }
+.role-card-number { color: var(--accent); font-family: "PT Sans Narrow", sans-serif; font-size: 20px; font-weight: 700; }
+.role-card h2 { margin: auto 0 8px; font-family: "PT Sans Narrow", sans-serif; font-size: 35px; letter-spacing: .02em; }
+.role-card p { margin: 0 0 18px; color: var(--muted); line-height: 1.45; }
+.role-card > span:last-child { color: var(--blue); font-weight: 700; }
 .worker-page { display: block; min-height: 100%; overflow: auto; background: linear-gradient(135deg, #080b0f, #111922); }
 .worker-shell { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 34px 0 64px; }
 .worker-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 28px; }
@@ -85,4 +96,5 @@ body { display: flex; overflow: hidden; }
 .worker-map-engineer { background: var(--green); }
 .worker-map-stand { background: var(--blue); }
 @media (max-width: 700px) { .worker-shell { width: min(100% - 24px, 960px); padding-top: 22px; } .worker-header, .worker-grid { display: block; } .worker-header .role-link { display: inline-block; margin-top: 14px; } .assignment-card, .notice-card { margin-top: 14px; } }
+@media (max-width: 700px) { .role-shell { width: min(100% - 28px, 900px); padding-top: 56px; } .role-grid { grid-template-columns: 1fr; } .role-card { min-height: 205px; } }
 @media (max-width: 700px) { body { display: block; overflow: auto; } #sidebar { width: 100%; min-width: 0; height: auto; } #map { height: 65vh; min-height: 420px; } }
