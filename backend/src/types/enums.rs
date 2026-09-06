@@ -49,28 +49,32 @@ pub enum AircraftIssue {
     RadarFailureOrFalseReading, // отказ/ложные показания РЛС
     CommsLossOrDistortion,      // потеря связи / искажение сигнала
     InsGyroDrift,               // уход гироплатформы ИНС
+
+    // Дополнительно
+    Other, // другое
 }
 
 impl AircraftIssue {
     /// Evaluate sp
-    pub fn responsible_engineer(&self) -> EngineerType {
+    pub fn responsible_engineer(&self) -> Option<EngineerType> {
         use AircraftIssue::*;
         match self {
             FuelLeakFromDrainCap | OilStainNearGearbox | HydraulicLeakOnStrut
             | FairingChipOrScratch | PaintPeelingAtRivets | MissingPitotCover | UnevenTreadWear
-            | TireCutToCord | LowTirePressure => EngineerType::IntegrityInspector,
+            | TireCutToCord | LowTirePressure => Some(EngineerType::IntegrityInspector),
 
             IndicationFault | LooseConnector | SeatbeltAdjustment | BurnedOutSignalLamp => {
-                EngineerType::CrewRemarksHandler
+                Some(EngineerType::CrewRemarksHandler)
             }
 
             ThrustOrParameterDrop | ExcessiveVibration | MetalDebrisInOilFilter => {
-                EngineerType::EngineTechnician
+                Some(EngineerType::EngineTechnician)
             }
 
             RadarFailureOrFalseReading | CommsLossOrDistortion | InsGyroDrift => {
-                EngineerType::AvionicsEngineer
+                Some(EngineerType::AvionicsEngineer)
             }
+            Other => None,
         }
     }
 }

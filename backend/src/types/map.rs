@@ -84,3 +84,9 @@ impl Route {
         hasher.finish()
     }
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JsonMatrix {
+    pub map: MapMatrix,
+    pub road: Vec<i64>,
+}

@@ -5,6 +5,7 @@ use crate::{
     types::{
         config::{AppConfig, AppState},
         doc::ApiDoc,
+        map::MapMatrix,
     },
 };
 use diesel::{Expression, QueryDsl, RunQueryDsl, SelectableHelper};
@@ -42,7 +43,7 @@ async fn main() {
     let app_config: Arc<AppConfig> = match AppConfig::new() {
         Ok(cfg) => Arc::new(cfg),
         Err(e) => {
-            println!("Error during app configuration loading: {}", e);
+            tracing::error!("Error during app configuration loading: {}", e);
             process::exit(-1);
         }
     };
@@ -50,45 +51,43 @@ async fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "aeroflot-snippets=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "aeroflot_snippets=info,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let conn = &mut establish_connection(&app_config.database_url)
-        .expect("Databse connection establishment failed");
+    tracing::info!("Loading map from JSON...");
 
-    use self::database::schema::engineers::dsl::*;
-
-    let results = engineers
-        .select(EngineerRow::as_select())
-        .load(conn)
-        .unwrap();
-
-    dbg!(results);
-
-    // let map = parser::parse_map::<i64>("./assets/map.tmj", None);
-
-    let map = parser::parse_from_json("./assets/parsed/map.json");
-
-    let map = match map {
-        Ok(m) => m,
+    let (map, roads) = match parser::parse_from_json("./assets/map.json") {
+        Ok(jm) => {
+            let map = jm.map;
+            let roads: HashSet<i64> = jm.road.into_iter().collect();
+            (map, roads)
+        }
         Err(e) => {
-            println!("{}", e);
-            std::process::exit(1);
+            println!("Error during parsing map: {}", e.to_string());
+            process::exit(1);
         }
     };
 
-    let roads: HashSet<i64> = HashSet::from([
-        2684354912, 2684355023, 2684355024, 2684354967, 2684354886, 3221225935, 3221225936,
-        3221225879, 3221225798, 1610613200, 1610613199, 1610613143, 29,
-    ]);
-
     let _route = search::find_nearest(&map, Point::new(0, 0), 466, &roads);
+
+    tracing::info!("Attempting to establish database connection...");
+    let db_pool = match establish_connection(&app_config.database_url) {
+        Ok(pool) => {
+            tracing::info!("Database connection successful. Pool initialized");
+            pool
+        }
+        Err(e) => {
+            tracing::error!("Error during database pool initialization: {}", e);
+            process::exit(1);
+        }
+    };
 
     let app_state = Arc::new(AppState {
         road_points: roads,
         map: map,
+        db_pool: db_pool,
     });
 
     let api_routes = Router::new()
@@ -109,10 +108,10 @@ async fn main() {
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid));
 
-    let listener =
-        tokio::net::TcpListener::bind(format!("{}:{}", &app_config.host, &app_config.port))
-            .await
-            .unwrap();
+    let server_addr = format!("{}:{}", &app_config.host, &app_config.port);
+
+    let listener = tokio::net::TcpListener::bind(&server_addr).await.unwrap();
+    tracing::info!("Running sever at: http://{server_addr}");
 
     _ = axum::serve(listener, app).await;
 }
