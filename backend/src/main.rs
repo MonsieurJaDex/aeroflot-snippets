@@ -5,6 +5,7 @@ use crate::{
     types::{
         config::{AppConfig, AppState},
         doc::ApiDoc,
+        map::MapMatrix,
     },
 };
 use diesel::{Expression, QueryDsl, RunQueryDsl, SelectableHelper};
@@ -55,26 +56,19 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // let map = parser::parse_map::<i64>("./assets/map.tmj", None);
-
     tracing::info!("Loading map from JSON...");
-    let map = parser::parse_from_json("./assets/parsed/map.json");
 
-    let map = match map {
-        Ok(m) => {
-            tracing::info!("Map loaded successfully");
-            m
+    let (map, roads) = match parser::parse_from_json("./assets/map.json") {
+        Ok(jm) => {
+            let map = jm.map;
+            let roads: HashSet<i64> = jm.road.into_iter().collect();
+            (map, roads)
         }
         Err(e) => {
-            tracing::error!("{}", e);
-            std::process::exit(1);
+            println!("Error during parsing map: {}", e.to_string());
+            process::exit(1);
         }
     };
-
-    let roads: HashSet<i64> = HashSet::from([
-        2684354912, 2684355023, 2684355024, 2684354967, 2684354886, 3221225935, 3221225936,
-        3221225879, 3221225798, 1610613200, 1610613199, 1610613143, 29,
-    ]);
 
     let _route = search::find_nearest(&map, Point::new(0, 0), 466, &roads);
 
