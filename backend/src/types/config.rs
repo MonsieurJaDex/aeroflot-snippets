@@ -1,4 +1,4 @@
-use std::{collections::HashSet, env, net::Ipv4Addr, str::FromStr};
+use std::{collections::HashSet, env, net::Ipv4Addr, path, str::FromStr};
 
 use anyhow::{Context, Result};
 use diesel::{
@@ -6,7 +6,26 @@ use diesel::{
     r2d2::{ConnectionManager, Pool},
 };
 
+use clap::Parser;
+
 use crate::types::map::MapMatrix;
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "aeroflot",
+    about = "simple CLI that wraps backend running functionality"
+)]
+pub struct Args {
+    #[arg(short = 'p', long)]
+    pub map_path: String,
+}
+
+impl Args {
+    pub fn validate_path(&self) -> bool {
+        let path = path::Path::new(&self.map_path);
+        path.is_file()
+    }
+}
 
 pub struct AppConfig {
     pub host: Ipv4Addr,

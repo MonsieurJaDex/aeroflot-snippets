@@ -2,10 +2,11 @@ use crate::{
     database::establish_connection,
     router::get_route,
     types::{
-        config::{AppConfig, AppState},
+        config::{AppConfig, AppState, Args},
         doc::ApiDoc,
     },
 };
+use clap::Parser;
 use std::{collections::HashSet, process, sync::Arc, time::Duration};
 use utoipa::OpenApi;
 
@@ -40,7 +41,7 @@ async fn main() {
         Ok(cfg) => Arc::new(cfg),
         Err(e) => {
             tracing::error!("Error during app configuration loading: {}", e);
-            process::exit(-1);
+            process::exit(1);
         }
     };
 
@@ -53,9 +54,17 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // loading cli arguments
+    let args = Args::parse();
+    if !args.validate_path() {
+        tracing::error!("Provided map file was not found: {}", args.map_path);
+        process::exit(1);
+    }
+
+    // loading map
     tracing::info!("Loading map from JSON...");
 
-    let (map, roads) = match parser::parse_from_json("./assets/map.json") {
+    let (map, roads) = match parser::parse_from_json(&args.map_path) {
         Ok(jm) => {
             let map = jm.map;
             let roads: HashSet<i64> = jm.road.into_iter().collect();
