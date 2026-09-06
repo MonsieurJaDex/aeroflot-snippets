@@ -202,9 +202,6 @@ async function main() {
     zoomSnap: 0.25,
   });
 
-  const layerNames = tmj.layers
-    .filter((l) => l.type === "tilelayer")
-    .map((l) => l.name);
   let overlay = null;
   function redraw() {
     const canvas = renderCanvas(tmj, grid);
@@ -215,16 +212,6 @@ async function main() {
 
   redraw();
   map.fitBounds(bounds);
-
-  const layersList = document.getElementById("layers-list");
-  layersList.innerHTML = "";
-  for (const name of layerNames) {
-    const row = document.createElement("label");
-    row.className = "layer-row";
-    row.innerHTML = `<input type="checkbox" checked /> <span>${name}</span>`;
-    row.querySelector("input").addEventListener("change", redraw);
-    layersList.appendChild(row);
-  }
 
   const standSelect = document.getElementById("stand-select");
   for (const stand of STANDS) standSelect.add(new Option(stand.id, stand.id));
@@ -239,19 +226,30 @@ async function main() {
     (agent.col + 0.5) * tileW,
   ];
 
-  const operationsLayer = L.layerGroup().addTo(map);
+  const standsLayer = L.layerGroup().addTo(map);
+  const staffLayer = L.layerGroup().addTo(map);
   for (const stand of STANDS) {
     L.marker(standPoint(stand), {
       icon: L.divIcon({ className: "route-marker", html: "", iconSize: [12, 12], iconAnchor: [6, 6] }),
-    }).bindTooltip(stand.id, { permanent: true, direction: "top", className: "map-label", offset: [0, -5] }).addTo(operationsLayer);
+    }).bindTooltip(stand.id, { permanent: true, direction: "top", className: "map-label", offset: [0, -5] }).addTo(standsLayer);
   }
   for (const agent of AGENTS) {
     L.marker(agentPoint(agent), {
       icon: L.divIcon({ className: `agent-marker agent-${agent.status}`, html: "", iconSize: [28, 28], iconAnchor: [14, 14] }),
-    }).bindTooltip(`${agent.name} · ${agent.status === "free" ? "свободен" : "занят"}`, { direction: "top" }).addTo(operationsLayer);
+    }).bindTooltip(`${agent.name} · ${agent.status === "free" ? "свободен" : "занят"}`, { direction: "top" }).addTo(staffLayer);
   }
 
   let routeLayer = null;
+  const gridControl = document.getElementById("toggle-grid");
+  document.getElementById("toggle-staff").addEventListener("change", (event) => event.target.checked ? staffLayer.addTo(map) : map.removeLayer(staffLayer));
+  document.getElementById("toggle-stands").addEventListener("change", (event) => event.target.checked ? standsLayer.addTo(map) : map.removeLayer(standsLayer));
+  document.getElementById("toggle-route").addEventListener("change", (event) => {
+    if (routeLayer && event.target.checked) routeLayer.addTo(map);
+    if (routeLayer && !event.target.checked) map.removeLayer(routeLayer);
+  });
+  gridControl.addEventListener("change", () => {
+    document.getElementById("map").classList.toggle("show-grid", gridControl.checked);
+  });
   const result = document.getElementById("assignment-result");
   document.getElementById("assign-button").addEventListener("click", () => {
     const stand = STANDS.find((item) => item.id === standSelect.value);
@@ -270,22 +268,33 @@ async function main() {
     }
 
     const winner = ranked[0];
-    const eta = Math.max(1, Math.ceil(winner.distance / 4));
-    const route = [agentPoint(winner.agent), standPoint(stand)];
+    const gridRoute = buildGridRoute(winner.agent, stand);
+    const distanceCells = gridRoute.length - 1;
+    const eta = Math.max(1, Math.ceil(distanceCells / 4));
+    const route = gridRoute.map(([col, row]) => [pxHeight - (row + 0.5) * tileH, (col + 0.5) * tileW]);
     if (routeLayer) map.removeLayer(routeLayer);
     routeLayer = L.polyline(route, { color: "#e30613", weight: 5, opacity: 0.9, dashArray: "10 8" }).addTo(map);
+    if (!document.getElementById("toggle-route").checked) map.removeLayer(routeLayer);
+    localStorage.setItem("oto-assignment", JSON.stringify({
+      engineerId: winner.agent.id,
+      stand: stand.id,
+      fault: document.getElementById("fault-select").selectedOptions[0].text,
+      distanceCells,
+      route: gridRoute,
+      accepted: false,
+    }));
     result.className = "assignment-result success";
-    result.innerHTML = `<strong>${winner.agent.name}</strong><br>${winner.agent.skillName}<br>ETA: <strong>${eta} мин</strong> · лимит 15 мин<br>Маршрут построен`;
+    result.innerHTML = `<strong>${winner.agent.name}</strong><br>${winner.agent.skillName}<br>Маршрут: <strong>${distanceCells} клеток</strong><br>ETA: <strong>${eta} мин</strong> · лимит 15 мин`;
     map.fitBounds(routeLayer.getBounds(), { padding: [80, 80], maxZoom: 3 });
   });
 
   const legend = document.getElementById("legend");
-  legend.innerHTML = layerNames
-    .map((name) => {
-      const color = LAYER_COLORS[name] || DEFAULT_COLOR;
-      return `<div class="legend-row"><span class="swatch" style="background:${color}"></span>${name}</div>`;
-    })
-    .join("");
+  legend.innerHTML = [
+    ["#159b72", "свободный сотрудник"],
+    ["#e17d32", "занятый сотрудник"],
+    ["#1684b8", "стоянка ВС"],
+    ["#e30613", "маршрут"],
+  ].map(([color, label]) => `<div class="legend-row"><span class="swatch" style="background:${color}"></span>${label}</div>`).join("");
 
   const tileInfo = document.getElementById("tile-info");
   map.on("click", (e) => {
@@ -318,8 +327,23 @@ async function main() {
   });
 }
 
+function buildGridRoute(start, end) {
+  const route = [];
+  let col = start.col;
+  let row = start.row;
+  route.push([col, row]);
+  while (col !== end.col) {
+    col += Math.sign(end.col - col);
+    route.push([col, row]);
+  }
+  while (row !== end.row) {
+    row += Math.sign(end.row - row);
+    route.push([col, row]);
+  }
+  return route;
+}
+
 main().catch((err) => {
   console.error(err);
   document.getElementById("tile-info").textContent = "Ошибка: " + err.message;
-  document.getElementById("layers-list").textContent = "—";
 });
