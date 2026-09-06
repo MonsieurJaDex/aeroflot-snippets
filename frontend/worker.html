@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Aeroflot ОТО | Экран инженера</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=PT+Sans+Narrow:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="worker-page">
+  <main class="worker-shell">
+    <header class="worker-header">
+      <div>
+        <p class="eyebrow">АЭРОФЛОТ / ОТО</p>
+        <h1>Рабочее место инженера</h1>
+      </div>
+      <a class="role-link" href="index.html">Экран диспетчера</a>
+    </header>
+
+    <section class="worker-grid">
+      <article class="worker-profile">
+        <p class="section-label">Сотрудник</p>
+        <select id="worker-select" aria-label="Выбор сотрудника"></select>
+        <div id="worker-skill" class="worker-skill"></div>
+        <div id="worker-status" class="worker-status"></div>
+      </article>
+
+      <article class="assignment-card" id="assignment-card">
+        <div class="section-heading">
+          <p class="section-label">Текущее назначение</p>
+          <span id="task-state" class="task-state">ОЖИДАНИЕ</span>
+        </div>
+        <div id="task-content" class="task-content">Новых заявок нет.</div>
+        <div id="route-preview" class="route-preview" hidden></div>
+        <button id="accept-task" type="button" hidden>Принять задание</button>
+      </article>
+    </section>
+
+    <section class="notice-card">
+      <p class="section-label">Уведомления</p>
+      <div id="worker-notice">Ожидание назначения от диспетчера.</div>
+    </section>
+
+    <section class="worker-map-card">
+      <div class="section-heading">
+        <p class="section-label">Маршрут на перроне</p>
+        <span id="map-distance" class="task-state">НЕТ МАРШРУТА</span>
+      </div>
+      <div id="worker-map"></div>
+    </section>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="worker.js"></script>
+</body>
+</html>
