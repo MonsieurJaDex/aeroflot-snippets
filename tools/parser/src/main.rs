@@ -30,6 +30,6 @@ fn main() {
     if res.is_err() {
         println!("Error has ocurred: {}", res.err().unwrap().to_string());
     } else {
-        println!("File parsed successfully!");
+        println!("Success!");
     }
 }
