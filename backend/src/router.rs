@@ -25,23 +25,6 @@ pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
     Json(&app_state.map).into_response()
 }
 
-// #[utoipa::path(
-//     post,
-//     path="/api/assign",
-//     description="Assign an engineer to requested point",
-//     responses(
-//         (status=200,
-//         description="Requested engineer found and assigned to target point",
-//         body=GetRouteResponse<i8>
-//         )
-//     )
-// )]
-// pub async fn assign_engineer<T: PrimInt + Serialize>(
-//     State(map): State<Arc<MapMatrix<T>>>,
-// ) -> Response {
-//     todo!()
-// }
-
 #[utoipa::path(
     post,
     path="/api/getRoute",
@@ -50,7 +33,7 @@ pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
     responses(
         (
             status=200,
-            description="Successful path findingm returning a point sequence as route",
+            description="Successful path finding, returning a point sequence as route",
             body=GetRouteResponse
         ),
         (

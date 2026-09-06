@@ -1,10 +1,9 @@
+
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{
-    error,
-    types::map::{MapMatrix, Point, Route},
-};
+use crate::types::map::{MapMatrix, Point, Route};
 
 #[derive(Debug, Serialize)]
 pub struct MatrixResponse {
@@ -14,11 +13,9 @@ pub struct MatrixResponse {
 }
 
 impl MatrixResponse {
-    pub fn new(matrix: MapMatrix) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(matrix: MapMatrix) -> anyhow::Result<Self> {
         if matrix.0.is_empty() {
-            return Err(Box::new(error::CommonErrors::InvalidArgument(
-                "got empty matrix".to_string(),
-            )));
+            return Err(anyhow!("got empty matrix".to_string()));
         }
 
         let width = matrix.0[0].len();
