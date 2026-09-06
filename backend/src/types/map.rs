@@ -1,9 +1,9 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::error;
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct MapMatrix(pub Vec<Vec<i64>>);
@@ -18,19 +18,15 @@ impl MapMatrix {
         Self(vec![vec![]])
     }
 
-    pub fn from_vec(initial: Vec<Vec<i64>>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_vec(initial: Vec<Vec<i64>>) -> anyhow::Result<Self> {
         if initial.is_empty() {
-            return Err(Box::new(error::CommonErrors::InvalidArgument(
-                "initial vector is empty".to_string(),
-            )));
+            return Err(anyhow!("initial vector is empty".to_string()));
         }
 
         let required_row_len = initial[0].len();
         for row in &initial {
             if row.len().ne(&required_row_len) {
-                return Err(Box::new(error::CommonErrors::InvalidArgument(
-                    "invalid vector row length".to_string(),
-                )));
+                return Err(anyhow!("invalid vector row length".to_string()));
             }
         }
 

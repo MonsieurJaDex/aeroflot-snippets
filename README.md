@@ -13,8 +13,10 @@ Aeroflot Snippets is a curated collection of code snippets and templates designe
 ```text
 ├── backend/          # Backend code
 ├── frontend/         # Frontend code
+├── tools/            # External CLI tools
+├──├── parser/        # Parser for .tmj files
 ├── .gitignore        # .gitignore file
-└── README.md         # current README
+└── README.md         # Current README
 ```
 *May be changed later...*
 

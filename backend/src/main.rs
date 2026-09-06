@@ -1,14 +1,11 @@
 use crate::{
     database::establish_connection,
-    models::engineer::EngineerRow,
     router::get_route,
     types::{
         config::{AppConfig, AppState},
         doc::ApiDoc,
-        map::MapMatrix,
     },
 };
-use diesel::{Expression, QueryDsl, RunQueryDsl, SelectableHelper};
 use std::{collections::HashSet, process, sync::Arc, time::Duration};
 use utoipa::OpenApi;
 
@@ -30,7 +27,6 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{router::get_map, types::map::Point};
 
 mod database;
-mod error;
 mod models;
 mod parser;
 mod router;
@@ -48,6 +44,7 @@ async fn main() {
         }
     };
 
+    // TODO: use debug for logging level
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -62,10 +59,11 @@ async fn main() {
         Ok(jm) => {
             let map = jm.map;
             let roads: HashSet<i64> = jm.road.into_iter().collect();
+            tracing::info!("Map loaded");
             (map, roads)
         }
         Err(e) => {
-            println!("Error during parsing map: {}", e.to_string());
+            tracing::error!("Error during parsing map: {}", e.to_string());
             process::exit(1);
         }
     };
