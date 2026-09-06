@@ -1,5 +1,6 @@
 use crate::{
     database::establish_connection,
+    logging::init_logger,
     router::get_route,
     types::{
         config::{AppConfig, AppState, Args},
@@ -28,6 +29,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{router::get_map, types::map::Point};
 
 mod database;
+mod logging;
 mod models;
 mod parser;
 mod router;
@@ -45,14 +47,8 @@ async fn main() {
         }
     };
 
-    // TODO: use debug for logging level
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "aeroflot_snippets=info,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // load logger
+    init_logger(app_config.debug);
 
     // loading cli arguments
     let args = Args::parse();
