@@ -1,5 +1,5 @@
 use crate::{
-    database::establish_connection,
+    database::{establish_pg_connection, establish_redis_connection},
     logging::init_logger,
     router::get_route,
     types::{
@@ -75,11 +75,15 @@ async fn main() {
 
     let _route = search::find_nearest(&map, Point::new(0, 0), 466, &roads);
 
-    tracing::info!("Attempting to establish database connection...");
-    let db_pool = match establish_connection(&app_config.database_url) {
-        Ok(pool) => {
-            tracing::info!("Database connection successful. Pool initialized");
-            pool
+    tracing::info!("Attempting to establish database connections...");
+
+    let (db_pool, redis_pool) = match tokio::try_join!(
+        establish_pg_connection(&app_config.database_url),
+        establish_redis_connection(&app_config.redis_url)
+    ) {
+        Ok((pg, rd)) => {
+            tracing::info!("Database connections successful. Pools initialized");
+            (pg, rd)
         }
         Err(e) => {
             tracing::error!("Error during database pool initialization: {}", e);
@@ -91,6 +95,7 @@ async fn main() {
         road_points: roads,
         map: map,
         db_pool: db_pool,
+        redis_pool: redis_pool,
     });
 
     let api_routes = Router::new()

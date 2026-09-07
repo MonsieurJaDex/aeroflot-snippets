@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use axum::{
     Json,
     body::Body,
@@ -7,6 +8,7 @@ use axum::{
     http::{Response, StatusCode},
     response::IntoResponse,
 };
+use redis::TypedCommands;
 
 use crate::types::{
     config::AppState,

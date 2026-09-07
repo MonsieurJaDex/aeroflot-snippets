@@ -7,6 +7,7 @@ use diesel::{
 };
 
 use clap::Parser;
+use redis::Client;
 
 use crate::types::map::MapMatrix;
 
@@ -32,6 +33,7 @@ pub struct AppConfig {
     pub port: u16,
     pub debug: bool,
     pub database_url: String,
+    pub redis_url: String,
 }
 
 impl AppConfig {
@@ -53,12 +55,14 @@ impl AppConfig {
         let port: u16 = AppConfig::parse_env("port")?;
         let debug: bool = AppConfig::parse_env("debug")?;
         let database_url: String = AppConfig::parse_env("database_url")?;
+        let redis_url: String = AppConfig::parse_env("redis_url")?;
 
         anyhow::Result::Ok(Self {
             host,
             port,
             debug,
             database_url,
+            redis_url,
         })
     }
 }
@@ -68,4 +72,5 @@ pub struct AppState {
     pub road_points: HashSet<i64>,
     pub map: MapMatrix,
     pub db_pool: Pool<ConnectionManager<PgConnection>>,
+    pub redis_pool: Pool<Client>,
 }
