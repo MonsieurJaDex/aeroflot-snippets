@@ -4,7 +4,8 @@ CREATE TYPE engineer_type AS ENUM (
     'fueling_crew',
     'engine_technician',
     'avionics_engineer',
-    'aviation_technician'
+    'aviation_technician',
+    'not_categorized'
 );
 
 CREATE TYPE aircraft_issue AS ENUM (
@@ -40,12 +41,14 @@ CREATE TABLE dispatchers (
 CREATE TABLE engineers (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email          VARCHAR NOT NULL UNIQUE,
+    name          VARCHAR NOT NULL,
     engineer_type  engineer_type NOT NULL,
     password_hash  VARCHAR NOT NULL
 );
 
 CREATE TABLE tasks (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    description        TEXT NOT NULL,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     ends_at            TIMESTAMPTZ NOT NULL,
     created_by         UUID NOT NULL REFERENCES dispatchers(id) ON DELETE RESTRICT,
@@ -55,6 +58,6 @@ CREATE TABLE tasks (
 );
 
 CREATE INDEX idx_tasks_assigned_engineer ON tasks(assigned_engineer);
-CREATE INDEX idx_tasks_created_by ON tasks(created_by);
+CREATE INDEX idx_tasks_issue_type ON tasks(issue_type);
 CREATE INDEX idx_tasks_is_active ON tasks(is_active) WHERE is_active = true;
 CREATE INDEX idx_engineers_engineer_type ON engineers(engineer_type);

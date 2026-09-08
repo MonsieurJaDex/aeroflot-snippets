@@ -1,11 +1,13 @@
 use crate::{
-    database::establish_connection,
-    router::get_route,
+    database::{establish_pg_connection, establish_redis_connection},
+    logging::init_logger,
+    router::{assign_engineer, get_route},
     types::{
-        config::{AppConfig, AppState},
+        config::{AppConfig, AppState, Args},
         doc::ApiDoc,
     },
 };
+use clap::Parser;
 use std::{collections::HashSet, process, sync::Arc, time::Duration};
 use utoipa::OpenApi;
 
@@ -21,12 +23,12 @@ use tower_http::{
     timeout::TimeoutLayer,
     trace::TraceLayer,
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::{router::get_map, types::map::Point};
+use crate::router::get_map;
 
 mod database;
+mod logging;
 mod models;
 mod parser;
 mod router;
@@ -40,22 +42,24 @@ async fn main() {
         Ok(cfg) => Arc::new(cfg),
         Err(e) => {
             tracing::error!("Error during app configuration loading: {}", e);
-            process::exit(-1);
+            process::exit(1);
         }
     };
 
-    // TODO: use debug for logging level
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "aeroflot_snippets=info,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // load logger
+    init_logger(app_config.debug);
 
+    // loading cli arguments
+    let args = Args::parse();
+    if !args.validate_path() {
+        tracing::error!("Provided map file was not found: {}", args.map_path);
+        process::exit(1);
+    }
+
+    // loading map
     tracing::info!("Loading map from JSON...");
 
-    let (map, roads) = match parser::parse_from_json("./assets/map.json") {
+    let (map, roads) = match parser::parse_from_json(&args.map_path) {
         Ok(jm) => {
             let map = jm.map;
             let roads: HashSet<i64> = jm.road.into_iter().collect();
@@ -68,13 +72,15 @@ async fn main() {
         }
     };
 
-    let _route = search::find_nearest(&map, Point::new(0, 0), 466, &roads);
+    tracing::info!("Attempting to establish database connections...");
 
-    tracing::info!("Attempting to establish database connection...");
-    let db_pool = match establish_connection(&app_config.database_url) {
-        Ok(pool) => {
-            tracing::info!("Database connection successful. Pool initialized");
-            pool
+    let (db_pool, redis_pool) = match tokio::try_join!(
+        establish_pg_connection(&app_config.database_url),
+        establish_redis_connection(&app_config.redis_url)
+    ) {
+        Ok((pg, rd)) => {
+            tracing::info!("Database connections successful. Pools initialized");
+            (pg, rd)
         }
         Err(e) => {
             tracing::error!("Error during database pool initialization: {}", e);
@@ -86,11 +92,13 @@ async fn main() {
         road_points: roads,
         map: map,
         db_pool: db_pool,
+        redis_pool: redis_pool,
     });
 
     let api_routes = Router::new()
         .route("/map", get(get_map))
         .route("/getRoute", post(get_route))
+        .route("/assign", post(assign_engineer))
         .with_state(Arc::clone(&app_state));
 
     let app = Router::new()

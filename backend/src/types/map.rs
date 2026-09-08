@@ -1,9 +1,12 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
+use std::{
+    fmt::format,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
-use anyhow::anyhow;
+use anyhow::{Ok, anyhow};
 use serde::{Deserialize, Serialize};
+use serde_json::from_str;
 use utoipa::ToSchema;
-
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct MapMatrix(pub Vec<Vec<i64>>);
@@ -41,6 +44,24 @@ impl Point {
     pub fn new(x: i64, y: i64) -> Self {
         Self(x, y)
     }
+
+    pub fn as_value(&self) -> String {
+        format!("{},{}", self.0, self.1)
+    }
+
+    pub fn from_value(value: String) -> anyhow::Result<Self> {
+        let splited = value
+            .trim()
+            .split(",")
+            .map(|v| from_str::<i64>(v))
+            .collect::<Result<Vec<i64>, serde_json::Error>>()?;
+        if splited.len() != 2 {
+            return Err(anyhow!(
+                "got incorrect value format that cannot be parsed to Point"
+            ));
+        }
+        Ok(Self(splited[0], splited[1]))
+    }
 }
 
 #[derive(Debug, Serialize, Clone, ToSchema)]
@@ -53,6 +74,10 @@ impl Route {
 
     pub fn len(&self) -> usize {
         self.0.len() - 1
+    }
+
+    pub fn get_vec(&self) -> &Vec<Point> {
+        &self.0
     }
 
     // method for computing route direction indepenent hash

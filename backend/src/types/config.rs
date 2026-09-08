@@ -1,4 +1,4 @@
-use std::{collections::HashSet, env, net::Ipv4Addr, str::FromStr};
+use std::{collections::HashSet, env, net::Ipv4Addr, path, str::FromStr};
 
 use anyhow::{Context, Result};
 use diesel::{
@@ -6,13 +6,34 @@ use diesel::{
     r2d2::{ConnectionManager, Pool},
 };
 
+use clap::Parser;
+use redis::Client;
+
 use crate::types::map::MapMatrix;
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "aeroflot",
+    about = "simple CLI that wraps backend running functionality"
+)]
+pub struct Args {
+    #[arg(short = 'p', long)]
+    pub map_path: String,
+}
+
+impl Args {
+    pub fn validate_path(&self) -> bool {
+        let path = path::Path::new(&self.map_path);
+        path.is_file()
+    }
+}
 
 pub struct AppConfig {
     pub host: Ipv4Addr,
     pub port: u16,
     pub debug: bool,
     pub database_url: String,
+    pub redis_url: String,
 }
 
 impl AppConfig {
@@ -34,12 +55,14 @@ impl AppConfig {
         let port: u16 = AppConfig::parse_env("port")?;
         let debug: bool = AppConfig::parse_env("debug")?;
         let database_url: String = AppConfig::parse_env("database_url")?;
+        let redis_url: String = AppConfig::parse_env("redis_url")?;
 
         anyhow::Result::Ok(Self {
             host,
             port,
             debug,
             database_url,
+            redis_url,
         })
     }
 }
@@ -49,4 +72,5 @@ pub struct AppState {
     pub road_points: HashSet<i64>,
     pub map: MapMatrix,
     pub db_pool: Pool<ConnectionManager<PgConnection>>,
+    pub redis_pool: Pool<Client>,
 }

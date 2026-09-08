@@ -1,5 +1,6 @@
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, DbEnum)]
 #[serde(rename_all = "snake_case")]
@@ -12,9 +13,10 @@ pub enum EngineerType {
     EngineTechnician,   // техник по двигателю
     AvionicsEngineer,   // инженер по радиоэлектронному оборудованию
     AviationTechnician, // диагностика, дефектация, регулировка, ремонт
+    NotCagegorized,     // неопределен
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq, Hash, Serialize, Deserialize, DbEnum)]
+#[derive(Debug, PartialEq, Clone, Copy, Eq, Hash, Serialize, Deserialize, DbEnum, ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[ExistingTypePath = "crate::database::schema::sql_types::AircraftIssue"]
 #[DbValueStyle = "snake_case"]
@@ -55,26 +57,26 @@ pub enum AircraftIssue {
 }
 
 impl AircraftIssue {
-    /// Evaluate sp
-    pub fn responsible_engineer(&self) -> Option<EngineerType> {
+    /// Evaluate responsible engineer
+    pub fn responsible_engineer(&self) -> EngineerType {
         use AircraftIssue::*;
         match self {
             FuelLeakFromDrainCap | OilStainNearGearbox | HydraulicLeakOnStrut
             | FairingChipOrScratch | PaintPeelingAtRivets | MissingPitotCover | UnevenTreadWear
-            | TireCutToCord | LowTirePressure => Some(EngineerType::IntegrityInspector),
+            | TireCutToCord | LowTirePressure => EngineerType::IntegrityInspector,
 
             IndicationFault | LooseConnector | SeatbeltAdjustment | BurnedOutSignalLamp => {
-                Some(EngineerType::CrewRemarksHandler)
+                EngineerType::CrewRemarksHandler
             }
 
             ThrustOrParameterDrop | ExcessiveVibration | MetalDebrisInOilFilter => {
-                Some(EngineerType::EngineTechnician)
+                EngineerType::EngineTechnician
             }
 
             RadarFailureOrFalseReading | CommsLossOrDistortion | InsGyroDrift => {
-                Some(EngineerType::AvionicsEngineer)
+                EngineerType::AvionicsEngineer
             }
-            Other => None,
+            Other => EngineerType::NotCagegorized,
         }
     }
 }

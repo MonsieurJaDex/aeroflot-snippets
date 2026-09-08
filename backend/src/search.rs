@@ -1,5 +1,6 @@
 use crate::types::map::Route;
 use anyhow::{Ok, Result, anyhow};
+use uuid::Uuid;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -95,19 +96,19 @@ pub fn bfs(
 pub fn find_nearest(
     matrix: &MapMatrix,
     start: Point,
-    target_value: i64,
     road_points: &HashSet<i64>,
-) -> Route {
+    engineer_positions: &HashMap<Point, Uuid>,
+) -> anyhow::Result<Route> {
     if start.1 < 0 || start.1 as usize >= matrix.0.len() {
-        return Route::new(vec![]);
+        return Err(anyhow!("start Y point out of matrix bound"));
     }
     let row_len = matrix.0[start.1 as usize].len() as i64;
     if start.0 < 0 || start.0 >= row_len {
-        return Route::new(vec![]);
+        return Err(anyhow!("start X point out of matrix bound"));
     }
 
-    if matrix.0[start.1 as usize][start.0 as usize] == target_value {
-        return Route::new(vec![]);
+    if *&engineer_positions.get(&start).is_some() {
+        return Ok(Route::new(vec![]));
     }
 
     let mut q = VecDeque::new();
@@ -136,7 +137,7 @@ pub fn find_nearest(
             let next_point = Point::new(next_x, next_y);
             let value = row[next_x as usize];
 
-            let is_target = value == target_value;
+            let is_target = engineer_positions.contains_key(&next_point);
 
             if !is_target && !road_points.contains(&value) {
                 continue;
@@ -157,13 +158,12 @@ pub fn find_nearest(
                     current = *parent_map.get(&pt).unwrap_or(&None);
                 }
 
-                route.reverse();
-                return Route::new(route);
+                return Ok(Route::new(route));
             }
 
             q.push_back(next_point);
         }
     }
 
-    Route::new(vec![])
+    Ok(Route::new(vec![]))
 }

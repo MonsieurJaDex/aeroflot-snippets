@@ -7,17 +7,19 @@ edition = "2024"
 anyhow = "1.0.104"
 axum = { version = "0.8.9", features = ["macros"] }
 chrono = "0.4.45"
+clap = { version = "4.6.6", features = ["derive"] }
 diesel = { version = "2.3.13", features = ["postgres", "uuid", "chrono", "r2d2"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 dotenvy = "0.15.7"
 num-traits = "0.2.19"
+redis = { version = "1.7.0", features = ["tokio-comp", "r2d2"] }
 serde = { version="1.0.229", features=["derive"] }
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["full"] }
 tower = { version = "0.5.3", features = ["full"] }
 tower-http = { version = "0.7.1", features = ["trace", "cors", "compression-full", "timeout", "limit", "request-id"] }
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 utoipa = "5.5.0"
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 uuid = { version = "1.26.0", features = ["v4", "serde"] }
