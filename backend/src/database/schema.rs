@@ -26,6 +26,7 @@ diesel::table! {
     engineers (id) {
         id -> Uuid,
         email -> Varchar,
+        name -> Varchar,
         engineer_type -> EngineerType,
         password_hash -> Varchar,
     }
@@ -37,6 +38,7 @@ diesel::table! {
 
     tasks (id) {
         id -> Uuid,
+        description -> Text,
         created_at -> Timestamptz,
         ends_at -> Timestamptz,
         created_by -> Uuid,

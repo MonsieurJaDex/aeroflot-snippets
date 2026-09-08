@@ -1,7 +1,7 @@
 use crate::{
     database::{establish_pg_connection, establish_redis_connection},
     logging::init_logger,
-    router::get_route,
+    router::{assign_engineer, get_route},
     types::{
         config::{AppConfig, AppState, Args},
         doc::ApiDoc,
@@ -23,10 +23,9 @@ use tower_http::{
     timeout::TimeoutLayer,
     trace::TraceLayer,
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::{router::get_map, types::map::Point};
+use crate::router::get_map;
 
 mod database;
 mod logging;
@@ -73,8 +72,6 @@ async fn main() {
         }
     };
 
-    let _route = search::find_nearest(&map, Point::new(0, 0), 466, &roads);
-
     tracing::info!("Attempting to establish database connections...");
 
     let (db_pool, redis_pool) = match tokio::try_join!(
@@ -101,6 +98,7 @@ async fn main() {
     let api_routes = Router::new()
         .route("/map", get(get_map))
         .route("/getRoute", post(get_route))
+        .route("/assign", post(assign_engineer))
         .with_state(Arc::clone(&app_state));
 
     let app = Router::new()

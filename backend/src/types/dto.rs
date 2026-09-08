@@ -1,9 +1,11 @@
-
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::types::map::{MapMatrix, Point, Route};
+use crate::types::{
+    enums::AircraftIssue,
+    map::{MapMatrix, Point, Route},
+};
 
 #[derive(Debug, Serialize)]
 pub struct MatrixResponse {
@@ -30,7 +32,6 @@ impl MatrixResponse {
 
 #[derive(Serialize, ToSchema)]
 pub struct GetRouteResponse {
-    // TODO: add assigned engineer object here
     pub route: Route,
     pub distance: usize,
 }
@@ -39,4 +40,20 @@ pub struct GetRouteResponse {
 pub struct GetRouteRequest {
     pub start_point: Point,
     pub end_point: Point,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct AssignEngineerRequest {
+    pub dispatcher_uuid: String,
+    pub issue: AircraftIssue,
+    pub plane_point: Point,
+    pub description: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AssignEngineerResponse {
+    pub engineer_uuid: String,
+    pub time: f32,
+    pub time_limit_exceeded: bool,
+    pub route: Route,
 }
