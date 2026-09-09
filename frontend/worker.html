@@ -17,13 +17,26 @@
         <p class="eyebrow">АЭРОФЛОТ / ОТО</p>
         <h1>Рабочее место инженера</h1>
       </div>
+
+      <div class="worker-account" aria-label="Аккаунт сотрудника">
+        <div class="account-avatar" id="account-avatar">AS</div>
+        <div class="account-copy">
+          <p class="section-label">Учетная запись</p>
+          <div id="account-name" class="account-name">—</div>
+          <div id="account-role" class="account-role">—</div>
+        </div>
+        <label class="account-switch">
+          <span>Сотрудник</span>
+          <select id="worker-select" aria-label="Выбор сотрудника"></select>
+        </label>
+      </div>
+
       <a class="role-link" href="index.html">Выбор роли</a>
     </header>
 
     <section class="worker-grid">
       <article class="worker-profile">
-        <p class="section-label">Сотрудник</p>
-        <select id="worker-select" aria-label="Выбор сотрудника"></select>
+        <p class="section-label">Профиль</p>
         <div id="worker-skill" class="worker-skill"></div>
         <div id="worker-status" class="worker-status"></div>
       </article>

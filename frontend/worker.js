@@ -28,7 +28,17 @@ function selectedAgent() {
 
 function updateProfile() {
   const agent = selectedAgent();
-  document.getElementById("worker-skill").textContent = agent.skillName;
+  const initials = agent.name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  document.getElementById("account-avatar").textContent = initials;
+  document.getElementById("account-name").textContent = agent.name;
+  document.getElementById("account-role").textContent = `${agent.skillName} · ${agent.id}`;
+  document.getElementById("worker-skill").textContent = `${agent.skillName} · ${agent.id}`;
   document.getElementById("worker-status").textContent = agent.status === "free" ? "Свободен" : "Занят";
   document.getElementById("worker-status").className = `worker-status ${agent.status}`;
 }
