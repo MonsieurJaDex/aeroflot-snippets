@@ -1,7 +1,4 @@
-use std::{
-    fmt::format,
-    hash::{DefaultHasher, Hash, Hasher},
-};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use anyhow::{Ok, anyhow};
 use serde::{Deserialize, Serialize};

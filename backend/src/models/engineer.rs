@@ -1,10 +1,10 @@
-use diesel::{Selectable, deserialize::Queryable};
+use diesel::{Selectable, deserialize::Queryable, prelude::Insertable};
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::types::enums::EngineerType;
 
-#[derive(Debug, Queryable, Selectable, Validate)]
+#[derive(Debug, Queryable, Selectable, Insertable, Validate)]
 #[diesel(table_name = crate::database::schema::engineers)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Engineer {

@@ -1,4 +1,5 @@
-pub mod simulate;
+pub mod auth;
+mod simulate;
 
 use std::{collections::HashMap, sync::Arc};
 

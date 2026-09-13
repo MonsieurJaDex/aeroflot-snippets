@@ -34,6 +34,7 @@ mod parser;
 mod router;
 mod search;
 mod types;
+mod utils;
 
 #[tokio::main]
 async fn main() {
@@ -93,9 +94,16 @@ async fn main() {
         map: map,
         db_pool: db_pool,
         redis_pool: redis_pool,
+        jwt_secret: app_config.jwt_secret.clone(),
     });
 
+    let auth_router = Router::new()
+        .route("/register", post(router::auth::register_handler))
+        .route("/login", post(router::auth::login_handler))
+        .route("/update_access", post(router::auth::update_access_token));
+
     let api_routes = Router::new()
+        .nest("/auth", auth_router)
         .route("/map", get(get_map))
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))

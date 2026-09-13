@@ -1,8 +1,8 @@
-use diesel::{Selectable, deserialize::Queryable};
+use diesel::{Selectable, deserialize::Queryable, prelude::Insertable};
 use uuid::Uuid;
 use validator::Validate;
 
-#[derive(Validate, Queryable, Selectable)]
+#[derive(Validate, Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::database::schema::dispatchers)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Dispatcher {

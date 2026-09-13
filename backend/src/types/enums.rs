@@ -1,8 +1,13 @@
+use std::fmt;
+
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, DbEnum)]
+use crate::models::{dispatcher::Dispatcher, engineer::Engineer};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, DbEnum, ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[ExistingTypePath = "crate::database::schema::sql_types::EngineerType"]
 #[DbValueStyle = "snake_case"]
@@ -77,6 +82,78 @@ impl AircraftIssue {
                 EngineerType::AvionicsEngineer
             }
             Other => EngineerType::NotCagegorized,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Clone)]
+pub enum UserRole {
+    Dispatcher,
+    Engineer,
+}
+
+impl fmt::Display for UserRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UserRole::Dispatcher => f.write_str("dispatcher"),
+            UserRole::Engineer => f.write_str("engineer"),
+        }
+    }
+}
+
+impl TryFrom<String> for UserRole {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let value = value.trim().to_lowercase();
+        match value.as_str() {
+            "engineer" => Ok(Self::Engineer),
+            "dispatcher" => Ok(Self::Dispatcher),
+            _ => Err(anyhow::anyhow!(
+                "failed to parse String to UserRole: expected 'Engineer' or 'Dispatcher', got: {}",
+                value
+            )),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq)]
+pub enum TokenType {
+    Access,
+    Refresh,
+}
+
+pub enum AuthenticatedUser {
+    Engineer(Engineer),
+    Dispatcher(Dispatcher),
+}
+
+impl AuthenticatedUser {
+    pub fn id(&self) -> Uuid {
+        match self {
+            AuthenticatedUser::Engineer(e) => e.id,
+            AuthenticatedUser::Dispatcher(d) => d.id,
+        }
+    }
+
+    pub fn password_hash(&self) -> &str {
+        match self {
+            AuthenticatedUser::Engineer(e) => &e.password_hash,
+            AuthenticatedUser::Dispatcher(d) => &d.password_hash,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            AuthenticatedUser::Engineer(engineer) => &engineer.name,
+            AuthenticatedUser::Dispatcher(dispatcher) => &dispatcher.name,
+        }
+    }
+
+    pub fn role(&self) -> UserRole {
+        match self {
+            AuthenticatedUser::Engineer(_) => UserRole::Engineer,
+            AuthenticatedUser::Dispatcher(_) => UserRole::Dispatcher,
         }
     }
 }

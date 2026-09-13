@@ -6,6 +6,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::types::map::{MapMatrix, Point};
 
+// TODO: add route caching
+
 // start-to-end path finding BFS
 pub fn bfs(
     matrix: &MapMatrix,
