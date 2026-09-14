@@ -10,6 +10,7 @@ use axum::{
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper};
 use redis::TypedCommands;
 use uuid::Uuid;
+use validator::{Validate, ValidateEmail};
 
 use crate::{
     database::schema,
@@ -42,6 +43,10 @@ pub async fn register_handler(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<RegisterRequest>,
 ) -> Response<Body> {
+    if let Err(e) = payload.validate() {
+        return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
+    }
+
     let mut pg_conn = match app_state.db_pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -164,6 +169,10 @@ pub async fn login_handler(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<LoginRequest>,
 ) -> Response<Body> {
+    if let Err(e) = payload.validate() {
+        return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
+    }
+
     let mut pg_conn = match app_state.db_pool.get() {
         Ok(c) => c,
         Err(e) => {

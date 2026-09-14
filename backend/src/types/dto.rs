@@ -53,7 +53,7 @@ pub struct AssignEngineerRequest {
 #[derive(Serialize, ToSchema)]
 pub struct AssignEngineerResponse {
     pub engineer_uuid: String,
-    pub time: f32,
+    pub time: u64,
     pub time_limit_exceeded: bool,
     pub route: Route,
 }

@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
-use diesel::{Selectable, deserialize::Queryable};
+use diesel::{Selectable, deserialize::Queryable, prelude::Insertable};
 use uuid::Uuid;
 
 use crate::types::enums::AircraftIssue;
 
 // diesel model
-#[derive(Queryable, Selectable)]
+#[derive(Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::database::schema::tasks)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Task {

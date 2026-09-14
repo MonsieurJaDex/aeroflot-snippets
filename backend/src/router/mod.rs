@@ -1,27 +1,32 @@
 pub mod auth;
 mod simulate;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use axum::{
-    Json,
+    Extension, Json,
     body::Body,
     extract::State,
     http::{Response, StatusCode},
     response::IntoResponse,
 };
 
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 
 use redis::TypedCommands;
+use tracing_subscriber::fmt::format;
 use uuid::Uuid;
 
 use crate::{
-    database::schema::{engineers, tasks},
+    database::schema::{self, engineers, tasks},
+    middleware::AuthUser,
+    models::task::Task,
     search::find_nearest,
     types::{
         config::AppState,
         dto::{AssignEngineerRequest, AssignEngineerResponse, GetRouteRequest, GetRouteResponse},
+        enums::UserRole,
         map::{MapMatrix, Point},
     },
 };
@@ -31,6 +36,9 @@ use crate::{
     path="/api/map",
     responses(
         (status=200, description="Return actual map", body=MapMatrix)
+    ),
+    params(
+        ("Authorization" = String, Header, description = "Bearer authorization access token")
     )
 )]
 pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
@@ -53,6 +61,9 @@ pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
             description="Error caused by incorrect input data",
             body=String
         )
+    ),
+    params(
+        ("Authorization" = String, Header, description = "Bearer authorization access token")
     )
 )]
 pub async fn get_route(
@@ -103,12 +114,25 @@ pub async fn get_route(
             description="Server-side error",
             body=String
         )
+    ),
+    params(
+        ("Authorization" = String, Header, description = "Bearer authorization access token")
     )
 )]
+#[axum::debug_handler]
 pub async fn assign_engineer(
     State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
     Json(payload): Json<AssignEngineerRequest>,
 ) -> Response<Body> {
+    if auth_user.role != UserRole::Dispatcher {
+        return (
+            StatusCode::FORBIDDEN,
+            "only dispatchers can assign engineers",
+        )
+            .into_response();
+    }
+
     let mut pg_conn = match app_state.db_pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -190,11 +214,45 @@ pub async fn assign_engineer(
 
     let required_time = route.len() as f32 / SPEED;
 
-    // TODO: after auth, automaticly evaluate dispatcher uuid, push Task into postgres
+    // TODO: after auth, automaticly evaluate dispatcher uuid, push Task into postgres then teleport engineer
+    // make simulated.rs, add container
+
+    let utc_now = Utc::now();
+
+    let new_task = Task {
+        id: Uuid::new_v4(),
+        description: payload.description,
+        created_at: utc_now,
+        ends_at: utc_now + payload.issue.resolution_time() + Duration::from_secs_f32(required_time),
+        created_by: auth_user.id,
+        assigned_engineer: *chosed_uuid,
+        issue_type: payload.issue,
+        is_active: true,
+    };
+
+    if let Err(e) = diesel::insert_into(schema::tasks::table)
+        .values(&new_task)
+        .execute(&mut pg_conn)
+    {
+        tracing::error!(error = %e, "error happened during creating new task, should not be an unique key violation because of random UUID generation here");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // teleport engineer to a point (SIMULATION PURPOSES ONLY)
+    match redis_conn.set(
+        format!("position:{}", *chosed_uuid),
+        payload.plane_point.as_value(),
+    ) {
+        Ok(_) => (),
+        Err(e) => {
+            tracing::error!(error = %e, "error happened during teleporting engineer to a target point");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     Json(AssignEngineerResponse {
         engineer_uuid: chosed_uuid.to_string(),
-        time: required_time,
+        time: required_time as u64,
         time_limit_exceeded: required_time >= 900 as f32,
         route: route,
     })

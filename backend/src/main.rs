@@ -29,6 +29,7 @@ use crate::router::get_map;
 
 mod database;
 mod logging;
+mod middleware;
 mod models;
 mod parser;
 mod router;
@@ -102,11 +103,18 @@ async fn main() {
         .route("/login", post(router::auth::login_handler))
         .route("/update_access", post(router::auth::update_access_token));
 
-    let api_routes = Router::new()
-        .nest("/auth", auth_router)
+    let protected_routes = Router::new()
         .route("/map", get(get_map))
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&app_state),
+            middleware::auth_middleware,
+        ));
+
+    let api_routes = Router::new()
+        .nest("/auth", auth_router)
+        .merge(protected_routes)
         .with_state(Arc::clone(&app_state));
 
     let app = Router::new()
@@ -126,6 +134,12 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(&server_addr).await.unwrap();
     tracing::info!("Running sever at: http://{server_addr}");
+
+    // TODO:
+    // make simulated.rs, add container
+    // separate routers to routers module fully
+    // add comments
+    // add more routes to get user data by uuid (ex. name), or return it by default
 
     _ = axum::serve(listener, app).await;
 }

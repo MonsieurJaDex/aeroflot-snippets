@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, time::Duration};
 
 use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
@@ -84,9 +84,44 @@ impl AircraftIssue {
             Other => EngineerType::NotCagegorized,
         }
     }
+
+    pub fn resolution_time(&self) -> Duration {
+        use AircraftIssue::*;
+        match self {
+            // Мелкие визуальные/некритичные замечания — минуты
+            MissingPitotCover => Duration::from_mins(5),
+            BurnedOutSignalLamp => Duration::from_mins(10),
+            LooseConnector => Duration::from_mins(15),
+            SeatbeltAdjustment => Duration::from_mins(10),
+            IndicationFault => Duration::from_mins(20),
+            FairingChipOrScratch => Duration::from_mins(20),
+            PaintPeelingAtRivets => Duration::from_mins(30),
+
+            // Требуют осмотра/незначительного ремонта — до часа
+            LowTirePressure => Duration::from_mins(20),
+            UnevenTreadWear => Duration::from_mins(45),
+            OilStainNearGearbox => Duration::from_mins(45),
+            FuelLeakFromDrainCap => Duration::from_mins(30),
+
+            // Требуют замены узла/детальной диагностики — 1–3 часа
+            TireCutToCord => Duration::from_mins(90), // замена колеса
+            HydraulicLeakOnStrut => Duration::from_mins(120),
+            RadarFailureOrFalseReading => Duration::from_mins(120),
+            CommsLossOrDistortion => Duration::from_mins(90),
+            InsGyroDrift => Duration::from_mins(180),
+
+            // Серьёзные, требуют глубокой диагностики/разборки — часы
+            ThrustOrParameterDrop => Duration::from_mins(240),
+            ExcessiveVibration => Duration::from_mins(240),
+            MetalDebrisInOilFilter => Duration::from_mins(360), // возможна разборка двигателя
+
+            // Неопределённая категория
+            Other => Duration::from_mins(120),
+        }
+    }
 }
 
-#[derive(Serialize, Deserialize, ToSchema, Clone)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, PartialEq, Eq)]
 pub enum UserRole {
     Dispatcher,
     Engineer,
