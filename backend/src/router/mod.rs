@@ -1,5 +1,5 @@
 pub mod auth;
-mod simulate;
+pub mod simulate;
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -11,11 +11,10 @@ use axum::{
     response::IntoResponse,
 };
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use diesel::prelude::*;
 
 use redis::TypedCommands;
-use tracing_subscriber::fmt::format;
 use uuid::Uuid;
 
 use crate::{
@@ -213,9 +212,6 @@ pub async fn assign_engineer(
     const SPEED: f32 = 0.05;
 
     let required_time = route.len() as f32 / SPEED;
-
-    // TODO: after auth, automaticly evaluate dispatcher uuid, push Task into postgres then teleport engineer
-    // make simulated.rs, add container
 
     let utc_now = Utc::now();
 

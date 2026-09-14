@@ -101,7 +101,11 @@ async fn main() {
     let auth_router = Router::new()
         .route("/register", post(router::auth::register_handler))
         .route("/login", post(router::auth::login_handler))
-        .route("/update_access", post(router::auth::update_access_token));
+        .route("/update_access", post(router::auth::update_access_token))
+        .route(
+            "/get_engineer_name",
+            post(router::auth::get_engineer_name_handler),
+        );
 
     let protected_routes = Router::new()
         .route("/map", get(get_map))
@@ -112,8 +116,20 @@ async fn main() {
             middleware::auth_middleware,
         ));
 
+    let simulate_routes = Router::new()
+        .route(
+            "/update_engineer_position",
+            post(router::simulate::update_engineer_position_handler),
+        )
+        .route(
+            "/get_engineers_positions",
+            get(router::simulate::get_engineers_positions),
+        )
+        .with_state(Arc::clone(&app_state));
+
     let api_routes = Router::new()
         .nest("/auth", auth_router)
+        .nest("/simulate", simulate_routes)
         .merge(protected_routes)
         .with_state(Arc::clone(&app_state));
 
@@ -139,7 +155,6 @@ async fn main() {
     // make simulated.rs, add container
     // separate routers to routers module fully
     // add comments
-    // add more routes to get user data by uuid (ex. name), or return it by default
 
     _ = axum::serve(listener, app).await;
 }

@@ -1,12 +1,13 @@
+use crate::types::{
+    enums::{AircraftIssue, EngineerType, UserRole},
+    map::{MapMatrix, Point, Route},
+};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::types::{
-    enums::{AircraftIssue, EngineerType, UserRole},
-    map::{MapMatrix, Point, Route},
-};
+// Public handlers
 
 #[derive(Debug, Serialize)]
 pub struct MatrixResponse {
@@ -58,6 +59,18 @@ pub struct AssignEngineerResponse {
     pub route: Route,
 }
 
+#[derive(Deserialize, ToSchema)]
+pub struct GetUserNameRequest {
+    pub id: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct GetUserNameResponse {
+    pub name: String,
+}
+
+// auth handlers
+
 #[derive(Deserialize, ToSchema, Validate)]
 pub struct RegisterRequest {
     #[validate(email)]
@@ -91,4 +104,12 @@ pub struct UpdateAccessRequest {
 #[derive(Serialize, ToSchema)]
 pub struct UpdateAccessResponse {
     pub access_token: String,
+}
+
+// simulation handlers
+
+#[derive(Deserialize, ToSchema)]
+pub struct UpdateEngineerPositionRequest {
+    pub id: String,
+    pub new_point: Point,
 }
