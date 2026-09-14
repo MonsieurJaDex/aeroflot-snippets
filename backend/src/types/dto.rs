@@ -1,35 +1,12 @@
-use anyhow::anyhow;
+use crate::types::{
+    enums::{AircraftIssue, EngineerType, UserRole},
+    map::{Point, Route},
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::types::{
-    enums::{AircraftIssue, EngineerType, UserRole},
-    map::{MapMatrix, Point, Route},
-};
-
-#[derive(Debug, Serialize)]
-pub struct MatrixResponse {
-    pub width: usize,
-    pub height: usize,
-    pub matrix: MapMatrix,
-}
-
-impl MatrixResponse {
-    pub fn new(matrix: MapMatrix) -> anyhow::Result<Self> {
-        if matrix.0.is_empty() {
-            return Err(anyhow!("got empty matrix".to_string()));
-        }
-
-        let width = matrix.0[0].len();
-        let height = matrix.0.len();
-        Ok(Self {
-            matrix,
-            width,
-            height,
-        })
-    }
-}
+// Public handlers
 
 #[derive(Serialize, ToSchema)]
 pub struct GetRouteResponse {
@@ -57,6 +34,18 @@ pub struct AssignEngineerResponse {
     pub time_limit_exceeded: bool,
     pub route: Route,
 }
+
+#[derive(Deserialize, ToSchema)]
+pub struct GetUserNameRequest {
+    pub id: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct GetUserNameResponse {
+    pub name: String,
+}
+
+// auth handlers
 
 #[derive(Deserialize, ToSchema, Validate)]
 pub struct RegisterRequest {
@@ -91,4 +80,12 @@ pub struct UpdateAccessRequest {
 #[derive(Serialize, ToSchema)]
 pub struct UpdateAccessResponse {
     pub access_token: String,
+}
+
+// simulation handlers
+
+#[derive(Deserialize, ToSchema)]
+pub struct UpdateEngineerPositionRequest {
+    pub id: String,
+    pub new_point: Point,
 }

@@ -8,32 +8,6 @@ use utoipa::ToSchema;
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct MapMatrix(pub Vec<Vec<i64>>);
 
-impl MapMatrix {
-    pub fn new(width: usize, height: usize, initial: i64) -> Self {
-        let v = vec![vec![initial; width]; height];
-        Self(v)
-    }
-
-    pub fn empty_new() -> Self {
-        Self(vec![vec![]])
-    }
-
-    pub fn from_vec(initial: Vec<Vec<i64>>) -> anyhow::Result<Self> {
-        if initial.is_empty() {
-            return Err(anyhow!("initial vector is empty".to_string()));
-        }
-
-        let required_row_len = initial[0].len();
-        for row in &initial {
-            if row.len().ne(&required_row_len) {
-                return Err(anyhow!("invalid vector row length".to_string()));
-            }
-        }
-
-        Ok(Self(initial))
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ToSchema, Serialize, Deserialize)]
 pub struct Point(pub i64, pub i64);
 

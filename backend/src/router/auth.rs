@@ -10,7 +10,7 @@ use axum::{
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper};
 use redis::TypedCommands;
 use uuid::Uuid;
-use validator::{Validate, ValidateEmail};
+use validator::Validate;
 
 use crate::{
     database::schema,
@@ -18,7 +18,8 @@ use crate::{
     types::{
         config::AppState,
         dto::{
-            LoginRequest, LoginResponse, RegisterRequest, UpdateAccessRequest, UpdateAccessResponse,
+            GetUserNameRequest, GetUserNameResponse, LoginRequest, LoginResponse, RegisterRequest,
+            UpdateAccessRequest, UpdateAccessResponse,
         },
         enums::{AuthenticatedUser, UserRole},
     },
@@ -150,6 +151,59 @@ pub async fn register_handler(
         user_role: payload.user_role,
         access_token: access,
         refresh_token: refresh,
+    })
+    .into_response()
+}
+
+#[utoipa::path(
+    post,
+    path="/api/auth/get_engineer_name",
+    description="Login into existing user profile and get refresh and access tokens",
+    request_body=GetUserNameRequest,
+    responses(
+        (status=200, description="Successful fetch", body=LoginResponse),
+        (status=401, description="Engineer was not found", body=String),
+        (status=500, description="Server-side error happened", body=String)
+    )
+)]
+pub async fn get_engineer_name_handler(
+    State(app_state): State<Arc<AppState>>,
+    Json(payload): Json<GetUserNameRequest>,
+) -> Response<Body> {
+    let uuid: Uuid = match Uuid::parse_str(&payload.id) {
+        Ok(id) => id,
+        Err(_) => {
+            return (StatusCode::BAD_REQUEST, "invalid ID format, parsing faile").into_response();
+        }
+    };
+
+    let mut pg_conn = match app_state.db_pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "Error during extracting postgres connection from pool");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    let name: Option<String> = match schema::engineers::table
+        .filter(schema::engineers::id.eq(uuid))
+        .select(schema::engineers::name)
+        .first(&mut pg_conn)
+        .optional()
+    {
+        Ok(res) => res,
+        Err(e) => {
+            tracing::error!(error = %e, "Error during extracting engineer name from postgres");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    if name.is_none() {
+        return (StatusCode::BAD_REQUEST, "provided engineer was not found").into_response();
+    }
+
+    Json(GetUserNameResponse {
+        name: name.unwrap(),
     })
     .into_response()
 }

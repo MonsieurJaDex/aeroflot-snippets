@@ -1,5 +1,5 @@
 pub mod auth;
-mod simulate;
+pub mod simulate;
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -11,11 +11,10 @@ use axum::{
     response::IntoResponse,
 };
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use diesel::prelude::*;
 
 use redis::TypedCommands;
-use tracing_subscriber::fmt::format;
 use uuid::Uuid;
 
 use crate::{
@@ -70,11 +69,20 @@ pub async fn get_route(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GetRouteRequest>,
 ) -> Response<Body> {
+    let mut redis_conn = match app_state.redis_pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "Error during extracting redis connection from pool");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
     let res = crate::search::bfs(
         &app_state.map,
         Point::new(payload.start_point.0, payload.start_point.1),
         Point::new(payload.end_point.0, payload.end_point.1),
         &app_state.road_points,
+        &mut redis_conn,
     );
 
     match res {
@@ -199,6 +207,7 @@ pub async fn assign_engineer(
         payload.plane_point,
         &app_state.road_points,
         &engineers_positions,
+        &mut redis_conn,
     ) {
         Ok(r) => r,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
@@ -213,9 +222,6 @@ pub async fn assign_engineer(
     const SPEED: f32 = 0.05;
 
     let required_time = route.len() as f32 / SPEED;
-
-    // TODO: after auth, automaticly evaluate dispatcher uuid, push Task into postgres then teleport engineer
-    // make simulated.rs, add container
 
     let utc_now = Utc::now();
 
