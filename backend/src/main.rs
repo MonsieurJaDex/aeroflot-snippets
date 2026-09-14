@@ -8,6 +8,7 @@ use crate::{
     },
 };
 use clap::Parser;
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::{collections::HashSet, process, sync::Arc, time::Duration};
 use utoipa::OpenApi;
 
@@ -36,6 +37,8 @@ mod router;
 mod search;
 mod types;
 mod utils;
+
+const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
 #[tokio::main]
 async fn main() {
@@ -89,6 +92,30 @@ async fn main() {
             process::exit(1);
         }
     };
+
+    // run database migrations from diesel
+
+    match db_pool.get() {
+        Ok(mut pool) => match pool.run_pending_migrations(MIGRATIONS) {
+            Ok(_) => (),
+            Err(e) => {
+                tracing::error!(
+                    "Error during database pool using for migrations pending: {}",
+                    e
+                );
+                process::exit(1);
+            }
+        },
+        Err(e) => {
+            tracing::error!(
+                "Error during database pool using for migrations pending: {}",
+                e
+            );
+            process::exit(1);
+        }
+    }
+
+    // application API layer
 
     let app_state = Arc::new(AppState {
         road_points: roads,
