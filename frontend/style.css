@@ -59,8 +59,27 @@ body { display: flex; overflow: hidden; }
 .agent-free { background: #159b72; }
 .agent-busy { background: #e17d32; }
 .route-marker { width: 12px; height: 12px; background: var(--blue); border: 3px solid #f2f4f6; border-radius: 50%; box-shadow: 0 1px 6px #0009; }
-.role-link { color: var(--text); font-size: 11px; font-weight: 700; text-decoration: none; border: 1px solid var(--border); border-radius: 4px; padding: 7px 8px; white-space: nowrap; }
+.role-link { color: var(--text); font-size: 11px; font-weight: 700; text-decoration: none; border: 1px solid var(--border); border-radius: 4px; padding: 7px 8px; white-space: nowrap; background: none; cursor: pointer; font-family: inherit; }
 .role-link:hover { border-color: var(--blue); color: var(--blue); }
+.account-strip { display: flex; justify-content: space-between; align-items: center; margin: -12px 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); color: var(--text); font-size: 13px; font-weight: 700; }
+.api-config { margin: 4px 0 24px; color: var(--muted); font-size: 12px; }
+.api-config summary { cursor: pointer; color: var(--blue); font-weight: 700; }
+.api-config-row { display: flex; gap: 8px; margin-top: 10px; max-width: 420px; }
+.api-config-row input { flex: 1; padding: 9px 10px; border: 1px solid var(--border); border-radius: 4px; background: #0d0f12; color: var(--text); }
+.api-config-row button { border: 1px solid var(--border); border-radius: 4px; background: var(--panel-2); color: var(--text); padding: 0 14px; cursor: pointer; font-weight: 700; }
+.role-card { background: rgba(16,21,27,.85); border: 1px solid var(--border); font-family: inherit; text-align: left; cursor: pointer; }
+.auth-panel { max-width: 420px; margin-top: 8px; padding: 22px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 10px 28px #0003; }
+.auth-tabs { display: flex; gap: 8px; margin-bottom: 18px; align-items: center; }
+.auth-tab { flex: 1; padding: 9px; border: 1px solid var(--border); border-radius: 4px; background: #0d0f12; color: var(--muted); font-weight: 700; cursor: pointer; }
+.auth-tab.active { color: var(--text); border-color: var(--blue); }
+.auth-close { border: 1px solid var(--border); border-radius: 4px; background: none; color: var(--muted); padding: 9px 10px; cursor: pointer; font-weight: 700; }
+.auth-form { display: flex; flex-direction: column; gap: 12px; }
+.auth-form label { color: var(--muted); font-size: 12px; font-weight: 700; }
+.auth-form input, .auth-form select { display: block; width: 100%; margin-top: 5px; padding: 10px; border: 1px solid var(--border); border-radius: 4px; background: #0d0f12; color: var(--text); }
+.auth-form button[type=submit] { margin-top: 4px; padding: 11px; border: 0; border-radius: 4px; background: var(--accent); color: #fff; font-weight: 800; cursor: pointer; }
+.auth-form button[type=submit]:hover { background: #ff3037; }
+.auth-error { margin-top: 14px; color: #ff747c; font-size: 13px; }
+.auth-status { margin-top: 10px; color: var(--muted); font-size: 12px; }
 .role-page { display: block; min-height: 100%; overflow: auto; background: linear-gradient(125deg, #07090c, #101d27 64%, #182b37); }
 .role-shell { width: min(900px, calc(100% - 40px)); margin: 0 auto; padding: min(14vh, 130px) 0 64px; }
 .role-shell h1 { max-width: 620px; margin: 0; font-family: "PT Sans Narrow", sans-serif; font-size: clamp(42px, 7vw, 70px); line-height: .94; letter-spacing: .015em; }

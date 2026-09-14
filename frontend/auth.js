@@ -1,0 +1,192 @@
+// Общий модуль авторизации и работы с реальным API бэкенда (Axum + JWT).
+const AeroAuth = (() => {
+  const SESSION_KEY = "oto-session";
+  const API_BASE_KEY = "oto-api-base";
+  const DEFAULT_API_BASE = "http://127.0.0.1:3001";
+
+  const AIRCRAFT_ISSUES = [
+    ["fuel_leak_from_drain_cap", "Подтекание топлива из дренажных колпачков"],
+    ["oil_stain_near_gearbox", "Масляные пятна в районе редуктора"],
+    ["hydraulic_leak_on_strut", "Следы гидравлики на штоках амортизаторов шасси"],
+    ["fairing_chip_or_scratch", "Сколы и царапины на обтекателях/антеннах/фонарях"],
+    ["paint_peeling_at_rivets", "Отслоение краски в зонах клёпки"],
+    ["missing_pitot_cover", "Отсутствие заглушек на приёмниках давления"],
+    ["uneven_tread_wear", "Неравномерный износ протектора"],
+    ["tire_cut_to_cord", "Порезы до корда"],
+    ["low_tire_pressure", "Низкое давление в шинах"],
+    ["indication_fault", "Сбои индикации (лампа, предохранитель)"],
+    ["loose_connector", "Ослабленный разъём"],
+    ["seatbelt_adjustment", "Регулировка привязных ремней"],
+    ["burned_out_signal_lamp", "Перегоревшая светосигнальная лампа"],
+    ["thrust_or_parameter_drop", "Падение тяги/оборотов/температуры газов"],
+    ["excessive_vibration", "Повышенная вибрация (дисбаланс)"],
+    ["metal_debris_in_oil_filter", "Стружка в маслофильтре"],
+    ["radar_failure_or_false_reading", "Отказ/ложные показания РЛС"],
+    ["comms_loss_or_distortion", "Потеря связи / искажение сигнала"],
+    ["ins_gyro_drift", "Уход гироплатформы ИНС"],
+    ["other", "Другое"],
+  ];
+
+  const ENGINEER_TYPES = [
+    ["integrity_inspector", "Инспектор целостности и герметичности"],
+    ["crew_remarks_handler", "Обработка замечаний экипажа"],
+    ["fueling_crew", "Заправка (топливо/масло/кислород)"],
+    ["engine_technician", "Техник по двигателю"],
+    ["avionics_engineer", "Инженер по авионике"],
+    ["aviation_technician", "Авиатехник (диагностика/ремонт)"],
+  ];
+
+  function getApiBase() {
+    return localStorage.getItem(API_BASE_KEY) || DEFAULT_API_BASE;
+  }
+
+  function setApiBase(value) {
+    localStorage.setItem(API_BASE_KEY, value.replace(/\/$/, ""));
+  }
+
+  function getSession() {
+    return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+  }
+
+  function saveSession(session) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  }
+
+  function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
+  }
+
+  function decodeJwtPayload(token) {
+    const part = token.split(".")[1];
+    const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(decodeURIComponent(escape(atob(base64))));
+  }
+
+  async function tryRefresh() {
+    const session = getSession();
+    if (!session || !session.refreshToken) return false;
+    try {
+      const res = await fetch(`${getApiBase()}/api/auth/update_access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: session.refreshToken }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      session.accessToken = data.access_token;
+      saveSession(session);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function apiRequest(path, { method = "GET", body, auth = true, retry = true } = {}) {
+    const headers = { "Content-Type": "application/json" };
+    if (auth) {
+      const session = getSession();
+      if (!session) throw new Error("Нет активной сессии, войдите заново.");
+      headers.Authorization = `Bearer ${session.accessToken}`;
+    }
+
+    const res = await fetch(`${getApiBase()}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (res.status === 401 && auth && retry) {
+      const refreshed = await tryRefresh();
+      if (refreshed) return apiRequest(path, { method, body, auth, retry: false });
+      clearSession();
+      window.location.href = "index.html";
+      throw new Error("Сессия истекла, требуется повторный вход.");
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || `Ошибка запроса: ${res.status}`);
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+    return contentType.includes("application/json") ? res.json() : res.text();
+  }
+
+  async function login(email, password) {
+    const data = await apiRequest("/api/auth/login", {
+      method: "POST",
+      auth: false,
+      body: { email, password },
+    });
+    const payload = decodeJwtPayload(data.access_token);
+    const session = {
+      name: data.name,
+      role: data.user_role,
+      userId: payload.sub,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+    };
+    saveSession(session);
+    return session;
+  }
+
+  async function register({ email, name, password, userRole, engineerType }) {
+    const data = await apiRequest("/api/auth/register", {
+      method: "POST",
+      auth: false,
+      body: {
+        email,
+        name,
+        password,
+        user_role: userRole,
+        engineer_type: engineerType || null,
+      },
+    });
+    const payload = decodeJwtPayload(data.access_token);
+    const session = {
+      name: data.name,
+      role: data.user_role,
+      userId: payload.sub,
+      engineerType: engineerType || null,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+    };
+    saveSession(session);
+    return session;
+  }
+
+  function logout() {
+    clearSession();
+    window.location.href = "index.html";
+  }
+
+  function requireRole(role) {
+    const session = getSession();
+    if (!session || session.role !== role) {
+      window.location.href = "index.html";
+      return null;
+    }
+    return session;
+  }
+
+  function issueLabel(value) {
+    const found = AIRCRAFT_ISSUES.find(([v]) => v === value);
+    return found ? found[1] : value;
+  }
+
+  return {
+    AIRCRAFT_ISSUES,
+    ENGINEER_TYPES,
+    getApiBase,
+    setApiBase,
+    getSession,
+    saveSession,
+    clearSession,
+    apiRequest,
+    login,
+    register,
+    logout,
+    requireRole,
+    issueLabel,
+  };
+})();
