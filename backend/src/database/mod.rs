@@ -7,6 +7,7 @@ use diesel::{
 };
 use redis::Client;
 
+
 pub mod schema;
 
 pub async fn establish_pg_connection(

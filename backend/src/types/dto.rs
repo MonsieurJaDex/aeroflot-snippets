@@ -1,9 +1,10 @@
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use validator::Validate;
 
 use crate::types::{
-    enums::AircraftIssue,
+    enums::{AircraftIssue, EngineerType, UserRole},
     map::{MapMatrix, Point, Route},
 };
 
@@ -44,7 +45,6 @@ pub struct GetRouteRequest {
 
 #[derive(Deserialize, ToSchema)]
 pub struct AssignEngineerRequest {
-    pub dispatcher_uuid: String,
     pub issue: AircraftIssue,
     pub plane_point: Point,
     pub description: String,
@@ -53,7 +53,42 @@ pub struct AssignEngineerRequest {
 #[derive(Serialize, ToSchema)]
 pub struct AssignEngineerResponse {
     pub engineer_uuid: String,
-    pub time: f32,
+    pub time: u64,
     pub time_limit_exceeded: bool,
     pub route: Route,
+}
+
+#[derive(Deserialize, ToSchema, Validate)]
+pub struct RegisterRequest {
+    #[validate(email)]
+    pub email: String,
+    pub name: String,
+    pub password: String,
+    pub user_role: UserRole,
+    pub engineer_type: Option<EngineerType>,
+}
+
+#[derive(Deserialize, ToSchema, Validate)]
+pub struct LoginRequest {
+    #[validate(email)]
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct LoginResponse {
+    pub name: String,
+    pub user_role: UserRole,
+    pub access_token: String,
+    pub refresh_token: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct UpdateAccessRequest {
+    pub refresh_token: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct UpdateAccessResponse {
+    pub access_token: String,
 }

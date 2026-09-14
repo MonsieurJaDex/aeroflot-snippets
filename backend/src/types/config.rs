@@ -34,6 +34,7 @@ pub struct AppConfig {
     pub debug: bool,
     pub database_url: String,
     pub redis_url: String,
+    pub jwt_secret: String,
 }
 
 impl AppConfig {
@@ -56,6 +57,7 @@ impl AppConfig {
         let debug: bool = AppConfig::parse_env("debug")?;
         let database_url: String = AppConfig::parse_env("database_url")?;
         let redis_url: String = AppConfig::parse_env("redis_url")?;
+        let jwt_secret: String = AppConfig::parse_env("jwt_secret")?;
 
         anyhow::Result::Ok(Self {
             host,
@@ -63,6 +65,7 @@ impl AppConfig {
             debug,
             database_url,
             redis_url,
+            jwt_secret,
         })
     }
 }
@@ -73,4 +76,5 @@ pub struct AppState {
     pub map: MapMatrix,
     pub db_pool: Pool<ConnectionManager<PgConnection>>,
     pub redis_pool: Pool<Client>,
+    pub jwt_secret: String,
 }
