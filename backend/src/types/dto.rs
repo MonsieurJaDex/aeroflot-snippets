@@ -1,36 +1,12 @@
 use crate::types::{
     enums::{AircraftIssue, EngineerType, UserRole},
-    map::{MapMatrix, Point, Route},
+    map::{Point, Route},
 };
-use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
 // Public handlers
-
-#[derive(Debug, Serialize)]
-pub struct MatrixResponse {
-    pub width: usize,
-    pub height: usize,
-    pub matrix: MapMatrix,
-}
-
-impl MatrixResponse {
-    pub fn new(matrix: MapMatrix) -> anyhow::Result<Self> {
-        if matrix.0.is_empty() {
-            return Err(anyhow!("got empty matrix".to_string()));
-        }
-
-        let width = matrix.0[0].len();
-        let height = matrix.0.len();
-        Ok(Self {
-            matrix,
-            width,
-            height,
-        })
-    }
-}
 
 #[derive(Serialize, ToSchema)]
 pub struct GetRouteResponse {
