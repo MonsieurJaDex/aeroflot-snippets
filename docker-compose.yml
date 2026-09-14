@@ -1,6 +1,6 @@
 services:
   backend:
-    image: mrjadex/aeroflot-backend
+    image: mrjadex/aeroflot-backend:latest
     restart: unless-stopped
     ports:
       - "3001:3001"
