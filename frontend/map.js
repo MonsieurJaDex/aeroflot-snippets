@@ -233,11 +233,20 @@ async function main() {
       icon: L.divIcon({ className: "route-marker", html: "", iconSize: [12, 12], iconAnchor: [6, 6] }),
     }).bindTooltip(stand.id, { permanent: true, direction: "top", className: "map-label", offset: [0, -5] }).addTo(standsLayer);
   }
-  for (const agent of AGENTS) {
-    L.marker(agentPoint(agent), {
-      icon: L.divIcon({ className: `agent-marker agent-${agent.status}`, html: "", iconSize: [28, 28], iconAnchor: [14, 14] }),
-    }).bindTooltip(`${agent.name} · ${agent.status === "free" ? "свободен" : "занят"}`, { direction: "top" }).addTo(staffLayer);
+  function renderStaffMarkers() {
+    const assignment = JSON.parse(localStorage.getItem("oto-assignment") || "null");
+    const effectiveStatus = (agent) => assignment && assignment.engineerId === agent.id ? "busy" : agent.status;
+
+    staffLayer.clearLayers();
+    for (const agent of AGENTS) {
+      const status = effectiveStatus(agent);
+      L.marker(agentPoint(agent), {
+        icon: L.divIcon({ className: `agent-marker agent-${status}`, html: "", iconSize: [28, 28], iconAnchor: [14, 14] }),
+      }).bindTooltip(`${agent.name} · ${status === "free" ? "свободен" : "занят"}`, { direction: "top" }).addTo(staffLayer);
+    }
   }
+
+  renderStaffMarkers();
 
   let routeLayer = null;
   const gridControl = document.getElementById("toggle-grid");
@@ -285,6 +294,7 @@ async function main() {
     }));
     result.className = "assignment-result success";
     result.innerHTML = `<strong>${winner.agent.name}</strong><br>${winner.agent.skillName}<br>Маршрут: <strong>${distanceCells} клеток</strong><br>ETA: <strong>${eta} мин</strong> · лимит 15 мин`;
+    renderStaffMarkers();
     map.fitBounds(routeLayer.getBounds(), { padding: [80, 80], maxZoom: 3 });
   });
 

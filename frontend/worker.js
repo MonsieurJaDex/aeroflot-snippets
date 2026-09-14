@@ -26,11 +26,28 @@ function selectedAgent() {
   return AGENTS.find((agent) => agent.id === selectedWorker.value);
 }
 
+function currentStatusForAgent(agentId) {
+  const task = JSON.parse(localStorage.getItem("oto-assignment") || "null");
+  if (!task) return "free";
+  return task.engineerId === agentId ? "busy" : "free";
+}
+
 function updateProfile() {
   const agent = selectedAgent();
-  document.getElementById("worker-skill").textContent = agent.skillName;
-  document.getElementById("worker-status").textContent = agent.status === "free" ? "Свободен" : "Занят";
-  document.getElementById("worker-status").className = `worker-status ${agent.status}`;
+  const status = currentStatusForAgent(agent.id);
+  const initials = agent.name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  document.getElementById("account-avatar").textContent = initials;
+  document.getElementById("account-name").textContent = agent.name;
+  document.getElementById("account-role").textContent = `${agent.skillName} · ${agent.id}`;
+  document.getElementById("worker-skill").textContent = `${agent.skillName} · ${agent.id}`;
+  document.getElementById("worker-status").textContent = status === "free" ? "Свободен" : "Занят";
+  document.getElementById("worker-status").className = `worker-status ${status}`;
 }
 
 function renderTask() {
@@ -99,6 +116,7 @@ acceptButton.addEventListener("click", () => {
   if (!task) return;
   task.accepted = true;
   localStorage.setItem("oto-assignment", JSON.stringify(task));
+  updateProfile();
   renderTask();
 });
 
