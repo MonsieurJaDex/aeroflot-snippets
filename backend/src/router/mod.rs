@@ -69,11 +69,20 @@ pub async fn get_route(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GetRouteRequest>,
 ) -> Response<Body> {
+    let mut redis_conn = match app_state.redis_pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "Error during extracting redis connection from pool");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
     let res = crate::search::bfs(
         &app_state.map,
         Point::new(payload.start_point.0, payload.start_point.1),
         Point::new(payload.end_point.0, payload.end_point.1),
         &app_state.road_points,
+        &mut redis_conn,
     );
 
     match res {
@@ -198,6 +207,7 @@ pub async fn assign_engineer(
         payload.plane_point,
         &app_state.road_points,
         &engineers_positions,
+        &mut redis_conn,
     ) {
         Ok(r) => r,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),

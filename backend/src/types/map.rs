@@ -1,6 +1,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use anyhow::{Ok, anyhow};
+use redis::ToSingleRedisArg;
 use serde::{Deserialize, Serialize};
 use serde_json::from_str;
 use utoipa::ToSchema;

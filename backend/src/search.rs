@@ -1,12 +1,12 @@
 use crate::types::map::Route;
 use anyhow::{Ok, Result, anyhow};
+use diesel::r2d2::PooledConnection;
+use redis::{Client, TypedCommands};
 use uuid::Uuid;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::types::map::{MapMatrix, Point};
-
-// TODO: add route caching
 
 // start-to-end path finding BFS
 pub fn bfs(
@@ -14,6 +14,7 @@ pub fn bfs(
     start: Point,
     end: Point,
     road_points: &HashSet<i64>,
+    redis_conn: &mut PooledConnection<Client>,
 ) -> Result<Route> {
     let row_len = matrix
         .0
@@ -37,6 +38,21 @@ pub fn bfs(
 
     if start == end {
         return Ok(Route::new(vec![start]));
+    }
+
+    let path_key = Route::new(vec![start, end]).compute_universal_key();
+
+    match redis_conn.get(&path_key) {
+        Result::Ok(Some(cached)) => match serde_json::from_str::<Vec<Point>>(&cached) {
+            Result::Ok(parsed) => return Ok(Route::new(parsed)),
+            Result::Err(e) => {
+                tracing::warn!(error = %e, key = %path_key, "failed to deserialize cached route, recomputing");
+            }
+        },
+        Result::Ok(None) => {}
+        Result::Err(e) => {
+            tracing::warn!(error = %e, key = %path_key, "redis get failed, recomputing route");
+        }
     }
 
     let mut q = VecDeque::new();
@@ -76,16 +92,31 @@ pub fn bfs(
             parent_map.insert(next_point, Some(p));
 
             if next_point == end {
-                let mut route = Vec::new();
+                let mut route_points = Vec::new();
                 let mut current = Some(next_point);
 
                 while let Some(pt) = current {
-                    route.push(pt);
+                    route_points.push(pt);
                     current = *parent_map.get(&pt).unwrap_or(&None);
                 }
 
-                route.reverse();
-                return Ok(Route::new(route));
+                route_points.reverse();
+                let route = Route::new(route_points);
+
+                let value: Vec<String> = route.get_vec().iter().map(|x| x.as_value()).collect();
+
+                match serde_json::to_string(&value) {
+                    Result::Ok(serialized) => {
+                        if let Err(e) = redis_conn.set(&path_key, serialized) {
+                            tracing::warn!(error = %e, key = %path_key, "failed to cache computed route");
+                        }
+                    }
+                    Result::Err(e) => {
+                        tracing::warn!(error = %e, "failed to serialize route for caching");
+                    }
+                }
+
+                return Ok(route);
             }
 
             q.push_back(next_point);
@@ -100,6 +131,7 @@ pub fn find_nearest(
     start: Point,
     road_points: &HashSet<i64>,
     engineer_positions: &HashMap<Point, Uuid>,
+    redis_conn: &mut PooledConnection<Client>,
 ) -> anyhow::Result<Route> {
     if start.1 < 0 || start.1 as usize >= matrix.0.len() {
         return Err(anyhow!("start Y point out of matrix bound"));
@@ -109,7 +141,7 @@ pub fn find_nearest(
         return Err(anyhow!("start X point out of matrix bound"));
     }
 
-    if *&engineer_positions.get(&start).is_some() {
+    if engineer_positions.get(&start).is_some() {
         return Ok(Route::new(vec![]));
     }
 
@@ -160,7 +192,22 @@ pub fn find_nearest(
                     current = *parent_map.get(&pt).unwrap_or(&None);
                 }
 
-                return Ok(Route::new(route));
+                let route = Route::new(route);
+
+                let value: Vec<String> = route.get_vec().iter().map(|x| x.as_value()).collect();
+
+                match serde_json::to_string(&value) {
+                    Result::Ok(serialized) => {
+                        if let Err(e) = redis_conn.set(&route.compute_universal_key(), serialized) {
+                            tracing::warn!(error = %e, "failed to cache find_nearest route");
+                        }
+                    }
+                    Result::Err(e) => {
+                        tracing::warn!(error = %e, "failed to serialize route for caching");
+                    }
+                }
+
+                return Ok(route);
             }
 
             q.push_back(next_point);
