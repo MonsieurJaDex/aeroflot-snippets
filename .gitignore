@@ -1,9 +1,14 @@
+# builds
+*target/
+
 # backend
-/backend/target/*
 /backend/assets/*
 /backend/.cargo
 
 /.DS_Store
+
+# tools/parser
+/tools/parser/assets/*
 
 # MISC
 .env

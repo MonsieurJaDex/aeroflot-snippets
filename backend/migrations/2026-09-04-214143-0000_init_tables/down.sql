@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS engineers;
+DROP TABLE IF EXISTS dispatchers;
+DROP TYPE IF EXISTS aircraft_issue;
+DROP TYPE IF EXISTS engineer_type;
