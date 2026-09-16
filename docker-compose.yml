@@ -18,6 +18,15 @@ services:
       redis:
         condition: service_healthy
 
+  scheduler:
+    image: mrjadex/aeroflot-scheduler
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:15.19
     restart: unless-stopped

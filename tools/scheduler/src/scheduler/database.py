@@ -1,10 +1,10 @@
-from asyncio import sleep
 import os
+from asyncio import sleep
 from datetime import UTC, datetime
 
 import asyncpg
 
-from scheduler.logger import logger
+from .logger import logger
 
 
 async def deactivate_expired_tasks():
