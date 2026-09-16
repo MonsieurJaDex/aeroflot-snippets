@@ -16,7 +16,7 @@ use crate::types::map::{MapMatrix, Point};
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(get_map, get_route, assign_engineer, login_handler, register_handler, update_access_token, get_engineer_name_handler, get_engineers_positions, update_engineer_position_handler, active_engineers, get_transport_positions, update_transport_position_handler),
+    paths(get_map, get_route, assign_engineer, login_handler, register_handler, update_access_token, get_engineer_name_handler, get_engineers_positions, update_engineer_position_handler, active_engineers, get_transport_positions, update_transport_position_handler, accept_current_task, get_current_task),
     components(schemas(
         MapMatrix,
         Point,
