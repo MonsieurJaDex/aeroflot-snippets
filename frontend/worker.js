@@ -1,7 +1,6 @@
 const taskContent = document.getElementById("task-content");
 const taskState = document.getElementById("task-state");
 const acceptButton = document.getElementById("accept-task");
-const routePreview = document.getElementById("route-preview");
 const notice = document.getElementById("worker-notice");
 const mapDistance = document.getElementById("map-distance");
 const workerMap = L.map("worker-map", { crs: L.CRS.Simple, zoomControl: false, attributionControl: false, minZoom: -1, maxZoom: 3 });
@@ -45,7 +44,6 @@ function renderTask(task) {
     taskContent.textContent = "Новых заявок нет.";
     taskState.textContent = "ОЖИДАНИЕ";
     acceptButton.hidden = true;
-    routePreview.hidden = true;
     notice.textContent = "Ожидание назначения от диспетчера.";
     renderRouteMap(null);
     return;
@@ -56,8 +54,6 @@ function renderTask(task) {
   taskContent.innerHTML = `<strong>ВС: ${standLabel(task.plane_point)}</strong><br>${issueLabel}<br>${task.description}<br>${routeInstruction(task.route)}<br>Маршрут: ${distanceCells} клеток`;
   taskState.textContent = task.is_accepted ? "В РАБОТЕ" : "НОВОЕ";
   acceptButton.hidden = task.is_accepted;
-  routePreview.hidden = false;
-  routePreview.textContent = task.route.map((point) => `[${point[0]}, ${point[1]}]`).join(" → ");
   notice.textContent = task.is_accepted ? "Задание принято. Следуйте к месту стоянки." : "Диспетчер назначил вас на заявку.";
   renderRouteMap(task);
 }
