@@ -138,11 +138,14 @@ body { display: flex; overflow: hidden; }
 .task-content strong { color: var(--text); font-size: 16px; }
 #accept-task { width: 100%; border: 0; border-radius: 4px; padding: 11px; background: var(--accent); color: #fff; font-weight: 800; cursor: pointer; }
 .notice-card { margin-top: 16px; color: var(--muted); }
+.worker-toast { position: fixed; right: 24px; bottom: 24px; z-index: 1000; max-width: min(360px, calc(100% - 32px)); padding: 13px 16px; border: 1px solid rgba(83,211,156,.55); border-radius: 8px; background: #10271f; color: #c8f7df; box-shadow: 0 14px 32px #0008; font-weight: 700; animation: toast-in .2s ease-out; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .worker-map-card { margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 18px; box-shadow: 0 10px 28px #0003; }
 #worker-map { height: 360px; background-color: #1b252d; background-image: linear-gradient(rgba(190, 218, 232, .07) 1px, transparent 1px), linear-gradient(90deg, rgba(190, 218, 232, .07) 1px, transparent 1px); background-size: 24px 24px; }
 .worker-map-engineer, .worker-map-stand { width: 18px; height: 18px; border: 3px solid #f7f9fa; border-radius: 50%; box-shadow: 0 2px 8px #0009; }
 .worker-map-engineer { background: var(--green); }
 .worker-map-stand { background: var(--blue); }
 @media (max-width: 700px) { .worker-shell { width: min(100% - 24px, 960px); padding-top: 22px; } .worker-header, .worker-grid { display: block; } .worker-header .role-link { display: inline-block; margin-top: 14px; } .assignment-card, .notice-card { margin-top: 14px; } }
+@media (max-width: 700px) { .worker-toast { right: 16px; bottom: 16px; } }
 @media (max-width: 700px) { .role-shell { width: min(100% - 28px, 900px); padding-top: 56px; } .role-grid { grid-template-columns: 1fr; } .role-card { min-height: 205px; } }
 @media (max-width: 700px) { body { display: block; overflow: auto; } #sidebar { width: 100%; min-width: 0; height: auto; } #map { height: 65vh; min-height: 420px; } }

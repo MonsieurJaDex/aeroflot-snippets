@@ -2,11 +2,15 @@ const taskContent = document.getElementById("task-content");
 const taskState = document.getElementById("task-state");
 const acceptButton = document.getElementById("accept-task");
 const notice = document.getElementById("worker-notice");
+const toast = document.getElementById("worker-toast");
 const mapDistance = document.getElementById("map-distance");
 const workerMap = L.map("worker-map", { crs: L.CRS.Simple, zoomControl: false, attributionControl: false, minZoom: -1, maxZoom: 3 });
 const mapBounds = [[0, 0], [64, 64]];
 let workerRouteLayer = null;
 let workerMarkers = null;
+let previousTaskId = null;
+let previousTaskAccepted = null;
+let toastTimer = null;
 
 L.control.zoom({ position: "bottomright" }).addTo(workerMap);
 workerMap.fitBounds(mapBounds);
@@ -39,6 +43,15 @@ function standLabel(planePoint) {
 }
 
 function renderTask(task) {
+  const taskChanged = task && task.id !== previousTaskId;
+  const taskClosed = !task && previousTaskId;
+  const taskAccepted = task && task.is_accepted && previousTaskAccepted === false;
+  if (taskChanged) showToast("Новое назначение получено");
+  if (taskAccepted) showToast("Задание принято и переведено в работу");
+  if (taskClosed) showToast("Задача закрыта диспетчером");
+  previousTaskId = task ? task.id : null;
+  previousTaskAccepted = task ? task.is_accepted : null;
+
   updateProfile(task);
   if (!task) {
     taskContent.textContent = "Новых заявок нет.";
@@ -56,6 +69,15 @@ function renderTask(task) {
   acceptButton.hidden = task.is_accepted;
   notice.textContent = task.is_accepted ? "Задание принято. Следуйте к месту стоянки." : "Диспетчер назначил вас на заявку.";
   renderRouteMap(task);
+}
+
+function showToast(message) {
+  toast.textContent = message;
+  toast.hidden = false;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    toast.hidden = true;
+  }, 4500);
 }
 
 function renderRouteMap(task) {
