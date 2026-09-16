@@ -44,7 +44,7 @@
     <section class="auth-panel" id="auth-panel" hidden>
       <div class="auth-card-head">
         <div>
-          <div class="auth-role-badge" id="auth-role-badge">Диспетчер</div>
+          <div class="auth-role-badge" id="auth-role-badge">Выбор роли</div>
           <div class="auth-card-title">Доступ к системе</div>
         </div>
         <button class="auth-close" type="button" id="auth-close">Назад</button>
@@ -105,7 +105,9 @@
         roleGrid.hidden = true;
         authPanel.hidden = false;
         document.getElementById("auth-error").hidden = true;
-        document.getElementById("auth-status").textContent = `Роль: ${selectedRole === "Dispatcher" ? "Диспетчер" : "Инженер ОТО"}`;
+        const roleLabel = selectedRole === "Dispatcher" ? "Диспетчер" : "Инженер ОТО";
+        document.getElementById("auth-role-badge").textContent = roleLabel;
+        document.getElementById("auth-status").textContent = `Роль: ${roleLabel}`;
       });
     });
 
