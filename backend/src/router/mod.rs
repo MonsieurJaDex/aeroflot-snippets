@@ -187,6 +187,42 @@ pub async fn accept_current_task(
 
 #[utoipa::path(
     post,
+    path="/api/tasks/current/close",
+    responses((status=200, description="Current task closed"), (status=403, description="Only dispatchers can close tasks"), (status=404, description="No active task found")),
+    params(("Authorization" = String, Header, description="Bearer authorization access token"))
+)]
+pub async fn close_current_task(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> Response<Body> {
+    if auth_user.role != UserRole::Dispatcher {
+        return (StatusCode::FORBIDDEN, "only dispatchers can close tasks").into_response();
+    }
+
+    let mut pg_conn = match app_state.db_pool.get() {
+        Ok(connection) => connection,
+        Err(error) => {
+            tracing::error!(error = %error, "error during postgres connection extraction");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    use self::tasks::dsl::*;
+    match diesel::update(tasks.filter(created_by.eq(auth_user.id)).filter(is_active.eq(true)))
+        .set(is_active.eq(false))
+        .execute(&mut pg_conn)
+    {
+        Ok(0) => (StatusCode::NOT_FOUND, "no active task found").into_response(),
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "error during task closing");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
     path="/api/assign",
     description="Find nearest suitable engineer and assign to an aircraft",
     request_body=AssignEngineerRequest,
