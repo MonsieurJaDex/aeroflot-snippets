@@ -24,9 +24,9 @@ use crate::{
     search::find_nearest,
     types::{
         config::AppState,
-        dto::{AssignEngineerRequest, AssignEngineerResponse, GetRouteRequest, GetRouteResponse},
+        dto::{AssignEngineerRequest, AssignEngineerResponse, CurrentTaskResponse, GetRouteRequest, GetRouteResponse},
         enums::UserRole,
-        map::{MapMatrix, Point},
+        map::{MapMatrix, Point, Route},
     },
 };
 
@@ -88,6 +88,100 @@ pub async fn get_route(
     match res {
         Ok(r) => (StatusCode::OK, Json(r)).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path="/api/tasks/current",
+    responses((status=200, description="Current active task for the authenticated engineer", body=Option<CurrentTaskResponse>)),
+    params(("Authorization" = String, Header, description="Bearer authorization access token"))
+)]
+pub async fn get_current_task(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> Response<Body> {
+    if auth_user.role != UserRole::Engineer {
+        return (StatusCode::FORBIDDEN, "only engineers can view their tasks").into_response();
+    }
+
+    let mut pg_conn = match app_state.db_pool.get() {
+        Ok(connection) => connection,
+        Err(error) => {
+            tracing::error!(error = %error, "error during postgres connection extraction");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    use self::tasks::dsl::*;
+    let task = match tasks
+        .filter(assigned_engineer.eq(auth_user.id))
+        .filter(is_active.eq(true))
+        .order(created_at.desc())
+        .select(Task::as_select())
+        .first::<Task>(&mut pg_conn)
+        .optional()
+    {
+        Ok(task) => task,
+        Err(error) => {
+            tracing::error!(error = %error, "error during current task loading");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    match task {
+        Some(task) => match serde_json::from_str::<Route>(&task.task_route) {
+            Ok(route) => Json(Some(CurrentTaskResponse {
+                id: task.id.to_string(),
+                description: task.description,
+                issue: task.issue_type,
+                plane_point: Point::new(task.plane_x, task.plane_y),
+                route,
+                is_accepted: task.is_accepted,
+            }))
+            .into_response(),
+            Err(error) => {
+                tracing::error!(error = %error, task_id = %task.id, "stored task route could not be parsed");
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
+        },
+        None => Json(Option::<CurrentTaskResponse>::None).into_response(),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path="/api/tasks/current/accept",
+    responses((status=200, description="Current task accepted"), (status=404, description="No active task found")),
+    params(("Authorization" = String, Header, description="Bearer authorization access token"))
+)]
+pub async fn accept_current_task(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> Response<Body> {
+    if auth_user.role != UserRole::Engineer {
+        return (StatusCode::FORBIDDEN, "only engineers can accept tasks").into_response();
+    }
+
+    let mut pg_conn = match app_state.db_pool.get() {
+        Ok(connection) => connection,
+        Err(error) => {
+            tracing::error!(error = %error, "error during postgres connection extraction");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    use self::tasks::dsl::*;
+    match diesel::update(tasks.filter(assigned_engineer.eq(auth_user.id)).filter(is_active.eq(true)))
+        .set(is_accepted.eq(true))
+        .execute(&mut pg_conn)
+    {
+        Ok(0) => (StatusCode::NOT_FOUND, "no active task found").into_response(),
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "error during current task acceptance");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -198,11 +292,13 @@ pub async fn assign_engineer(
                 None =>
                     tracing::warn!(uuid = %u, "engineer's position was not found in redis. Skipped."),
             },
-            Err(_) => todo!(),
+            Err(error) => {
+                tracing::warn!(error = %error, uuid = %u, "engineer's position could not be loaded. Skipped.");
+            }
         };
     });
 
-    let route = match find_nearest(
+    let found_route = match find_nearest(
         &app_state.map,
         payload.plane_point,
         &app_state.road_points,
@@ -213,7 +309,7 @@ pub async fn assign_engineer(
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
 
-    let chosen_pos = match route.get_vec().first() {
+    let chosen_pos = match found_route.get_vec().first() {
         Some(p) => p,
         None => return (StatusCode::NOT_FOUND, "engineer was not found").into_response(),
     };
@@ -221,7 +317,7 @@ pub async fn assign_engineer(
     let chosed_uuid = engineers_positions.get(chosen_pos).unwrap();
     const SPEED: f32 = 0.05;
 
-    let required_time = route.len() as f32 / SPEED;
+    let required_time = found_route.len() as f32 / SPEED;
 
     let utc_now = Utc::now();
 
@@ -233,6 +329,10 @@ pub async fn assign_engineer(
         created_by: auth_user.id,
         assigned_engineer: *chosed_uuid,
         issue_type: payload.issue,
+        plane_x: payload.plane_point.0,
+        plane_y: payload.plane_point.1,
+        task_route: serde_json::to_string(&found_route).expect("route is always serializable"),
+        is_accepted: false,
         is_active: true,
     };
 
@@ -244,23 +344,11 @@ pub async fn assign_engineer(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    // teleport engineer to a point (SIMULATION PURPOSES ONLY)
-    match redis_conn.set(
-        format!("position:{}", *chosed_uuid),
-        payload.plane_point.as_value(),
-    ) {
-        Ok(_) => (),
-        Err(e) => {
-            tracing::error!(error = %e, "error happened during teleporting engineer to a target point");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
     Json(AssignEngineerResponse {
         engineer_uuid: chosed_uuid.to_string(),
         time: required_time as u64,
         time_limit_exceeded: required_time >= 900 as f32,
-        route: route,
+        route: found_route,
     })
     .into_response()
 }

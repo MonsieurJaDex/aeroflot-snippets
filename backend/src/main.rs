@@ -1,7 +1,7 @@
 use crate::{
     database::{establish_pg_connection, establish_redis_connection},
     logging::init_logger,
-    router::{assign_engineer, get_route},
+    router::{accept_current_task, assign_engineer, get_current_task, get_route},
     types::{
         config::{AppConfig, AppState, Args},
         doc::ApiDoc,
@@ -19,6 +19,7 @@ use axum::{
 };
 use tower_http::{
     compression::CompressionLayer,
+    cors::CorsLayer,
     limit::RequestBodyLimitLayer,
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     timeout::TimeoutLayer,
@@ -138,6 +139,8 @@ async fn main() {
         .route("/map", get(get_map))
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
+        .route("/tasks/current", get(get_current_task))
+        .route("/tasks/current/accept", post(accept_current_task))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&app_state),
             middleware::auth_middleware,
@@ -164,6 +167,7 @@ async fn main() {
         .nest("/api", api_routes)
         .merge(SwaggerUi::new("/swagger").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
         .layer(CompressionLayer::new())
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
@@ -177,11 +181,6 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(&server_addr).await.unwrap();
     tracing::info!("Running sever at: http://{server_addr}");
-
-    // TODO:
-    // make simulated.rs, add container
-    // separate routers to routers module fully
-    // add comments
 
     _ = axum::serve(listener, app).await;
 }

@@ -2,34 +2,166 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Aeroflot ОТО | Рабочее место</title>
+  <title>Aeroflot ОТО | Вход</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=PT+Sans+Narrow:wght@400;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="role-page">
   <main class="role-shell">
-    <p class="eyebrow">АЭРОФЛОТ / ОТО</p>
-    <h1>Выберите рабочее место</h1>
-    <p class="role-copy">Оперативное техническое обслуживание воздушных судов на перроне.</p>
-    <div class="role-grid">
-      <a class="role-card" href="dispatcher.html">
+    <div class="role-hero">
+      <p class="eyebrow">АЭРОФЛОТ / ОТО</p>
+      <h1>Вход в систему</h1>
+      <p class="role-copy">Оперативное техническое обслуживание воздушных судов на перроне.</p>
+    </div>
+
+    <details class="api-config">
+      <summary>Адрес сервера API</summary>
+      <div class="api-config-row">
+        <input id="api-base-input" type="text" placeholder="http://127.0.0.1:3001" />
+        <button id="api-base-save" type="button">Сохранить</button>
+      </div>
+    </details>
+
+    <div class="role-grid" id="role-grid">
+      <button class="role-card" type="button" data-role="Dispatcher">
         <span class="role-card-number">01</span>
         <h2>Диспетчер</h2>
         <p>Заявки, сотрудники, назначение и контроль маршрута.</p>
-        <span>Открыть диспетчерскую</span>
-      </a>
-      <a class="role-card" href="worker.html">
+        <span>Войти как диспетчер</span>
+      </button>
+      <button class="role-card" type="button" data-role="Engineer">
         <span class="role-card-number">02</span>
         <h2>Инженер ОТО</h2>
         <p>Новое задание, маршрут к воздушному судну и подтверждение.</p>
-        <span>Открыть рабочее место</span>
-      </a>
+        <span>Войти как инженер</span>
+      </button>
     </div>
+
+    <section class="auth-panel" id="auth-panel" hidden>
+      <div class="auth-card-head">
+        <div>
+          <div class="auth-role-badge" id="auth-role-badge">Диспетчер</div>
+          <div class="auth-card-title">Доступ к системе</div>
+        </div>
+        <button class="auth-close" type="button" id="auth-close">Назад</button>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" type="button" data-mode="login">Вход</button>
+        <button class="auth-tab" type="button" data-mode="register">Регистрация</button>
+      </div>
+
+      <form id="login-form" class="auth-form">
+        <label>Email<input type="email" id="login-email" required autocomplete="username" /></label>
+        <label>Пароль<input type="password" id="login-password" required autocomplete="current-password" /></label>
+        <button type="submit">Войти</button>
+      </form>
+
+      <form id="register-form" class="auth-form" hidden>
+        <label>Имя<input type="text" id="register-name" required /></label>
+        <label>Email<input type="email" id="register-email" required autocomplete="username" /></label>
+        <label>Пароль<input type="password" id="register-password" required autocomplete="new-password" /></label>
+        <label id="register-skill-row">Специализация
+          <select id="register-skill"></select>
+        </label>
+        <button type="submit">Зарегистрироваться</button>
+      </form>
+
+      <div id="auth-error" class="auth-error" hidden></div>
+      <div id="auth-status" class="auth-status"></div>
+    </section>
   </main>
+  <script src="auth.js"></script>
+  <script>
+    const skillSelect = document.getElementById("register-skill");
+    for (const [value, label] of AeroAuth.ENGINEER_TYPES) skillSelect.add(new Option(label, value));
+
+    const apiBaseInput = document.getElementById("api-base-input");
+    apiBaseInput.value = AeroAuth.getApiBase();
+    document.getElementById("api-base-save").addEventListener("click", () => {
+      AeroAuth.setApiBase(apiBaseInput.value.trim() || "http://127.0.0.1:3001");
+    });
+
+    const roleGrid = document.getElementById("role-grid");
+    const authPanel = document.getElementById("auth-panel");
+    const registerSkillRow = document.getElementById("register-skill-row");
+    let selectedRole = null;
+
+    function redirectForRole(role) {
+      window.location.href = role === "Dispatcher" ? "dispatcher.html" : "worker.html";
+    }
+
+    const existingSession = AeroAuth.getSession();
+    if (existingSession) redirectForRole(existingSession.role);
+
+    document.querySelectorAll(".role-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        selectedRole = card.dataset.role;
+        registerSkillRow.hidden = selectedRole !== "Engineer";
+        roleGrid.hidden = true;
+        authPanel.hidden = false;
+        document.getElementById("auth-error").hidden = true;
+        document.getElementById("auth-status").textContent = `Роль: ${selectedRole === "Dispatcher" ? "Диспетчер" : "Инженер ОТО"}`;
+      });
+    });
+
+    document.getElementById("auth-close").addEventListener("click", () => {
+      authPanel.hidden = true;
+      roleGrid.hidden = false;
+    });
+
+    document.querySelectorAll(".auth-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".auth-tab").forEach((t) => t.classList.remove("active"));
+        tab.classList.add("active");
+        const mode = tab.dataset.mode;
+        document.getElementById("login-form").hidden = mode !== "login";
+        document.getElementById("register-form").hidden = mode !== "register";
+      });
+    });
+
+    function showError(message) {
+      const box = document.getElementById("auth-error");
+      box.textContent = message;
+      box.hidden = false;
+    }
+
+    document.getElementById("login-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      document.getElementById("auth-error").hidden = true;
+      try {
+        const email = document.getElementById("login-email").value.trim();
+        const password = document.getElementById("login-password").value;
+        const session = await AeroAuth.login(email, password);
+        if (session.role !== selectedRole) {
+          showError(`Этот аккаунт зарегистрирован как ${session.role === "Dispatcher" ? "диспетчер" : "инженер"}.`);
+          AeroAuth.clearSession();
+          return;
+        }
+        redirectForRole(session.role);
+      } catch (err) {
+        showError(err.message);
+      }
+    });
+
+    document.getElementById("register-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      document.getElementById("auth-error").hidden = true;
+      try {
+        const name = document.getElementById("register-name").value.trim();
+        const email = document.getElementById("register-email").value.trim();
+        const password = document.getElementById("register-password").value;
+        const engineerType = selectedRole === "Engineer" ? skillSelect.value : undefined;
+        const session = await AeroAuth.register({ email, name, password, userRole: selectedRole, engineerType });
+        redirectForRole(session.role);
+      } catch (err) {
+        showError(err.message);
+      }
+    });
+  </script>
 </body>
 </html>

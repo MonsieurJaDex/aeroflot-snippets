@@ -2,13 +2,9 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Request, State},
-    http::StatusCode,
+    http::{StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
-};
-use axum_extra::{
-    TypedHeader,
-    headers::{Authorization, authorization::Bearer},
 };
 use redis::TypedCommands;
 use uuid::Uuid;
@@ -23,11 +19,18 @@ pub struct AuthUser {
 
 pub async fn auth_middleware(
     State(app_state): State<Arc<AppState>>,
-    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
     mut req: Request,
     next: Next,
 ) -> Response {
-    let token = bearer.token();
+    let token = match req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+    {
+        Some(token) if !token.is_empty() => token,
+        _ => return (StatusCode::UNAUTHORIZED, "missing bearer access token").into_response(),
+    };
 
     let claims = match decode_access_token(token, app_state.jwt_secret.as_bytes()) {
         Ok(c) => c,

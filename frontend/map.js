@@ -1,6 +1,5 @@
 const CONFIG = {
   mapCandidates: ["../et.tmj", "./et.tmj", "/et.tmj"],
-  apiCandidates: ["http://127.0.0.1:3001/"],
   tilesetImage: {
     enabled: false,
     path: "assets/tilemap_packed.png",
@@ -32,11 +31,12 @@ const STANDS = [
   { id: "Техцентр", row: 51, col: 11 },
 ];
 
+// Инженеры на смене показаны декоративно: бэкенд пока не отдаёт их живые позиции по HTTP.
 const AGENTS = [
-  { id: "ENG-014", name: "Алексей Смирнов", skill: "airframe", skillName: "Планер и двигатель", status: "free", row: 25, col: 18 },
-  { id: "ENG-022", name: "Мария Волкова", skill: "avionics", skillName: "Авионика", status: "free", row: 37, col: 43 },
-  { id: "ENG-031", name: "Илья Ким", skill: "airframe", skillName: "Планер и двигатель", status: "busy", row: 31, col: 29 },
-  { id: "ENG-044", name: "Ольга Белова", skill: "avionics", skillName: "Авионика", status: "free", row: 48, col: 48 },
+  { id: "ENG-014", name: "Смена А", row: 25, col: 18 },
+  { id: "ENG-022", name: "Смена Б", row: 37, col: 43 },
+  { id: "ENG-031", name: "Смена В", row: 31, col: 29 },
+  { id: "ENG-044", name: "Смена Г", row: 48, col: 48 },
 ];
 
 const BACKEND_ROAD_IDS = new Set([0, 29]);
@@ -79,16 +79,14 @@ function clamp(v) {
 }
 
 async function loadMap() {
-  for (const path of CONFIG.apiCandidates) {
-    try {
-      const res = await fetch(path);
-      if (!res.ok) continue;
-      const payload = await res.json();
-      const matrix = Array.isArray(payload) ? payload : payload.matrix;
-      if (!Array.isArray(matrix) || !Array.isArray(matrix[0])) continue;
+  try {
+    const matrix = await AeroAuth.apiRequest("/api/map", { method: "GET" });
+    if (Array.isArray(matrix) && Array.isArray(matrix[0])) {
+      console.info("[map] загружено из /api/map");
       return mapFromMatrix(matrix);
-    } catch (e) {
     }
+  } catch (e) {
+    console.warn("[map] /api/map недоступен, пробую локальный et.tmj", e);
   }
 
   for (const path of CONFIG.mapCandidates) {
@@ -102,8 +100,7 @@ async function loadMap() {
     }
   }
   throw new Error(
-    "Не удалось найти et.tmj. Запусти статический сервер из корня репозитория " +
-      "(например: python -m http.server) и открой frontend/index.html через него."
+    "Не удалось получить карту ни от бэкенда, ни из et.tmj. Проверь, что backend запущен и адрес API указан верно."
   );
 }
 
@@ -182,6 +179,12 @@ function renderCanvas(tmj, grid) {
 }
 
 async function main() {
+  const session = AeroAuth.requireRole("Dispatcher");
+  if (!session) return;
+
+  document.getElementById("dispatcher-name").textContent = session.name;
+  document.getElementById("logout-button").addEventListener("click", () => AeroAuth.logout());
+
   const tmj = await loadMap();
   const grid = buildTileGrid(tmj);
 
@@ -234,21 +237,20 @@ async function main() {
     }).bindTooltip(stand.id, { permanent: true, direction: "top", className: "map-label", offset: [0, -5] }).addTo(standsLayer);
   }
   function renderStaffMarkers() {
-    const assignment = JSON.parse(localStorage.getItem("oto-assignment") || "null");
-    const effectiveStatus = (agent) => assignment && assignment.engineerId === agent.id ? "busy" : agent.status;
-
     staffLayer.clearLayers();
     for (const agent of AGENTS) {
-      const status = effectiveStatus(agent);
       L.marker(agentPoint(agent), {
-        icon: L.divIcon({ className: `agent-marker agent-${status}`, html: "", iconSize: [28, 28], iconAnchor: [14, 14] }),
-      }).bindTooltip(`${agent.name} · ${status === "free" ? "свободен" : "занят"}`, { direction: "top" }).addTo(staffLayer);
+        icon: L.divIcon({ className: "agent-marker agent-free", html: "", iconSize: [28, 28], iconAnchor: [14, 14] }),
+      }).bindTooltip(`${agent.name} · на смене`, { direction: "top" }).addTo(staffLayer);
     }
   }
 
   renderStaffMarkers();
 
   let routeLayer = null;
+  const faultSelect = document.getElementById("fault-select");
+  for (const [value, label] of AeroAuth.AIRCRAFT_ISSUES) faultSelect.add(new Option(label, value));
+
   const gridControl = document.getElementById("toggle-grid");
   document.getElementById("toggle-staff").addEventListener("change", (event) => event.target.checked ? staffLayer.addTo(map) : map.removeLayer(staffLayer));
   document.getElementById("toggle-stands").addEventListener("change", (event) => event.target.checked ? standsLayer.addTo(map) : map.removeLayer(standsLayer));
@@ -260,48 +262,47 @@ async function main() {
     document.getElementById("map").classList.toggle("show-grid", gridControl.checked);
   });
   const result = document.getElementById("assignment-result");
-  document.getElementById("assign-button").addEventListener("click", () => {
+  document.getElementById("assign-button").addEventListener("click", async () => {
     const stand = STANDS.find((item) => item.id === standSelect.value);
-    const skill = document.getElementById("fault-select").value;
-    const candidates = AGENTS.filter((agent) => agent.skill === skill && agent.status === "free");
-    const ranked = candidates.map((agent) => ({
-      agent,
-      distance: Math.abs(agent.row - stand.row) + Math.abs(agent.col - stand.col),
-    })).sort((a, b) => a.distance - b.distance);
+    const issue = faultSelect.value;
+    const description = document.getElementById("fault-description").value.trim() || AeroAuth.issueLabel(issue);
 
-    if (!ranked.length) {
+    result.className = "assignment-result";
+    result.innerHTML = "Поиск свободного инженера...";
+
+    let response;
+    try {
+      response = await AeroAuth.apiRequest("/api/assign", {
+        method: "POST",
+        body: {
+          issue,
+          plane_point: [stand.col, stand.row],
+          description,
+        },
+      });
+    } catch (err) {
       result.className = "assignment-result";
-      result.innerHTML = "Нет свободного инженера нужной квалификации.";
+      result.innerHTML = `Ошибка: ${err.message}`;
       if (routeLayer) map.removeLayer(routeLayer);
       return;
     }
 
-    const winner = ranked[0];
-    const gridRoute = buildGridRoute(winner.agent, stand);
+    const gridRoute = response.route.map(([x, y]) => [x, y]);
     const distanceCells = gridRoute.length - 1;
-    const eta = Math.max(1, Math.ceil(distanceCells / 4));
+    const etaMinutes = Math.max(1, Math.round(response.time / 60));
     const route = gridRoute.map(([col, row]) => [pxHeight - (row + 0.5) * tileH, (col + 0.5) * tileW]);
     if (routeLayer) map.removeLayer(routeLayer);
     routeLayer = L.polyline(route, { color: "#e30613", weight: 5, opacity: 0.9, dashArray: "10 8" }).addTo(map);
     if (!document.getElementById("toggle-route").checked) map.removeLayer(routeLayer);
-    localStorage.setItem("oto-assignment", JSON.stringify({
-      engineerId: winner.agent.id,
-      stand: stand.id,
-      fault: document.getElementById("fault-select").selectedOptions[0].text,
-      distanceCells,
-      route: gridRoute,
-      accepted: false,
-    }));
+
     result.className = "assignment-result success";
-    result.innerHTML = `<strong>${winner.agent.name}</strong><br>${winner.agent.skillName}<br>Маршрут: <strong>${distanceCells} клеток</strong><br>ETA: <strong>${eta} мин</strong> · лимит 15 мин`;
-    renderStaffMarkers();
+    result.innerHTML = `<strong>Инженер ${response.engineer_uuid.slice(0, 8)}</strong><br>${AeroAuth.issueLabel(issue)}<br>Маршрут: <strong>${distanceCells} клеток</strong><br>ETA: <strong>${etaMinutes} мин</strong>${response.time_limit_exceeded ? " — <strong>лимит 15 мин превышен!</strong>" : " · лимит 15 мин"}`;
     map.fitBounds(routeLayer.getBounds(), { padding: [80, 80], maxZoom: 3 });
   });
 
   const legend = document.getElementById("legend");
   legend.innerHTML = [
-    ["#159b72", "свободный сотрудник"],
-    ["#e17d32", "занятый сотрудник"],
+    ["#159b72", "инженер на смене"],
     ["#1684b8", "стоянка ВС"],
     ["#e30613", "маршрут"],
   ].map(([color, label]) => `<div class="legend-row"><span class="swatch" style="background:${color}"></span>${label}</div>`).join("");
@@ -335,22 +336,6 @@ async function main() {
       tileInfo.textContent = `Клетка [row=${row}, col=${col}]${roadHint}\n` + lines.join("\n");
     }
   });
-}
-
-function buildGridRoute(start, end) {
-  const route = [];
-  let col = start.col;
-  let row = start.row;
-  route.push([col, row]);
-  while (col !== end.col) {
-    col += Math.sign(end.col - col);
-    route.push([col, row]);
-  }
-  while (row !== end.row) {
-    row += Math.sign(end.row - row);
-    route.push([col, row]);
-  }
-  return route;
 }
 
 main().catch((err) => {

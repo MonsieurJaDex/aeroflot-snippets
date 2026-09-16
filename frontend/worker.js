@@ -1,11 +1,3 @@
-const AGENTS = [
-  { id: "ENG-014", name: "Алексей Смирнов", skillName: "Планер и двигатель", status: "free" },
-  { id: "ENG-022", name: "Мария Волкова", skillName: "Авионика", status: "free" },
-  { id: "ENG-031", name: "Илья Ким", skillName: "Планер и двигатель", status: "busy" },
-  { id: "ENG-044", name: "Ольга Белова", skillName: "Авионика", status: "free" },
-];
-
-const selectedWorker = document.getElementById("worker-select");
 const taskContent = document.getElementById("task-content");
 const taskState = document.getElementById("task-state");
 const acceptButton = document.getElementById("accept-task");
@@ -20,40 +12,36 @@ let workerMarkers = null;
 L.control.zoom({ position: "bottomright" }).addTo(workerMap);
 workerMap.fitBounds(mapBounds);
 
-for (const agent of AGENTS) selectedWorker.add(new Option(`${agent.name} · ${agent.id}`, agent.id));
+const session = AeroAuth.requireRole("Engineer");
 
-function selectedAgent() {
-  return AGENTS.find((agent) => agent.id === selectedWorker.value);
-}
-
-function currentStatusForAgent(agentId) {
-  const task = JSON.parse(localStorage.getItem("oto-assignment") || "null");
-  if (!task) return "free";
-  return task.engineerId === agentId ? "busy" : "free";
-}
-
-function updateProfile() {
-  const agent = selectedAgent();
-  const status = currentStatusForAgent(agent.id);
-  const initials = agent.name
+function updateProfile(task) {
+  const initials = session.name
     .split(" ")
     .map((part) => part[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
 
-  document.getElementById("account-avatar").textContent = initials;
-  document.getElementById("account-name").textContent = agent.name;
-  document.getElementById("account-role").textContent = `${agent.skillName} · ${agent.id}`;
-  document.getElementById("worker-skill").textContent = `${agent.skillName} · ${agent.id}`;
-  document.getElementById("worker-status").textContent = status === "free" ? "Свободен" : "Занят";
-  document.getElementById("worker-status").className = `worker-status ${status}`;
+  const skillEntry = AeroAuth.ENGINEER_TYPES.find(([value]) => value === session.engineerType);
+
+  document.getElementById("account-avatar").textContent = initials || "??";
+  document.getElementById("account-name").textContent = session.name;
+  document.getElementById("account-role").textContent = skillEntry ? skillEntry[1] : "Инженер ОТО";
+  document.getElementById("worker-skill").textContent = skillEntry ? skillEntry[1] : "Специализация не указана";
+  document.getElementById("worker-status").textContent = task ? "Занят" : "Свободен";
+  document.getElementById("worker-status").className = `worker-status ${task ? "busy" : "free"}`;
 }
 
-function renderTask() {
-  const task = JSON.parse(localStorage.getItem("oto-assignment") || "null");
-  const agent = selectedAgent();
-  if (!task || task.engineerId !== agent.id) {
+function standLabel(planePoint) {
+  const stand = typeof STANDS === "undefined"
+    ? null
+    : STANDS.find((item) => item.col === planePoint[0] && item.row === planePoint[1]);
+  return stand ? stand.id : `${planePoint[0]}, ${planePoint[1]}`;
+}
+
+function renderTask(task) {
+  updateProfile(task);
+  if (!task) {
     taskContent.textContent = "Новых заявок нет.";
     taskState.textContent = "ОЖИДАНИЕ";
     acceptButton.hidden = true;
@@ -63,12 +51,14 @@ function renderTask() {
     return;
   }
 
-  taskContent.innerHTML = `<strong>ВС на стоянке ${task.stand}</strong><br>${task.fault}<br>${routeInstruction(task.route)}<br>Маршрут: ${task.distanceCells} клеток`;
-  taskState.textContent = task.accepted ? "В РАБОТЕ" : "НОВОЕ";
-  acceptButton.hidden = task.accepted;
+  const issueLabel = AeroAuth.issueLabel(task.issue);
+  const distanceCells = Math.max(0, task.route.length - 1);
+  taskContent.innerHTML = `<strong>ВС: ${standLabel(task.plane_point)}</strong><br>${issueLabel}<br>${task.description}<br>${routeInstruction(task.route)}<br>Маршрут: ${distanceCells} клеток`;
+  taskState.textContent = task.is_accepted ? "В РАБОТЕ" : "НОВОЕ";
+  acceptButton.hidden = task.is_accepted;
   routePreview.hidden = false;
   routePreview.textContent = task.route.map((point) => `[${point[0]}, ${point[1]}]`).join(" → ");
-  notice.textContent = task.accepted ? "Задание принято. Следуйте к месту стоянки." : "Диспетчер назначил вас на заявку.";
+  notice.textContent = task.is_accepted ? "Задание принято. Следуйте к месту стоянки." : "Диспетчер назначил вас на заявку.";
   renderRouteMap(task);
 }
 
@@ -85,9 +75,9 @@ function renderRouteMap(task) {
   workerRouteLayer = L.polyline(points, { color: "#e30613", weight: 5, opacity: 0.95, lineJoin: "round" }).addTo(workerMap);
   workerMarkers = L.layerGroup([
     L.marker(points[0], { icon: mapIcon("worker-map-engineer") }).bindTooltip("Вы", { permanent: true, direction: "top", className: "map-label" }),
-    L.marker(points.at(-1), { icon: mapIcon("worker-map-stand") }).bindTooltip(`Стоянка ${task.stand}`, { permanent: true, direction: "top", className: "map-label" }),
+    L.marker(points.at(-1), { icon: mapIcon("worker-map-stand") }).bindTooltip(`ВС: ${standLabel(task.plane_point)}`, { permanent: true, direction: "top", className: "map-label" }),
   ]).addTo(workerMap);
-  mapDistance.textContent = `${task.distanceCells} КЛЕТОК`;
+  mapDistance.textContent = `${Math.max(0, task.route.length - 1)} КЛЕТОК`;
   workerMap.fitBounds(workerRouteLayer.getBounds(), { padding: [36, 36], maxZoom: 2 });
 }
 
@@ -106,19 +96,30 @@ function routeInstruction(route) {
   return steps.length ? `Двигайтесь: ${steps.join(", затем ")}.` : "Вы уже на месте.";
 }
 
-selectedWorker.addEventListener("change", () => {
-  updateProfile();
-  renderTask();
+async function loadCurrentTask() {
+  try {
+    const task = await AeroAuth.apiRequest("/api/tasks/current");
+    renderTask(task);
+  } catch (error) {
+    notice.textContent = `Не удалось получить назначение: ${error.message}`;
+  }
+}
+
+acceptButton.addEventListener("click", async () => {
+  acceptButton.disabled = true;
+  try {
+    await AeroAuth.apiRequest("/api/tasks/current/accept", { method: "POST" });
+    await loadCurrentTask();
+  } catch (error) {
+    notice.textContent = `Не удалось принять задание: ${error.message}`;
+  } finally {
+    acceptButton.disabled = false;
+  }
 });
 
-acceptButton.addEventListener("click", () => {
-  const task = JSON.parse(localStorage.getItem("oto-assignment") || "null");
-  if (!task) return;
-  task.accepted = true;
-  localStorage.setItem("oto-assignment", JSON.stringify(task));
-  updateProfile();
-  renderTask();
-});
+document.getElementById("logout-button").addEventListener("click", () => AeroAuth.logout());
 
-updateProfile();
-renderTask();
+if (session) {
+  loadCurrentTask();
+  window.setInterval(loadCurrentTask, 10000);
+}

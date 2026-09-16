@@ -35,6 +35,16 @@ pub struct AssignEngineerResponse {
     pub route: Route,
 }
 
+#[derive(Serialize, ToSchema)]
+pub struct CurrentTaskResponse {
+    pub id: String,
+    pub description: String,
+    pub issue: AircraftIssue,
+    pub plane_point: Point,
+    pub route: Route,
+    pub is_accepted: bool,
+}
+
 #[derive(Deserialize, ToSchema)]
 pub struct GetUserNameRequest {
     pub id: String,
