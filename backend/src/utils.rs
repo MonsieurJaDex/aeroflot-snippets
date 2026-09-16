@@ -69,7 +69,7 @@ pub fn create_token_pair(
     role: UserRole,
     secret: &[u8],
 ) -> anyhow::Result<(String, String)> {
-    let access_exp = (Utc::now() + Duration::minutes(15)).timestamp() as usize;
+    let access_exp = (Utc::now() + Duration::hours(1)).timestamp() as usize;
     let access_claims = AccessClaims {
         sub: user_id,
         role: role,
