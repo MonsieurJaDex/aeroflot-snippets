@@ -43,10 +43,6 @@ impl Route {
         Self(path)
     }
 
-    pub fn len(&self) -> usize {
-        self.0.len() - 1
-    }
-
     pub fn get_vec(&self) -> &Vec<Point> {
         &self.0
     }

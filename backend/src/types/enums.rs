@@ -21,6 +21,53 @@ pub enum EngineerType {
     NotCagegorized,     // неопределен
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+pub enum SpecialVehicle {
+    // Топливозаправщик или кислородная зарядная станция
+    FuelTruck,
+
+    // Маслораздаточная тележка для дозаправки или замены масла
+    OilCart,
+
+    // Аэродромный подъемник или перронный трап для доступа к верхним узлам ВС
+    MaintenanceLift,
+
+    // Тележка с бороскопическим оборудованием для дефектации внутренних полостей двигателя
+    BorescopeCart,
+
+    // Контрольно-проверочная аппаратура для диагностики РЭО и ИНС
+    AvionicsTestSet,
+}
+
+impl fmt::Display for SpecialVehicle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let string = match self {
+            SpecialVehicle::FuelTruck => "fuel_truck",
+            SpecialVehicle::OilCart => "oil_cart",
+            SpecialVehicle::MaintenanceLift => "maintenance_lift",
+            SpecialVehicle::BorescopeCart => "borescope_cart",
+            SpecialVehicle::AvionicsTestSet => "avionics_test_set",
+        };
+
+        f.write_str(string)
+    }
+}
+
+impl TryFrom<&str> for SpecialVehicle {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "fuel_truck" => Ok(SpecialVehicle::FuelTruck),
+            "oil_cart" => Ok(SpecialVehicle::OilCart),
+            "maintenance_lift" => Ok(SpecialVehicle::MaintenanceLift),
+            "borescope_cart" => Ok(SpecialVehicle::BorescopeCart),
+            "avionics_test_set" => Ok(SpecialVehicle::AvionicsTestSet),
+            _ => Err(anyhow::anyhow!("unknown vehicle type: {}", value)),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Hash, Serialize, Deserialize, DbEnum, ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[ExistingTypePath = "crate::database::schema::sql_types::AircraftIssue"]
@@ -118,6 +165,25 @@ impl AircraftIssue {
             MetalDebrisInOilFilter => Duration::from_mins(360), // возможна разборка двигателя
 
             Other => Duration::from_mins(120),
+        }
+    }
+
+    pub fn required_vehicle(&self) -> Option<SpecialVehicle> {
+        match self {
+            Self::FuelLeakFromDrainCap => Some(SpecialVehicle::FuelTruck),
+            Self::OilStainNearGearbox => Some(SpecialVehicle::OilCart),
+            Self::FairingChipOrScratch => Some(SpecialVehicle::MaintenanceLift),
+            Self::PaintPeelingAtRivets => Some(SpecialVehicle::MaintenanceLift),
+            Self::MissingPitotCover => Some(SpecialVehicle::MaintenanceLift),
+            Self::IndicationFault => Some(SpecialVehicle::AvionicsTestSet),
+            Self::LooseConnector => Some(SpecialVehicle::AvionicsTestSet),
+            Self::ThrustOrParameterDrop => Some(SpecialVehicle::BorescopeCart),
+            Self::ExcessiveVibration => Some(SpecialVehicle::BorescopeCart),
+            Self::MetalDebrisInOilFilter => Some(SpecialVehicle::BorescopeCart),
+            Self::RadarFailureOrFalseReading => Some(SpecialVehicle::AvionicsTestSet),
+            Self::CommsLossOrDistortion => Some(SpecialVehicle::AvionicsTestSet),
+            Self::InsGyroDrift => Some(SpecialVehicle::AvionicsTestSet),
+            _ => None,
         }
     }
 }
