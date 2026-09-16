@@ -37,6 +37,9 @@ body { display: flex; overflow: hidden; }
 .live-label { font-size: 9px; color: var(--green); font-weight: 800; letter-spacing: .12em; }
 .request-panel label { display: block; color: var(--muted); font-size: 11px; font-weight: 600; margin-top: 10px; }
 .request-panel select { display: block; width: 100%; margin-top: 4px; padding: 9px; border: 1px solid var(--border); border-radius: 4px; background: #0d0f12; color: var(--text); }
+.request-panel textarea { display: block; width: 100%; min-height: 76px; margin-top: 5px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: #0b1015; color: var(--text); font: inherit; font-size: 12px; line-height: 1.45; resize: vertical; }
+.request-panel textarea::placeholder { color: #647482; }
+.request-panel textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(22,132,184,.14); }
 #assign-button { width: 100%; margin-top: 13px; padding: 10px; border: 0; border-radius: 4px; background: var(--accent); color: white; font-weight: 800; cursor: pointer; }
 #assign-button:hover { background: #ff3037; }
 .assignment-result { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }

@@ -47,15 +47,15 @@ const AeroAuth = (() => {
   }
 
   function getSession() {
-    return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
   }
 
   function saveSession(session) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
   }
 
   function clearSession() {
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
   }
 
   function decodeJwtPayload(token) {
