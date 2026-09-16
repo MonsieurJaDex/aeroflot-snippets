@@ -1,19 +1,14 @@
 services:
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    # build:
+    #   context: .
+    #   dockerfile: backend/Dockerfile
+    image: mrjadex/aeroflot-backend
     restart: unless-stopped
     ports:
       - "3001:3001"
     env_file:
       - .env
-    environment:
-      HOST: "0.0.0.0"
-      PORT: "3001"
-      DEBUG: "true"
-      DATABASE_URL: "postgres://postgres:postgres@postgres/aeroflot"
-      REDIS_URL: "redis://redis"
     depends_on:
       postgres:
         condition: service_healthy
@@ -27,8 +22,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: aeroflot
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -40,8 +33,6 @@ services:
   redis:
     image: redis:latest
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
