@@ -12,9 +12,11 @@
 </head>
 <body class="role-page">
   <main class="role-shell">
-    <p class="eyebrow">АЭРОФЛОТ / ОТО</p>
-    <h1>Вход в систему</h1>
-    <p class="role-copy">Оперативное техническое обслуживание воздушных судов на перроне.</p>
+    <div class="role-hero">
+      <p class="eyebrow">АЭРОФЛОТ / ОТО</p>
+      <h1>Вход в систему</h1>
+      <p class="role-copy">Оперативное техническое обслуживание воздушных судов на перроне.</p>
+    </div>
 
     <details class="api-config">
       <summary>Адрес сервера API</summary>
@@ -40,10 +42,17 @@
     </div>
 
     <section class="auth-panel" id="auth-panel" hidden>
+      <div class="auth-card-head">
+        <div>
+          <div class="auth-role-badge" id="auth-role-badge">Диспетчер</div>
+          <div class="auth-card-title">Доступ к системе</div>
+        </div>
+        <button class="auth-close" type="button" id="auth-close">Назад</button>
+      </div>
+
       <div class="auth-tabs">
         <button class="auth-tab active" type="button" data-mode="login">Вход</button>
         <button class="auth-tab" type="button" data-mode="register">Регистрация</button>
-        <button class="auth-close" type="button" id="auth-close">Назад</button>
       </div>
 
       <form id="login-form" class="auth-form">

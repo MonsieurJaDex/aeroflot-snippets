@@ -44,6 +44,10 @@ diesel::table! {
         created_by -> Uuid,
         assigned_engineer -> Uuid,
         issue_type -> AircraftIssue,
+        plane_x -> Int8,
+        plane_y -> Int8,
+        task_route -> Text,
+        is_accepted -> Bool,
         is_active -> Bool,
     }
 }

@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-COPY . .
+COPY backend/ ./
 
 RUN cargo build --release
 
@@ -21,8 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+RUN mkdir -p /app/assets
+
 COPY --from=builder /app/target/release/aeroflot-snippets /app/aeroflot-snippets
-COPY --from=builder /app/assets /app/assets
+COPY et.tmj /app/assets/map2.json
 
 EXPOSE 3001
 

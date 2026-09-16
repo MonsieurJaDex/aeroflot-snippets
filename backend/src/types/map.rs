@@ -35,7 +35,7 @@ impl Point {
     }
 }
 
-#[derive(Debug, Serialize, Clone, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct Route(Vec<Point>);
 
 impl Route {

@@ -295,19 +295,6 @@ async function main() {
     routeLayer = L.polyline(route, { color: "#e30613", weight: 5, opacity: 0.9, dashArray: "10 8" }).addTo(map);
     if (!document.getElementById("toggle-route").checked) map.removeLayer(routeLayer);
 
-    localStorage.setItem("oto-assignment", JSON.stringify({
-      engineerUuid: response.engineer_uuid,
-      stand: stand.id,
-      issue,
-      description,
-      distanceCells,
-      time: response.time,
-      timeLimitExceeded: response.time_limit_exceeded,
-      route: gridRoute,
-      accepted: false,
-      createdAt: Date.now(),
-    }));
-
     result.className = "assignment-result success";
     result.innerHTML = `<strong>Инженер ${response.engineer_uuid.slice(0, 8)}</strong><br>${AeroAuth.issueLabel(issue)}<br>Маршрут: <strong>${distanceCells} клеток</strong><br>ETA: <strong>${etaMinutes} мин</strong>${response.time_limit_exceeded ? " — <strong>лимит 15 мин превышен!</strong>" : " · лимит 15 мин"}`;
     map.fitBounds(routeLayer.getBounds(), { padding: [80, 80], maxZoom: 3 });

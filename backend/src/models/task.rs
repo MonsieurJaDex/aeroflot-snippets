@@ -16,5 +16,9 @@ pub struct Task {
     pub created_by: Uuid,
     pub assigned_engineer: Uuid,
     pub issue_type: AircraftIssue,
+    pub plane_x: i64,
+    pub plane_y: i64,
+    pub task_route: String,
+    pub is_accepted: bool,
     pub is_active: bool,
 }
