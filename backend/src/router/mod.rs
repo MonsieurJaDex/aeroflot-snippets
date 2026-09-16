@@ -317,7 +317,7 @@ pub async fn assign_engineer(
     let chosed_uuid = engineers_positions.get(chosen_pos).unwrap();
     const SPEED: f32 = 0.05;
 
-    let required_time = found_route.len() as f32 / SPEED;
+    let required_time = found_route.get_vec().len().saturating_sub(1) as f32 / SPEED;
 
     let utc_now = Utc::now();
 

@@ -75,40 +75,6 @@ pub async fn update_engineer_position_handler(
 }
 
 #[utoipa::path(
-    get,
-    path="/api/simulate/active_engineers",
-    description="Get all active engineers",
-    responses(
-        (status=200, description="Successful fetch", body=Vec<String>),
-        (status=500, description="Server-side error", body=String)
-    )
-)]
-pub async fn active_engineers(State(app_state): State<Arc<AppState>>) -> Response<Body> {
-    let mut pg_conn = match app_state.db_pool.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "Error during extracting postgres connection from pool");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    let ids: Vec<Uuid> = match schema::tasks::table
-        .filter(schema::tasks::is_active.eq(true))
-        .select(schema::tasks::assigned_engineer)
-        .load(&mut pg_conn)
-    {
-        Ok(u) => u,
-        Err(e) => {
-            tracing::error!(error = %e, "error happened during gathering all engineers");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-    let ids: Vec<String> = ids.iter().map(|u| u.to_string()).collect();
-
-    (StatusCode::OK, Json(json!({"active_engineers": ids}))).into_response()
-}
-
-#[utoipa::path(
     post,
     path="/api/simulate/update_transport_position",
     description="Manual special vehicle position update (creates the vehicle in redis if it did not exist yet)",
