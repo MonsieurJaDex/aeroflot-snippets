@@ -43,8 +43,26 @@ pub fn bfs(
     let path_key = Route::new(vec![start, end]).compute_universal_key();
 
     match redis_conn.get(&path_key) {
-        Result::Ok(Some(cached)) => match serde_json::from_str::<Vec<Point>>(&cached) {
-            Result::Ok(parsed) => return Ok(Route::new(parsed)),
+        Result::Ok(Some(cached)) => match serde_json::from_str::<Vec<String>>(&cached) {
+            Result::Ok(raw_points) => {
+                let mut parsed = Vec::with_capacity(raw_points.len());
+                let mut parse_failed = false;
+
+                for v in raw_points {
+                    match Point::from_value(v) {
+                        Result::Ok(p) => parsed.push(p),
+                        Result::Err(e) => {
+                            tracing::warn!(error = %e, key = %path_key, "failed to parse cached point, recomputing");
+                            parse_failed = true;
+                            break;
+                        }
+                    }
+                }
+
+                if !parse_failed {
+                    return Ok(Route::new(parsed));
+                }
+            }
             Result::Err(e) => {
                 tracing::warn!(error = %e, key = %path_key, "failed to deserialize cached route, recomputing");
             }
@@ -130,7 +148,7 @@ pub fn find_nearest(
     matrix: &MapMatrix,
     start: Point,
     road_points: &HashSet<i64>,
-    engineer_positions: &HashMap<Point, Uuid>,
+    target_positions: &HashMap<Point, Uuid>,
     redis_conn: &mut PooledConnection<Client>,
 ) -> anyhow::Result<Route> {
     if start.1 < 0 || start.1 as usize >= matrix.0.len() {
@@ -141,7 +159,7 @@ pub fn find_nearest(
         return Err(anyhow!("start X point out of matrix bound"));
     }
 
-    if engineer_positions.get(&start).is_some() {
+    if target_positions.get(&start).is_some() {
         return Ok(Route::new(vec![]));
     }
 
@@ -171,7 +189,7 @@ pub fn find_nearest(
             let next_point = Point::new(next_x, next_y);
             let value = row[next_x as usize];
 
-            let is_target = engineer_positions.contains_key(&next_point);
+            let is_target = target_positions.contains_key(&next_point);
 
             if !is_target && !road_points.contains(&value) {
                 continue;
@@ -192,6 +210,7 @@ pub fn find_nearest(
                     current = *parent_map.get(&pt).unwrap_or(&None);
                 }
 
+                route.reverse();
                 let route = Route::new(route);
 
                 let value: Vec<String> = route.get_vec().iter().map(|x| x.as_value()).collect();

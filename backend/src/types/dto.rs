@@ -1,5 +1,5 @@
 use crate::types::{
-    enums::{AircraftIssue, EngineerType, UserRole},
+    enums::{AircraftIssue, EngineerType, SpecialVehicle, UserRole},
     map::{Point, Route},
 };
 use serde::{Deserialize, Serialize};
@@ -97,5 +97,12 @@ pub struct UpdateAccessResponse {
 #[derive(Deserialize, ToSchema)]
 pub struct UpdateEngineerPositionRequest {
     pub id: String,
+    pub new_point: Point,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateTransportPositionRequest {
+    pub id: String,
+    pub vehicle_type: SpecialVehicle,
     pub new_point: Point,
 }
