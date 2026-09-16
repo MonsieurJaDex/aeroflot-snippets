@@ -41,6 +41,7 @@ body { display: flex; overflow: hidden; }
 #assign-button:hover { background: #ff3037; }
 .assignment-result { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .assignment-result strong { color: var(--text); }
+.fault-hint { margin-top: 8px; color: var(--blue); font-size: 11px; line-height: 1.4; }
 
 #sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 20px 0 8px; }
 #sidebar section:first-of-type h2 { margin-top: 0; }

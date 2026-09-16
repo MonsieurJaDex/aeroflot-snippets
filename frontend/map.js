@@ -250,6 +250,17 @@ async function main() {
   let routeLayer = null;
   const faultSelect = document.getElementById("fault-select");
   for (const [value, label] of AeroAuth.AIRCRAFT_ISSUES) faultSelect.add(new Option(label, value));
+  const faultHint = document.getElementById("fault-hint");
+  const faultDescription = document.getElementById("fault-description");
+  function updateFaultHint() {
+    const issue = faultSelect.value;
+    faultHint.textContent = `Нужный специалист: ${AeroAuth.engineerTypeForIssue(issue)}.`;
+    if (!faultDescription.value.trim()) {
+      faultDescription.value = `Обнаружена неисправность: ${AeroAuth.issueLabel(issue).toLowerCase()}. Требуется осмотр и устранение.`;
+    }
+  }
+  faultSelect.addEventListener("change", updateFaultHint);
+  updateFaultHint();
 
   const gridControl = document.getElementById("toggle-grid");
   document.getElementById("toggle-staff").addEventListener("change", (event) => event.target.checked ? staffLayer.addTo(map) : map.removeLayer(staffLayer));

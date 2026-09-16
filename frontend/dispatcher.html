@@ -24,7 +24,8 @@
       <div class="section-heading"><h2>Новая заявка</h2><span class="live-label">LIVE</span></div>
       <label>Стоянка ВС<select id="stand-select"></select></label>
       <label>Тип неисправности<select id="fault-select"></select></label>
-      <label>Описание<input id="fault-description" type="text" placeholder="Кратко опишите неисправность" /></label>
+      <div id="fault-hint" class="fault-hint">Выберите неисправность, чтобы увидеть нужную специализацию.</div>
+      <label>Описание<input id="fault-description" type="text" placeholder="Например: обнаружены следы подтекания топлива" /></label>
       <button id="assign-button" type="button">Назначить инженера</button>
       <div id="assignment-result" class="assignment-result" aria-live="polite">Выбери стоянку и тип неисправности.</div>
     </section>

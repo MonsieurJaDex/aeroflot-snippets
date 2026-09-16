@@ -120,6 +120,14 @@ pub async fn register_handler(
                 )
                     .into_response();
             }
+
+            if let Err(error) = redis_conn.set(
+                format!("position:{}", new_id),
+                "10,10",
+            ) {
+                tracing::error!(error = %error, engineer_id = %new_id, "error during initial engineer position setup");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
         }
     };
 
