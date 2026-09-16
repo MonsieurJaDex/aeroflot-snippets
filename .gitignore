@@ -16,3 +16,7 @@
 
 # Python
 __pycache__
+
+# local runtime artifacts
+*.exe
+*.log
