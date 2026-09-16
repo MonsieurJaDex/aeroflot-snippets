@@ -152,9 +152,18 @@ async fn main() {
             post(router::simulate::update_engineer_position_handler),
         )
         .route(
+            "/update_transport_position",
+            post(router::simulate::update_transport_position_handler),
+        )
+        .route(
             "/get_engineers_positions",
             get(router::simulate::get_engineers_positions),
         )
+        .route(
+            "/get_transport_positions",
+            get(router::simulate::get_transport_positions),
+        )
+        .route("/active_engineers", get(router::simulate::active_engineers))
         .with_state(Arc::clone(&app_state));
 
     let api_routes = Router::new()
