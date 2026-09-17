@@ -31,30 +31,51 @@ const STANDS = [
   { id: "Техцентр", row: 51, col: 11 },
 ];
 
-// Инженеры на смене показаны декоративно: бэкенд пока не отдаёт их живые позиции по HTTP.
-const AGENTS = [
-  { id: "ENG-014", name: "Смена А", row: 25, col: 18 },
-  { id: "ENG-022", name: "Смена Б", row: 37, col: 43 },
-  { id: "ENG-031", name: "Смена В", row: 31, col: 29 },
-  { id: "ENG-044", name: "Смена Г", row: 48, col: 48 },
-];
+const STAFF_POSITIONS_KEY = "oto-staff-positions";
 
-function randomizeAgentPositions(width, height) {
+function getStaffPosition(id, width, height, occupied, standCells) {
+  const saved = JSON.parse(localStorage.getItem(STAFF_POSITIONS_KEY) || "{}");
+  if (saved[id]) {
+    occupied.add(`${saved[id].row}:${saved[id].col}`);
+    return saved[id];
+  }
+
+  let row;
+  let col;
+  do {
+    row = Math.floor(Math.random() * height);
+    col = Math.floor(Math.random() * width);
+  } while (occupied.has(`${row}:${col}`) || standCells.has(`${row}:${col}`));
+
+  saved[id] = { row, col };
+  localStorage.setItem(STAFF_POSITIONS_KEY, JSON.stringify(saved));
+  occupied.add(`${row}:${col}`);
+  return saved[id];
+}
+
+function issueGroups() {
+  return [
+    ["Герметичность систем", ["fuel_leak_from_drain_cap", "oil_stain_near_gearbox", "hydraulic_leak_on_strut"]],
+    ["Внешние повреждения", ["fairing_chip_or_scratch", "paint_peeling_at_rivets"]],
+    ["Шасси и пневматика", ["missing_pitot_cover", "uneven_tread_wear", "tire_cut_to_cord", "low_tire_pressure"]],
+    ["Замечания экипажа", ["indication_fault", "loose_connector", "seatbelt_adjustment", "burned_out_signal_lamp"]],
+    ["Двигатель", ["thrust_or_parameter_drop", "excessive_vibration", "metal_debris_in_oil_filter"]],
+    ["Авионика", ["radar_failure_or_false_reading", "comms_loss_or_distortion", "ins_gyro_drift"]],
+    ["Прочее", ["other"]],
+  ];
+}
+
+async function loadStaff(width, height) {
+  let engineers = [];
+  try {
+    engineers = await AeroAuth.apiRequest("/api/simulate/get_engineers_positions");
+  } catch (error) {
+    console.warn("[map] не удалось загрузить список сотрудников", error);
+  }
+
   const occupied = new Set();
   const standCells = new Set(STANDS.map(({ row, col }) => `${row}:${col}`));
-
-  for (const agent of AGENTS) {
-    let row;
-    let col;
-    do {
-      row = Math.floor(Math.random() * height);
-      col = Math.floor(Math.random() * width);
-    } while (occupied.has(`${row}:${col}`) || standCells.has(`${row}:${col}`));
-
-    agent.row = row;
-    agent.col = col;
-    occupied.add(`${row}:${col}`);
-  }
+  return engineers.map(([id]) => ({ id, name: `Сотрудник ${id.slice(0, 8)}`, ...getStaffPosition(id, width, height, occupied, standCells) }));
 }
 
 const BACKEND_ROAD_IDS = new Set([0, 29]);
@@ -210,7 +231,6 @@ async function main() {
   const tileH = tmj.tileheight;
   const pxWidth = tmj.width * tileW;
   const pxHeight = tmj.height * tileH;
-    randomizeAgentPositions(tmj.width, tmj.height);
 
   const bounds = [
     [0, 0],
@@ -255,9 +275,10 @@ async function main() {
       icon: L.divIcon({ className: "route-marker", html: "", iconSize: [12, 12], iconAnchor: [6, 6] }),
     }).bindTooltip(stand.id, { permanent: true, direction: "top", className: "map-label", offset: [0, -5] }).addTo(standsLayer);
   }
+  const agents = await loadStaff(tmj.width, tmj.height);
   function renderStaffMarkers() {
     staffLayer.clearLayers();
-    for (const agent of AGENTS) {
+    for (const agent of agents) {
       L.marker(agentPoint(agent), {
         icon: L.divIcon({ className: "agent-marker agent-free", html: "", iconSize: [28, 28], iconAnchor: [14, 14] }),
       }).bindTooltip(`${agent.name} · на смене`, { direction: "top" }).addTo(staffLayer);
@@ -268,7 +289,13 @@ async function main() {
 
   let routeLayer = null;
   const faultSelect = document.getElementById("fault-select");
-  for (const [value, label] of AeroAuth.AIRCRAFT_ISSUES) faultSelect.add(new Option(label, value));
+  const issueLabels = new Map(AeroAuth.AIRCRAFT_ISSUES);
+  for (const [groupLabel, issueValues] of issueGroups()) {
+    const group = document.createElement("optgroup");
+    group.label = groupLabel;
+    for (const value of issueValues) group.append(new Option(issueLabels.get(value), value));
+    faultSelect.append(group);
+  }
   const faultHint = document.getElementById("fault-hint");
   const faultDescription = document.getElementById("fault-description");
   function updateFaultHint() {
