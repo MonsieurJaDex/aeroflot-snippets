@@ -42,8 +42,6 @@ body { display: flex; overflow: hidden; }
 .request-panel textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(22,132,184,.14); }
 #assign-button { width: 100%; margin-top: 13px; padding: 10px; border: 0; border-radius: 4px; background: var(--accent); color: white; font-weight: 800; cursor: pointer; }
 #assign-button:hover { background: #ff3037; }
-#close-task-button { width: 100%; margin-top: 8px; padding: 10px; border: 1px solid #ff4b54; border-radius: 4px; background: transparent; color: #ff747c; font-weight: 800; cursor: pointer; }
-#close-task-button:hover { background: rgba(227,6,19,.14); }
 .assignment-result { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .assignment-result strong { color: var(--text); }
 .fault-hint { margin-top: 8px; color: var(--blue); font-size: 11px; line-height: 1.4; }

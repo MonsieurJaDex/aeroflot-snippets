@@ -273,7 +273,6 @@ async function main() {
     document.getElementById("map").classList.toggle("show-grid", gridControl.checked);
   });
   const result = document.getElementById("assignment-result");
-  const closeTaskButton = document.getElementById("close-task-button");
   document.getElementById("assign-button").addEventListener("click", async () => {
     const stand = STANDS.find((item) => item.id === standSelect.value);
     const issue = faultSelect.value;
@@ -308,28 +307,8 @@ async function main() {
     if (!document.getElementById("toggle-route").checked) map.removeLayer(routeLayer);
 
     result.className = "assignment-result success";
-    closeTaskButton.hidden = false;
-    result.innerHTML = `<strong>Инженер ${response.engineer_uuid.slice(0, 8)}</strong><br>${AeroAuth.issueLabel(issue)}<br>Маршрут: <strong>${distanceCells} клеток</strong><br>ETA: <strong>${etaMinutes} мин</strong>${response.time_limit_exceeded ? " — <strong>лимит 15 мин превышен!</strong>" : " · лимит 15 мин"}`;
+    result.innerHTML = `<strong>Инженер ${response.engineer_uuid.slice(0, 8)}</strong><br>${AeroAuth.issueLabel(issue)}<br>Маршрут: <strong>${distanceCells} клеток</strong><br>ETA: <strong>${etaMinutes} мин</strong><br>Задача закроется автоматически после истечения срока.`;
     map.fitBounds(routeLayer.getBounds(), { padding: [80, 80], maxZoom: 3 });
-  });
-
-  closeTaskButton.addEventListener("click", async () => {
-    closeTaskButton.disabled = true;
-    try {
-      await AeroAuth.apiRequest("/api/tasks/current/close", { method: "POST" });
-      closeTaskButton.hidden = true;
-      result.className = "assignment-result success";
-      result.textContent = "Задача закрыта. Инженер снова свободен.";
-      if (routeLayer) {
-        map.removeLayer(routeLayer);
-        routeLayer = null;
-      }
-    } catch (error) {
-      result.className = "assignment-result";
-      result.textContent = `Ошибка закрытия: ${error.message}`;
-    } finally {
-      closeTaskButton.disabled = false;
-    }
   });
 
   const legend = document.getElementById("legend");
