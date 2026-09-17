@@ -164,7 +164,7 @@ pub async fn active_engineers(State(app_state): State<Arc<AppState>>) -> Respons
 }
 
 #[utoipa::path(
-    post,
+    get,
     path="/api/simulate/get_engineers_positions",
     description="Get all engineers with their positions",
     responses(

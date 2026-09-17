@@ -21,9 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=builder /app/target/release/aeroflot-snippets /app/aeroflot-snippets
 RUN mkdir -p /app/assets
 
-COPY --from=builder /app/target/release/aeroflot-snippets /app/aeroflot-snippets
 COPY et.tmj /app/assets/map2.json
 
 EXPOSE 3001
