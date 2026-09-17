@@ -1,9 +1,8 @@
 services:
   backend:
-    # build:
-    #   context: .
-    #   dockerfile: backend/Dockerfile
-    image: mrjadex/aeroflot-backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     ports:
       - "3001:3001"
