@@ -1,35 +1,159 @@
-# Aeroflot Snippets
+# Aeroflot Transport Engineers
 
-Aeroflot Snippets is a curated collection of code snippets and templates designed for the Transport Engineers Hackathon production repository. This repository helps participants rapidly deploy, test, and optimize their transportation engineering solutions.
+**SkyMunky: Aeroflot Transport Engineers** — проект для разработки, тестирования и эксплуатации инженерных решений в области диспетчеризации.
 
-## 🚀 Features
+Репозиторий содержит backend-, frontend- и вспомогательные сервисы и утилиты необходимые для запуска и развития проекта.
 
-* **Pre-built Templates**: Production-ready templates for essential task.
-* **Reusable Snippets**: Clean, optimised and tested features.
-* **Standardized Structure**: Code organized according to production engineering best practices.
-
-## 📁 Repository Structure
+## 📁 Структура репозитория
 
 ```text
-├── backend/          # Backend code
-├── frontend/         # Frontend code
-├── tools/            # External CLI tools
-├──├── parser/        # Parser for .tmj files
-├── .gitignore        # .gitignore file
-└── README.md         # Current README
+├── backend/          # Backend-сервисы проекта
+├── frontend/         # Frontend-приложение
+├── tools/            # Вспомогательные CLI-инструменты
+│   ├── parser/       # Парсер .tmj файлов
+│   └── scheduler/    # Сервис планирования задач
+├── .gitignore
+├── docker-compose.yml
+└── README.md
 ```
-*May be changed later...*
 
-## 🛠️ Getting Started
+> Структура репозитория может расширяться по мере развития проекта.
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/MonsieurJaDex/aeroflot-snippets
-   ```
-2. **Create your own branch**:
-   ```bash
-   git branch -M [branch_name]
-   ```
-4. **Commit your changes**: Commit your changes to your branch and open merge pull request to master if needed.
+## 🚀 Быстрый запуск
 
-## Please ensure your commit history is linear and provided with comments, thank you 🤝
+Для запуска проекта необходимы:
+
+* Git
+* Docker
+* Docker Compose
+
+### 1. Клонирование репозитория
+
+```bash
+git clone https://github.com/MonsieurJaDex/aeroflot-snippets.git
+cd aeroflot-snippets
+```
+
+### 2. Запуск проекта
+
+Запустите все необходимые сервисы с помощью Docker Compose:
+
+```bash
+docker-compose up --build
+```
+
+Для запуска в фоновом режиме:
+
+```bash
+docker-compose up --build -d
+```
+
+После запуска Docker Compose соберёт необходимые образы и запустит сервисы проекта.
+
+### 3. Остановка проекта
+
+Для остановки всех запущенных сервисов:
+
+```bash
+docker-compose down
+```
+
+Если необходимо также удалить созданные контейнеры и связанные ресурсы:
+
+```bash
+docker-compose down --remove-orphans
+```
+
+## 🐳 Docker
+
+Все основные компоненты проекта запускаются в изолированных Docker-контейнерах, образы которых выгружены в облако Docker Hub. Это позволяет использовать единое окружение разработки и минимизировать различия между локальной машиной и production-инфраструктурой.
+
+Конфигурация контейнеров и их взаимодействия находится в:
+
+```text
+docker-compose.yml
+```
+
+### ⚠️ ARM64
+
+Если хост-машина работает на **ARM64** (например, Apple Silicon или другой ARM-based системе), обратите внимание на используемые Docker-образы.
+
+В `docker-compose.yml` могут использоваться образы с архитектурным тегом `amd64`. На ARM64-хосте такие теги необходимо заменить на соответствующие:
+
+```text
+amd64 → arm64
+```
+
+Например:
+
+```yaml
+image: mrjadex/aeroflot-backend:amd64
+```
+
+нужно заменить на:
+
+```yaml
+image: mrjadex/aeroflot-backend:arm64
+```
+
+> Если конкретный Docker-образ не предоставляет ARM64-версию, его запуск может потребовать дополнительной настройки или эмуляции архитектуры,
+что в свою очередь может отразиться на производительности.
+**Мы стремимся сохранить предсказуемость наших сборок и исключить эмуляцию, поэтому используем явное разделение наших образов** ❤
+
+## 🔧 Разработка
+
+Для внесения изменений создайте отдельную ветку:
+
+```bash
+git checkout -b <branch_name>
+```
+
+После внесения изменений зафиксируйте их:
+
+```bash
+git add .
+git commit -m "Describe your changes"
+```
+
+Затем отправьте ветку в удалённый репозиторий:
+
+```bash
+git push origin <branch_name>
+```
+
+При необходимости создайте Pull Request в основную ветку проекта.
+
+## 📌 Требования к Git
+
+Пожалуйста, соблюдайте следующие правила при работе с репозиторием:
+
+* поддерживайте **линейную историю коммитов**;
+* каждый коммит должен содержать понятное описание изменений;
+* не смешивайте несвязанные изменения в одном коммите;
+* перед созданием Pull Request убедитесь, что ваша ветка актуальна относительно основной ветки.
+
+Пример хорошего сообщения коммита:
+
+```text
+Add transport route parser
+```
+
+или:
+
+```text
+Fix scheduler startup
+```
+
+## 🤝 Contribution
+
+Разработка проекта ведётся совместными усилиями команды. Перед внесением значительных изменений рекомендуется согласовать подход с другими членами.
+
+Коммиты должны содержать краткое описание:
+
+* что было изменено;
+* для чего было изменено;
+
+---
+
+**SkyMunky: Aeroflot Transport Engineers**
+Production engineering for Russian aviation.
