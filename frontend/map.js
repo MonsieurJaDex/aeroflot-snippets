@@ -31,14 +31,6 @@ const STANDS = [
   { id: "Техцентр", row: 51, col: 11 },
 ];
 
-// Инженеры на смене показаны декоративно: бэкенд пока не отдаёт их живые позиции по HTTP.
-const AGENTS = [
-  { id: "ENG-014", name: "Смена А", row: 25, col: 18 },
-  { id: "ENG-022", name: "Смена Б", row: 37, col: 43 },
-  { id: "ENG-031", name: "Смена В", row: 31, col: 29 },
-  { id: "ENG-044", name: "Смена Г", row: 48, col: 48 },
-];
-
 const BACKEND_ROAD_IDS = new Set([0, 29]);
 const FLIP_H = 0x80000000;
 const FLIP_V = 0x40000000;
@@ -225,8 +217,8 @@ async function main() {
     (stand.col + 0.5) * tileW,
   ];
   const agentPoint = (agent) => [
-    pxHeight - (agent.row + 0.5) * tileH,
-    (agent.col + 0.5) * tileW,
+    pxHeight - (agent.point[1] + 0.5) * tileH,
+    (agent.point[0] + 0.5) * tileW,
   ];
 
   const standsLayer = L.layerGroup().addTo(map);
@@ -236,16 +228,27 @@ async function main() {
       icon: L.divIcon({ className: "route-marker", html: "", iconSize: [12, 12], iconAnchor: [6, 6] }),
     }).bindTooltip(stand.id, { permanent: true, direction: "top", className: "map-label", offset: [0, -5] }).addTo(standsLayer);
   }
-  function renderStaffMarkers() {
+  async function renderStaffMarkers() {
     staffLayer.clearLayers();
-    for (const agent of AGENTS) {
+    let agents;
+    try {
+      agents = await AeroAuth.apiRequest("/api/simulate/get_engineers_positions");
+    } catch (error) {
+      console.warn("[map] не удалось загрузить позиции сотрудников", error);
+      return;
+    }
+
+    for (const [id, point] of agents) {
+      if (!point) continue;
+      const agent = { id, point };
       L.marker(agentPoint(agent), {
         icon: L.divIcon({ className: "agent-marker agent-free", html: "", iconSize: [28, 28], iconAnchor: [14, 14] }),
-      }).bindTooltip(`${agent.name} · на смене`, { direction: "top" }).addTo(staffLayer);
+      }).bindTooltip(`Сотрудник ${id.slice(0, 8)} · на смене`, { direction: "top" }).addTo(staffLayer);
     }
   }
 
   renderStaffMarkers();
+  window.setInterval(renderStaffMarkers, 10000);
 
   let routeLayer = null;
   const faultSelect = document.getElementById("fault-select");
