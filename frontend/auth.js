@@ -154,7 +154,28 @@ const AeroAuth = (() => {
       refreshToken: data.refresh_token,
     };
     saveSession(session);
+
+    if (userRole === "Engineer") {
+      await assignRandomStartingPosition(payload.sub);
+    }
+
     return session;
+  }
+
+  // Backend не задаёт позицию инженеру при регистрации, поэтому фиксируем
+  // случайную стартовую точку через уже существующий simulate endpoint.
+  async function assignRandomStartingPosition(engineerId) {
+    const x = 8 + Math.floor(Math.random() * 48);
+    const y = 8 + Math.floor(Math.random() * 48);
+    try {
+      await apiRequest("/api/simulate/update_engineer_position", {
+        method: "POST",
+        auth: false,
+        body: { id: engineerId, new_point: [x, y] },
+      });
+    } catch (error) {
+      console.warn("[auth] не удалось задать стартовую позицию инженера", error);
+    }
   }
 
   function logout() {
