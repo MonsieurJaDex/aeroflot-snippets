@@ -64,6 +64,23 @@ body { display: flex; overflow: hidden; }
 .agent-free { background: #159b72; }
 .agent-busy { background: #e17d32; }
 .route-marker { width: 12px; height: 12px; background: var(--blue); border: 3px solid #f2f4f6; border-radius: 50%; box-shadow: 0 1px 6px #0009; }
+.transport-marker {
+  width: 18px;
+  height: 18px;
+  background: #d4a017;
+  border: 3px solid #fff6d6;
+  border-radius: 3px;
+  transform: rotate(45deg);
+  box-shadow: 0 2px 8px #0009;
+}
+.transport-pickup-marker {
+  width: 16px;
+  height: 16px;
+  background: #ffb020;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgba(212, 160, 23, .35), 0 2px 8px #0009;
+}
 .role-link { color: var(--text); font-size: 11px; font-weight: 700; text-decoration: none; border: 1px solid var(--border); border-radius: 4px; padding: 7px 8px; white-space: nowrap; background: none; cursor: pointer; font-family: inherit; }
 .role-link:hover { border-color: var(--blue); color: var(--blue); }
 .account-strip { display: flex; justify-content: space-between; align-items: center; margin: -12px 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); color: var(--text); font-size: 13px; font-weight: 700; }

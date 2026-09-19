@@ -163,7 +163,7 @@ const AeroAuth = (() => {
   }
 
   // Backend не задаёт позицию инженеру при регистрации, поэтому фиксируем
-  // случайную стартовую точку через уже существующий simulate endpoint.
+  // стартовую точку через simulate endpoint — иначе assign не видит инженера в Redis.
   async function assignRandomStartingPosition(engineerId) {
     const x = 8 + Math.floor(Math.random() * 48);
     const y = 8 + Math.floor(Math.random() * 48);
