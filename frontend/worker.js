@@ -26,6 +26,7 @@ L.control.zoom({ position: "bottomright" }).addTo(workerMap);
 workerMap.fitBounds(mapBounds);
 
 async function loadWorkerMapBackground() {
+  // ИИ: упрощённый рендер real_map для мини-карты инженера (те же firstgid, что у диспетчера).
   try {
     const res = await fetch("./real_map.tmj");
     if (!res.ok) return;

@@ -1,4 +1,5 @@
 // Диспетчерская карта: тайлы перрона, маркеры инженеров/техники, назначение через /api/assign.
+// ИИ: черновик отрисовки тайлов/маркеров и демо-фильтров; координаты Point и /api/assign — сверил с бэком.
 const CONFIG = {
   // Визуальная карта перрона (ассеты лежат в frontend/)
   mapCandidates: ["./real_map.tmj", "../et.tmj", "./et.tmj", "/et.tmj"],
@@ -97,6 +98,7 @@ const FALLBACK_TILE_COLORS = {
 };
 
 function decodeGid(raw) {
+  // Флаги flip из Tiled (без ИИ не выдумывать битовые маски — из спецификации Tiled).
   let gid = raw;
   let flippedH = false;
   let flippedV = false;
@@ -399,6 +401,7 @@ function drawTile(ctx, tilesets, cell, dx, dy, tileW, tileH) {
 }
 
 function renderCanvas(tmj, grid, tilesets) {
+  // ИИ: сборка canvas-фона из тайлов для Leaflet imageOverlay.
   const tileW = tmj.tilewidth;
   const tileH = tmj.tileheight;
   const canvas = document.createElement("canvas");
@@ -424,6 +427,7 @@ function renderCanvas(tmj, grid, tilesets) {
 
 function assignErrorMessage(err) {
   // Тексты для жюри: занятость / отсутствие специалиста / нет техники.
+  // ИИ: формулировки UI; коды/фразы ошибок сверять с реальными ответами Axum.
   const raw = String(err.message || err || "");
   if (/no suitable engineer available/i.test(raw)) {
     return "На данную исправность отсутствует подходящий специалист";
@@ -648,6 +652,7 @@ async function main() {
 
     // Назначение: бэкенд сам выбирает свободного инженера нужного типа и строит маршрут
     // (при необходимости — через точку спецтранспорта).
+    // Без ИИ: поля body (issue, plane_point, description) не менять «на глаз».
     let response;
     try {
       response = await AeroAuth.apiRequest("/api/assign", {

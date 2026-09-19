@@ -107,6 +107,7 @@
     }
 
     // Обычный вход не должен тащить состояние демо-сценария
+    // ИИ: UX-фикс скрытия демо-кнопки; сессию демо сбрасывать обязательно при ручном логине.
     if (typeof DemoScenarios !== "undefined") DemoScenarios.setActiveId(null);
 
     const existingSession = AeroAuth.getSession();

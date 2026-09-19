@@ -5,6 +5,8 @@ const AeroAuth = (() => {
   const DEFAULT_API_BASE = "http://127.0.0.1:3001";
 
   // Справочники совпадают с backend enums (AircraftIssue / EngineerType).
+  // Без ИИ: маппинг issue→специализация сверять с backend/src/types/enums.rs,
+  // иначе UI будет обещать не того инженера, чем назначит /api/assign.
   const AIRCRAFT_ISSUES = [
     ["fuel_leak_from_drain_cap", "Подтекание топлива из дренажных колпачков"],
     ["oil_stain_near_gearbox", "Масляные пятна в районе редуктора"],
@@ -86,6 +88,7 @@ const AeroAuth = (() => {
 
   async function apiRequest(path, { method = "GET", body, auth = true, retry = true } = {}) {
     // Единая точка всех запросов: Bearer JWT + авто-refresh при 401.
+    // ИИ: обвязка fetch/refresh; контракт путей и полей тела — только по фактическому API бэка.
     const headers = { "Content-Type": "application/json" };
     if (auth) {
       const session = getSession();
@@ -200,6 +203,7 @@ const AeroAuth = (() => {
   }
 
   function engineerTypeForIssue(value) {
+    // Подсказки для диспетчера; источник истины по назначению — backend responsible_engineer().
     const groups = {
       fuel_leak_from_drain_cap: "integrity_inspector",
       oil_stain_near_gearbox: "integrity_inspector",

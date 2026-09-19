@@ -1,5 +1,6 @@
 // Демо-сценарии для жюри: 5 расстановок на одной карте, 30 аккаунтов.
 // Обычный вход (index → Диспетчер/Инженер) этот модуль не активирует.
+// ИИ: каркас хаба, сид аккаунтов и тексты сценариев; типы инженеров/вызовы стыковал с enums бэка.
 const DemoScenarios = (() => {
   const PASSWORD = "Demo1234";
   const ROSTER_KEY = "oto-demo-roster";
@@ -228,6 +229,7 @@ const DemoScenarios = (() => {
   async function applyScenarioLayout(scenario) {
     // 1) чужих инженеров уводим в угол карты, чтобы /api/assign не брал их из другого сценария
     // 2) ставим флот и позиции команды текущего сценария
+    // ИИ: идея «парковки» чужих команд; без проверки на стенде легко сломать демо assign.
     if (!scenario) return;
     const roster = getRoster();
     const activeEmails = new Set([
