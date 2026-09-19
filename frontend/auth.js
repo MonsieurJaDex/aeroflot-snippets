@@ -4,6 +4,7 @@ const AeroAuth = (() => {
   const API_BASE_KEY = "oto-api-base";
   const DEFAULT_API_BASE = "http://127.0.0.1:3001";
 
+  // Справочники совпадают с backend enums (AircraftIssue / EngineerType).
   const AIRCRAFT_ISSUES = [
     ["fuel_leak_from_drain_cap", "Подтекание топлива из дренажных колпачков"],
     ["oil_stain_near_gearbox", "Масляные пятна в районе редуктора"],
@@ -84,6 +85,7 @@ const AeroAuth = (() => {
   }
 
   async function apiRequest(path, { method = "GET", body, auth = true, retry = true } = {}) {
+    // Единая точка всех запросов: Bearer JWT + авто-refresh при 401.
     const headers = { "Content-Type": "application/json" };
     if (auth) {
       const session = getSession();

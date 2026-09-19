@@ -1,5 +1,6 @@
+// Диспетчерская карта: тайлы перрона, маркеры инженеров/техники, назначение через /api/assign.
 const CONFIG = {
-  // Визуальная карта перрона (не коммитим ассеты из корня — лежат в frontend/)
+  // Визуальная карта перрона (ассеты лежат в frontend/)
   mapCandidates: ["./real_map.tmj", "../et.tmj", "./et.tmj", "/et.tmj"],
   tilesets: [
     {
@@ -148,6 +149,7 @@ async function ensureEngineerPosition(id) {
 }
 
 async function loadStaff() {
+  // В демо-сценарии показываем только инженеров текущей команды (не всех 25).
   let engineers = [];
   try {
     engineers = await AeroAuth.apiRequest("/api/simulate/get_engineers_positions");
@@ -224,6 +226,7 @@ async function loadTransport() {
 }
 
 async function ensureDefaultFleet() {
+  // Если открыт демо-сценарий — ставим его флот; иначе дефолтный набор из 5 машин.
   const scenario = typeof DemoScenarios !== "undefined" ? DemoScenarios.getActiveScenario() : null;
   const desired = scenario ? scenario.fleet : DEFAULT_FLEET;
 
@@ -420,6 +423,7 @@ function renderCanvas(tmj, grid, tilesets) {
 }
 
 function assignErrorMessage(err) {
+  // Тексты для жюри: занятость / отсутствие специалиста / нет техники.
   const raw = String(err.message || err || "");
   if (/no suitable engineer available/i.test(raw)) {
     return "На данную исправность отсутствует подходящий специалист";
@@ -642,6 +646,8 @@ async function main() {
     result.className = "assignment-result";
     result.innerHTML = "Поиск свободного инженера и спецтранспорта...";
 
+    // Назначение: бэкенд сам выбирает свободного инженера нужного типа и строит маршрут
+    // (при необходимости — через точку спецтранспорта).
     let response;
     try {
       response = await AeroAuth.apiRequest("/api/assign", {

@@ -201,6 +201,7 @@ async function loadCurrentTask() {
 }
 
 acceptButton.addEventListener("click", async () => {
+  // Инженер подтверждает задачу: POST /api/tasks/current/accept
   acceptButton.disabled = true;
   try {
     // Ручка используется: POST /api/tasks/current/accept
