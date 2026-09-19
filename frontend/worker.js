@@ -228,11 +228,12 @@ document.getElementById("logout-button").addEventListener("click", () => {
 });
 
 const switchLink = document.getElementById("switch-role-link");
+const inDemo = typeof DemoScenarios !== "undefined" && !!DemoScenarios.getActiveId();
 if (switchLink) {
+  switchLink.hidden = !inDemo;
   switchLink.addEventListener("click", (event) => {
     event.preventDefault();
-    if (typeof DemoScenarios !== "undefined") DemoScenarios.returnToScenarioSwitcher();
-    else window.location.href = "scenarios.html";
+    DemoScenarios.returnToScenarioSwitcher();
   });
 }
 

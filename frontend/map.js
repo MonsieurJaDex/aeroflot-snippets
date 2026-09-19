@@ -442,15 +442,16 @@ async function main() {
 
   document.getElementById("dispatcher-name").textContent = session.name;
   const switchLink = document.getElementById("switch-role-link");
+  const inDemo = typeof DemoScenarios !== "undefined" && !!DemoScenarios.getActiveId();
   if (switchLink) {
+    switchLink.hidden = !inDemo;
     switchLink.addEventListener("click", (event) => {
       event.preventDefault();
-      if (typeof DemoScenarios !== "undefined") DemoScenarios.returnToScenarioSwitcher();
-      else window.location.href = "scenarios.html";
+      DemoScenarios.returnToScenarioSwitcher();
     });
   }
   document.getElementById("logout-button").addEventListener("click", () => {
-    if (typeof DemoScenarios !== "undefined" && DemoScenarios.getActiveId()) {
+    if (inDemo) {
       DemoScenarios.returnToScenarioSwitcher();
       return;
     }

@@ -41,7 +41,7 @@
       </button>
     </div>
 
-    <a class="demo-entry" href="scenarios.html">
+    <a class="demo-entry" id="demo-entry" href="scenarios.html">
       <div class="demo-entry-copy">
         <span class="role-card-number">03</span>
         <h2>Демо-сценарии</h2>
@@ -85,6 +85,7 @@
     </section>
   </main>
   <script src="auth.js"></script>
+  <script src="scenarios.js"></script>
   <script>
     const skillSelect = document.getElementById("register-skill");
     for (const [value, label] of AeroAuth.ENGINEER_TYPES) skillSelect.add(new Option(label, value));
@@ -96,6 +97,7 @@
     });
 
     const roleGrid = document.getElementById("role-grid");
+    const demoEntry = document.getElementById("demo-entry");
     const authPanel = document.getElementById("auth-panel");
     const registerSkillRow = document.getElementById("register-skill-row");
     let selectedRole = null;
@@ -103,6 +105,9 @@
     function redirectForRole(role) {
       window.location.href = role === "Dispatcher" ? "dispatcher.html" : "worker.html";
     }
+
+    // Обычный вход не должен тащить состояние демо-сценария
+    if (typeof DemoScenarios !== "undefined") DemoScenarios.setActiveId(null);
 
     const existingSession = AeroAuth.getSession();
     if (existingSession) redirectForRole(existingSession.role);
@@ -112,6 +117,7 @@
         selectedRole = card.dataset.role;
         registerSkillRow.hidden = selectedRole !== "Engineer";
         roleGrid.hidden = true;
+        demoEntry.hidden = true;
         authPanel.hidden = false;
         document.getElementById("auth-error").hidden = true;
         const roleLabel = selectedRole === "Dispatcher" ? "Диспетчер" : "Инженер ОТО";
@@ -123,6 +129,7 @@
     document.getElementById("auth-close").addEventListener("click", () => {
       authPanel.hidden = true;
       roleGrid.hidden = false;
+      demoEntry.hidden = false;
     });
 
     document.querySelectorAll(".auth-tab").forEach((tab) => {
@@ -145,6 +152,7 @@
       event.preventDefault();
       document.getElementById("auth-error").hidden = true;
       try {
+        if (typeof DemoScenarios !== "undefined") DemoScenarios.setActiveId(null);
         const email = document.getElementById("login-email").value.trim();
         const password = document.getElementById("login-password").value;
         const session = await AeroAuth.login(email, password);
@@ -163,6 +171,7 @@
       event.preventDefault();
       document.getElementById("auth-error").hidden = true;
       try {
+        if (typeof DemoScenarios !== "undefined") DemoScenarios.setActiveId(null);
         const name = document.getElementById("register-name").value.trim();
         const email = document.getElementById("register-email").value.trim();
         const password = document.getElementById("register-password").value;

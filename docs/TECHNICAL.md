@@ -1,0 +1,181 @@
+# Техническое описание — SkyMunky / Aeroflot ОТО
+
+Документ для сдачи и демонстрации жюри: принцип работы, структура кода, технические характеристики.
+
+---
+
+## 1. Описание принципа работы
+
+Система моделирует оперативное техническое обслуживание (ОТО) воздушных судов на перроне.
+
+### Роли
+
+| Роль | Что делает |
+|------|------------|
+| **Диспетчер** | Создаёт заявку: стоянка ВС + тип неисправности → система назначает инженера и строит маршрут |
+| **Инженер** | Получает назначение, видит маршрут, принимает задачу в работу |
+
+### Логика назначения
+
+1. Диспетчер выбирает **стоянку** и **тип неисправности**.
+2. Backend по типу неисправности определяет **нужную специализацию** инженера и (если нужно) **тип спецтранспорта**.
+3. Среди свободных инженеров нужного типа выбирается ближайший (поиск пути по клеточной карте перрона).
+4. Если для неисправности нужен спецтранспорт, маршрут идёт **инженер → техника → стоянка ВС**.
+5. Занятый инженер на активной задаче того же типа **не назначается повторно** (внештатная ситуация «несколько вызовов подряд»).
+6. Если подходящего специалиста нет — API возвращает ошибку, frontend показывает:  
+   **«На данную исправность отсутствует подходящий специалист»**.
+
+### Карта и контрольные точки
+
+* Карта перрона — тайловая (`real_map.tmj` + спрайты дорог/ВС).
+* Контрольные точки: **стоянки ВС**, **инженеры**, **спецтранспорт**, **маршрут**.
+* Позиции инженеров и техники хранятся в **Redis**; пользователи и задачи — в **PostgreSQL**.
+
+### Демо-режим для жюри
+
+На экране входа есть блок **«Демо-сценарии»**: 5 расстановок на одной карте, 30 заранее заданных аккаунтов, переключение диспетчер ↔ инженеры без ручной регистрации.  
+Обычный вход (кнопки «Диспетчер» / «Инженер») демо-UI не показывает.
+
+---
+
+## 2. Блок-схема кода и ключевые модули
+
+### Общая архитектура
+
+```mermaid
+flowchart TB
+  subgraph Client["Frontend (static HTML/JS)"]
+    Index["index.html\nвход / регистрация"]
+    Scenarios["scenarios.html + scenarios.js\nдемо для жюри"]
+    Disp["dispatcher.html + map.js\nкарта и назначение"]
+    Work["worker.html + worker.js\nзадача инженера"]
+    Auth["auth.js\nJWT-сессия, API-клиент"]
+  end
+
+  subgraph Server["Backend (Rust / Axum)"]
+    API["/api/auth, /api/assign,\n/api/tasks, /api/simulate, /api/map"]
+    Search["search.rs\nBFS / find_nearest"]
+  end
+
+  subgraph Data["Данные"]
+    PG[(PostgreSQL\nusers, tasks)]
+    RD[(Redis\nпозиции, кэш путей)]
+  end
+
+  Index --> Auth
+  Scenarios --> Auth
+  Disp --> Auth
+  Work --> Auth
+  Auth -->|HTTP JSON + Bearer JWT| API
+  API --> Search
+  API --> PG
+  API --> RD
+```
+
+### Поток назначения заявки
+
+```mermaid
+sequenceDiagram
+  participant D as Диспетчер (map.js)
+  participant A as auth.js
+  participant B as Backend /api/assign
+  participant R as Redis
+  participant P as PostgreSQL
+
+  D->>A: POST /api/assign {issue, plane_point, description}
+  A->>B: JWT + JSON
+  B->>P: свободные инженеры нужного типа
+  B->>R: позиции инженеров / спецтранспорта
+  B->>B: find_nearest + BFS маршрут
+  B->>P: создать task (is_active)
+  B->>R: телепорт инженера на стоянку
+  B-->>D: {engineer_uuid, route, time}
+  D->>D: отрисовать маршрут и точки на Leaflet
+```
+
+### Карта файлов frontend (демонстрация структуры кода)
+
+| Файл | Назначение |
+|------|------------|
+| `frontend/auth.js` | Логин/регистрация, JWT, общий `apiRequest` |
+| `frontend/map.js` | Leaflet-карта диспетчера, assign, маркеры сотрудников/транспорта |
+| `frontend/worker.js` | Экран инженера, `GET /api/tasks/current`, `POST .../accept` |
+| `frontend/scenarios.js` | 5 сценариев, сид 30 аккаунтов, расстановки |
+| `frontend/scenarios.html` | UI хаба сценариев для жюри |
+| `frontend/real_map.tmj` | Тайловая карта перрона |
+| `frontend/assets/*.png` | Тайлсет дорог и самолётов |
+
+### Карта backend (ключевые точки)
+
+| Модуль | Назначение |
+|--------|------------|
+| `backend/src/router/mod.rs` | `assign_engineer`, задачи, карта |
+| `backend/src/router/simulate.rs` | Позиции инженеров и спецтранспорта |
+| `backend/src/search.rs` | BFS и поиск ближайшей цели |
+| `backend/src/types/enums.rs` | Неисправности → специализация / спецтранспорт |
+| `tools/scheduler/` | Автозакрытие задач по сроку |
+
+### Фрагменты логики (для скринов / цитирования)
+
+**Неисправность → специализация и техника** (`backend/src/types/enums.rs`):
+
+* `responsible_engineer()` — кто чинит;
+* `required_vehicle()` — нужен ли fuel_truck / lift / КПА и т.д.
+
+**Назначение** (`backend/src/router/mod.rs`, handler `assign_engineer`):
+
+* фильтр свободных инженеров;
+* опциональный заезд к спецтранспорту;
+* запись задачи и обновление позиции.
+
+**Frontend assign** (`frontend/map.js`): вызов `/api/assign`, отрисовка polyline маршрута, подсветка заезда к технике, понятные тексты ошибок.
+
+> Для презентации достаточно открыть эти файлы в IDE и сделать скрин перечисленных функций / хендлеров.
+
+---
+
+## 3. Технические характеристики
+
+| Параметр | Значение |
+|----------|----------|
+| Backend | Rust, Axum, Diesel, JWT |
+| Frontend | Vanilla JS, Leaflet 1.9, HTML/CSS |
+| БД | PostgreSQL 15 |
+| Кэш / позиции | Redis |
+| Планировщик задач | Python-сервис `tools/scheduler` |
+| Контейнеризация | Docker Compose |
+| API | REST JSON, порт **3001** |
+| Frontend (локально) | статика, порт **8001** (пример) |
+| Карта | ортогональный тайловый перрон 64×64, клетка 16px |
+| Аутентификация | access + refresh JWT |
+| Роли | `Dispatcher`, `Engineer` |
+| Специализации инженеров | inspector / fueling / crew remarks / engine / avionics / aviation tech |
+| Спецтранспорт | fuel_truck, oil_cart, maintenance_lift, borescope_cart, avionics_test_set |
+| Поиск пути | BFS по проходимым клеткам карты |
+| Демо | 5 сценариев × (1 диспетчер + 5 инженеров) = 30 аккаунтов |
+
+### Зависимости окружения
+
+* Docker Desktop / Docker Engine + Compose  
+* Браузер с поддержкой ES6  
+* (опционально) Python 3 для `python -m http.server`
+
+### Основные API-ручки
+
+| Метод | Путь | Назначение |
+|-------|------|------------|
+| POST | `/api/auth/register` | Регистрация |
+| POST | `/api/auth/login` | Вход |
+| POST | `/api/assign` | Назначение инженера + маршрут |
+| GET | `/api/tasks/current` | Текущая задача инженера |
+| POST | `/api/tasks/current/accept` | Принятие задачи |
+| GET | `/api/simulate/get_engineers_positions` | Позиции инженеров |
+| POST | `/api/simulate/update_engineer_position` | Обновление позиции |
+| GET/POST | `/api/simulate/get_transport_positions` / `update_transport_position` | Спецтранспорт |
+| GET | `/api/map` | Матрица карты |
+
+---
+
+## 4. Связанные разделы README
+
+Инструкции по запуску Docker, раздаче frontend и **сбросу пользователей/задач/Redis** находятся в корневом [`README.md`](../README.md).
