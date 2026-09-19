@@ -652,7 +652,6 @@ async function main() {
 
     // Назначение: бэкенд сам выбирает свободного инженера нужного типа и строит маршрут
     // (при необходимости — через точку спецтранспорта).
-    // Без ИИ: поля body (issue, plane_point, description) не менять «на глаз».
     let response;
     try {
       response = await AeroAuth.apiRequest("/api/assign", {
