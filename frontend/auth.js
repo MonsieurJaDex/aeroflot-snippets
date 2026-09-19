@@ -36,6 +36,8 @@ const AeroAuth = (() => {
     ["aviation_technician", "Авиатехник (диагностика/ремонт)"],
   ];
 
+  const ENGINEER_TYPE_LABELS = new Map(ENGINEER_TYPES);
+
   function getApiBase() {
     return localStorage.getItem(API_BASE_KEY) || DEFAULT_API_BASE;
   }
@@ -45,15 +47,15 @@ const AeroAuth = (() => {
   }
 
   function getSession() {
-    return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
   }
 
   function saveSession(session) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
   }
 
   function clearSession() {
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
   }
 
   function decodeJwtPayload(token) {
@@ -152,7 +154,28 @@ const AeroAuth = (() => {
       refreshToken: data.refresh_token,
     };
     saveSession(session);
+
+    if (userRole === "Engineer") {
+      await assignRandomStartingPosition(payload.sub);
+    }
+
     return session;
+  }
+
+  // Backend не задаёт позицию инженеру при регистрации, поэтому фиксируем
+  // стартовую точку через simulate endpoint — иначе assign не видит инженера в Redis.
+  async function assignRandomStartingPosition(engineerId) {
+    const x = 8 + Math.floor(Math.random() * 48);
+    const y = 8 + Math.floor(Math.random() * 48);
+    try {
+      await apiRequest("/api/simulate/update_engineer_position", {
+        method: "POST",
+        auth: false,
+        body: { id: engineerId, new_point: [x, y] },
+      });
+    } catch (error) {
+      console.warn("[auth] не удалось задать стартовую позицию инженера", error);
+    }
   }
 
   function logout() {
@@ -174,6 +197,33 @@ const AeroAuth = (() => {
     return found ? found[1] : value;
   }
 
+  function engineerTypeForIssue(value) {
+    const groups = {
+      fuel_leak_from_drain_cap: "integrity_inspector",
+      oil_stain_near_gearbox: "integrity_inspector",
+      hydraulic_leak_on_strut: "integrity_inspector",
+      fairing_chip_or_scratch: "aviation_technician",
+      paint_peeling_at_rivets: "aviation_technician",
+      missing_pitot_cover: "fueling_crew",
+      uneven_tread_wear: "fueling_crew",
+      tire_cut_to_cord: "fueling_crew",
+      low_tire_pressure: "fueling_crew",
+      indication_fault: "crew_remarks_handler",
+      loose_connector: "crew_remarks_handler",
+      seatbelt_adjustment: "crew_remarks_handler",
+      burned_out_signal_lamp: "crew_remarks_handler",
+      thrust_or_parameter_drop: "engine_technician",
+      excessive_vibration: "engine_technician",
+      metal_debris_in_oil_filter: "engine_technician",
+      radar_failure_or_false_reading: "avionics_engineer",
+      comms_loss_or_distortion: "avionics_engineer",
+      ins_gyro_drift: "avionics_engineer",
+      other: "not_categorized",
+    };
+    const type = groups[value] || "not_categorized";
+    return ENGINEER_TYPE_LABELS.get(type) || type;
+  }
+
   return {
     AIRCRAFT_ISSUES,
     ENGINEER_TYPES,
@@ -188,5 +238,6 @@ const AeroAuth = (() => {
     logout,
     requireRole,
     issueLabel,
+    engineerTypeForIssue,
   };
 })();

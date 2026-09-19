@@ -44,7 +44,6 @@
           <span id="task-state" class="task-state">ОЖИДАНИЕ</span>
         </div>
         <div id="task-content" class="task-content">Новых заявок нет.</div>
-        <div id="route-preview" class="route-preview" hidden></div>
         <button id="accept-task" type="button" hidden>Принять задание</button>
       </article>
     </section>
@@ -53,6 +52,8 @@
       <p class="section-label">Уведомления</p>
       <div id="worker-notice">Ожидание назначения от диспетчера.</div>
     </section>
+
+    <div id="worker-toast" class="worker-toast" role="status" aria-live="polite" hidden></div>
 
     <section class="worker-map-card">
       <div class="section-heading">
