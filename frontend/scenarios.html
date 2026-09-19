@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Aeroflot ОТО | Демо-сценарии</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=PT+Sans+Narrow:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="role-page scenarios-page">
+  <main class="role-shell scenarios-shell">
+    <div class="role-hero">
+      <p class="eyebrow">ДЕМО ДЛЯ ЖЮРИ</p>
+      <h1>5 сценариев</h1>
+      <p class="role-copy">Одна карта перрона — пять разных расстановок. Заходите диспетчером или инженером без ручной регистрации.</p>
+    </div>
+
+    <div class="scenarios-toolbar">
+      <a class="role-link" href="index.html">← Назад ко входу</a>
+      <button id="seed-button" class="scenarios-seed" type="button">Подготовить демо (30 аккаунтов)</button>
+    </div>
+    <p id="seed-status" class="scenarios-status">Пароль у всех: <strong>Demo1234</strong>. Перед первым запуском лучше очистить БД (см. инструкцию).</p>
+
+    <div class="scenarios-list" id="scenarios-list"></div>
+
+    <section class="scenario-detail" id="scenario-detail" hidden>
+      <div class="scenario-detail-head">
+        <div>
+          <p class="eyebrow" id="detail-eyebrow">Сценарий</p>
+          <h2 id="detail-title">—</h2>
+          <p id="detail-blurb" class="role-copy" style="margin-top:10px;text-align:left"></p>
+        </div>
+        <button class="auth-close" type="button" id="detail-close">К списку</button>
+      </div>
+
+      <div class="scenario-panels">
+        <article class="scenario-panel">
+          <p class="section-label">Команда</p>
+          <div id="detail-people" class="scenario-people"></div>
+        </article>
+        <article class="scenario-panel">
+          <p class="section-label">Вызовы по порядку</p>
+          <ol id="detail-calls" class="scenario-calls"></ol>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <script src="auth.js"></script>
+  <script src="scenarios.js"></script>
+  <script>
+    const listEl = document.getElementById("scenarios-list");
+    const detailEl = document.getElementById("scenario-detail");
+    const statusEl = document.getElementById("seed-status");
+    let activeScenario = null;
+
+    function issueLabel(value) {
+      return AeroAuth.issueLabel(value);
+    }
+
+    function renderList() {
+      listEl.innerHTML = DemoScenarios.SCENARIOS.map((scenario) => `
+        <button class="scenario-card" type="button" data-id="${scenario.id}">
+          <span class="role-card-number">0${scenario.id}</span>
+          <h2>${scenario.title}</h2>
+          <p>${scenario.blurb}</p>
+          <span>Открыть сценарий →</span>
+        </button>
+      `).join("");
+
+      listEl.querySelectorAll(".scenario-card").forEach((card) => {
+        card.addEventListener("click", () => openScenario(Number(card.dataset.id)));
+      });
+    }
+
+    async function openScenario(id) {
+      activeScenario = DemoScenarios.getScenario(id);
+      if (!activeScenario) return;
+
+      statusEl.textContent = `Применяю расстановку сценария ${id}...`;
+      try {
+        await DemoScenarios.applyScenarioLayout(activeScenario);
+        statusEl.textContent = `Сценарий ${id} готов. Пароль у всех: Demo1234`;
+      } catch (error) {
+        statusEl.textContent = `Расстановку не удалось применить полностью: ${error.message}`;
+      }
+
+      document.getElementById("detail-eyebrow").textContent = `Сценарий 0${id}`;
+      document.getElementById("detail-title").textContent = activeScenario.title;
+      document.getElementById("detail-blurb").textContent = activeScenario.blurb;
+
+      const people = [activeScenario.dispatcher, ...activeScenario.engineers];
+      document.getElementById("detail-people").innerHTML = people.map((person) => {
+        const roleText = person.role === "Dispatcher"
+          ? "Диспетчер"
+          : DemoScenarios.skillLabel(person.engineerType);
+        return `
+          <button class="person-enter" type="button" data-email="${person.email}">
+            <strong>${person.name}</strong>
+            <span>${roleText}</span>
+            <em>${person.email}</em>
+          </button>
+        `;
+      }).join("");
+
+      document.getElementById("detail-calls").innerHTML = DemoScenarios.enrichedCalls(activeScenario).map((call, index) => `
+        <li>
+          <strong>${index + 1}. ${call.stand}</strong> — ${issueLabel(call.issue)}
+          <span>Принимает: <b>${call.assignee}</b></span>
+          <span>${call.note}</span>
+        </li>
+      `).join("");
+
+      document.querySelectorAll(".person-enter").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const person = people.find((item) => item.email === button.dataset.email);
+          button.disabled = true;
+          try {
+            await DemoScenarios.applyScenarioLayout(activeScenario);
+            await DemoScenarios.enterAs(person, activeScenario.id);
+          } catch (error) {
+            statusEl.textContent = `Не удалось войти: ${error.message}. Нажмите «Подготовить демо».`;
+            button.disabled = false;
+          }
+        });
+      });
+
+      listEl.hidden = true;
+      detailEl.hidden = false;
+    }
+
+    document.getElementById("detail-close").addEventListener("click", () => {
+      detailEl.hidden = true;
+      listEl.hidden = false;
+      DemoScenarios.setActiveId(null);
+    });
+
+    async function ensureRosterLoaded() {
+      const current = DemoScenarios.getRoster();
+      if (Object.keys(current).length >= 30) return;
+      try {
+        const res = await fetch("./demo-roster.json");
+        if (!res.ok) return;
+        const roster = await res.json();
+        DemoScenarios.saveRoster(roster);
+        statusEl.textContent = "Ростер демо-аккаунтов подгружен. Пароль: Demo1234";
+      } catch (error) {
+        console.warn(error);
+      }
+    }
+
+    document.getElementById("seed-button").addEventListener("click", async () => {
+      const button = document.getElementById("seed-button");
+      button.disabled = true;
+      try {
+        const result = await DemoScenarios.seedAll({
+          onProgress: (message) => { statusEl.textContent = message; },
+        });
+        statusEl.textContent = `Готово: создано ${result.created}, уже были/подобраны ${result.skipped}, всего ${result.total}. Пароль: Demo1234`;
+      } catch (error) {
+        statusEl.textContent = `Ошибка подготовки: ${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    renderList();
+    (async () => {
+      await ensureRosterLoaded();
+      const params = new URLSearchParams(window.location.search);
+      const openId = Number(params.get("open") || 0);
+      if (openId) await openScenario(openId);
+    })();
+  </script>
+</body>
+</html>

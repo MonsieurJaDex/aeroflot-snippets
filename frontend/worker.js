@@ -29,14 +29,21 @@ async function loadWorkerMapBackground() {
   try {
     const res = await fetch("./real_map.tmj");
     if (!res.ok) return;
-    const image = new Image();
-    image.src = "assets/tileset_custom.png";
-    await new Promise((resolve, reject) => {
-      image.onload = resolve;
-      image.onerror = reject;
-    });
 
-    const tmj = await res.json();
+    const loadImg = (src) =>
+      new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = src;
+      });
+
+    const [groundImage, planeImage, tmj] = await Promise.all([
+      loadImg("assets/tileset_custom.png"),
+      loadImg("assets/plane.png"),
+      res.json(),
+    ]);
+
     const tileW = tmj.tilewidth || 16;
     const tileH = tmj.tileheight || 16;
     const canvas = document.createElement("canvas");
@@ -49,25 +56,25 @@ async function loadWorkerMapBackground() {
     const layer = tmj.layers.find((item) => item.type === "tilelayer");
     if (!layer) return;
 
-    const firstGids = [1008, 973];
+    const sheets = [
+      { firstgid: 1008, image: groundImage, columns: 5, tilecount: 10 },
+      { firstgid: 999, image: planeImage, columns: 3, tilecount: 9 },
+      { firstgid: 973, image: groundImage, columns: 5, tilecount: 10 },
+    ];
+
     for (let i = 0; i < layer.data.length; i++) {
       const raw = layer.data[i];
       if (!raw) continue;
-      let gid = raw & 0x1fffffff;
-      let tilesetFirst = 973;
-      for (const candidate of firstGids) {
-        if (gid >= candidate) {
-          tilesetFirst = candidate;
-          break;
-        }
-      }
-      const localId = gid - tilesetFirst;
-      if (localId < 0 || localId >= 10) continue;
+      const gid = raw & 0x1fffffff;
+      const sheet = sheets.find((item) => gid >= item.firstgid);
+      if (!sheet) continue;
+      const localId = gid - sheet.firstgid;
+      if (localId < 0 || localId >= sheet.tilecount) continue;
       const col = i % layer.width;
       const row = Math.floor(i / layer.width);
-      const sx = (localId % 5) * 16;
-      const sy = Math.floor(localId / 5) * 16;
-      ctx.drawImage(image, sx, sy, 16, 16, col * tileW, row * tileH, tileW, tileH);
+      const sx = (localId % sheet.columns) * 16;
+      const sy = Math.floor(localId / sheet.columns) * 16;
+      ctx.drawImage(sheet.image, sx, sy, 16, 16, col * tileW, row * tileH, tileW, tileH);
     }
 
     if (workerMapOverlay) workerMap.removeLayer(workerMapOverlay);
@@ -212,7 +219,22 @@ acceptButton.addEventListener("click", async () => {
   }
 });
 
-document.getElementById("logout-button").addEventListener("click", () => AeroAuth.logout());
+document.getElementById("logout-button").addEventListener("click", () => {
+  if (typeof DemoScenarios !== "undefined" && DemoScenarios.getActiveId()) {
+    DemoScenarios.returnToScenarioSwitcher();
+    return;
+  }
+  AeroAuth.logout();
+});
+
+const switchLink = document.getElementById("switch-role-link");
+if (switchLink) {
+  switchLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (typeof DemoScenarios !== "undefined") DemoScenarios.returnToScenarioSwitcher();
+    else window.location.href = "scenarios.html";
+  });
+}
 
 if (session) {
   loadCurrentTask();

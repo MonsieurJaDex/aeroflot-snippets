@@ -10,6 +10,14 @@ const CONFIG = {
       tileHeight: 16,
       tilecount: 10,
     },
+    {
+      firstgid: 999,
+      path: "assets/plane.png",
+      columns: 3,
+      tileWidth: 16,
+      tileHeight: 16,
+      tilecount: 9,
+    },
     // В исходном .tmx второй tileset ссылается на тайд.tsx с тем же листом
     {
       firstgid: 1008,
@@ -148,12 +156,21 @@ async function loadStaff() {
     return [];
   }
 
+  const scenario = typeof DemoScenarios !== "undefined" ? DemoScenarios.getActiveScenario() : null;
+  const roster = typeof DemoScenarios !== "undefined" ? DemoScenarios.getRoster() : {};
+  const allowedIds = scenario
+    ? new Set(scenario.engineers.map((item) => String(roster[item.email] || "")).filter(Boolean))
+    : null;
+
   const agents = [];
   for (const entry of engineers) {
     const id = entry[0];
+    if (allowedIds && allowedIds.size > 0 && !allowedIds.has(String(id))) continue;
+
     let point = entry[1];
     if (!point) {
-      point = await ensureEngineerPosition(id);
+      const preset = scenario?.engineers.find((item) => String(roster[item.email]) === String(id));
+      point = preset?.point || (await ensureEngineerPosition(id));
     }
     if (!point) continue;
     agents.push({
@@ -163,6 +180,15 @@ async function loadStaff() {
       busy: false,
     });
   }
+
+  // Подписи из демо-ростера
+  if (scenario) {
+    for (const agent of agents) {
+      const match = scenario.engineers.find((item) => String(roster[item.email]) === String(agent.id));
+      if (match) agent.name = match.name;
+    }
+  }
+
   return agents;
 }
 
@@ -198,10 +224,10 @@ async function loadTransport() {
 }
 
 async function ensureDefaultFleet() {
-  const existing = await loadTransport();
-  if (existing.length > 0) return existing;
+  const scenario = typeof DemoScenarios !== "undefined" ? DemoScenarios.getActiveScenario() : null;
+  const desired = scenario ? scenario.fleet : DEFAULT_FLEET;
 
-  for (const vehicle of DEFAULT_FLEET) {
+  for (const vehicle of desired) {
     try {
       await AeroAuth.apiRequest("/api/simulate/update_transport_position", {
         method: "POST",
@@ -216,7 +242,14 @@ async function ensureDefaultFleet() {
       console.warn("[map] не удалось создать единицу спецтранспорта", vehicle.vehicle_type, error);
     }
   }
-  return loadTransport();
+
+  const loaded = await loadTransport();
+  if (!scenario) return loaded.length ? loaded : desired.map((item) => ({ ...item, label: vehicleLabel(item.vehicle_type) }));
+
+  // В демо показываем только флот текущего сценария
+  const allowed = new Set(desired.map((item) => item.id));
+  const filtered = loaded.filter((item) => allowed.has(item.id));
+  return filtered.length ? filtered : desired.map((item) => ({ ...item, label: vehicleLabel(item.vehicle_type) }));
 }
 
 function findTransportOnRoute(route, fleet) {
@@ -408,7 +441,32 @@ async function main() {
   if (!session) return;
 
   document.getElementById("dispatcher-name").textContent = session.name;
-  document.getElementById("logout-button").addEventListener("click", () => AeroAuth.logout());
+  const switchLink = document.getElementById("switch-role-link");
+  if (switchLink) {
+    switchLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (typeof DemoScenarios !== "undefined") DemoScenarios.returnToScenarioSwitcher();
+      else window.location.href = "scenarios.html";
+    });
+  }
+  document.getElementById("logout-button").addEventListener("click", () => {
+    if (typeof DemoScenarios !== "undefined" && DemoScenarios.getActiveId()) {
+      DemoScenarios.returnToScenarioSwitcher();
+      return;
+    }
+    AeroAuth.logout();
+  });
+
+  if (typeof DemoScenarios !== "undefined") {
+    const scenario = DemoScenarios.getActiveScenario();
+    if (scenario) {
+      try {
+        await DemoScenarios.applyScenarioLayout(scenario);
+      } catch (error) {
+        console.warn("[map] не удалось применить демо-расстановку", error);
+      }
+    }
+  }
 
   const tmj = await loadMap();
   const grid = buildTileGrid(tmj);

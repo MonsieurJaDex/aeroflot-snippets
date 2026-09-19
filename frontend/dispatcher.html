@@ -14,11 +14,13 @@
   <div id="sidebar">
     <div class="brand-row">
       <div><p class="eyebrow">ОТО / ПЕРРОН</p><h1>Диспетчерская карта</h1></div>
-      <a class="role-link" href="index.html">Выбор роли</a>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <a class="role-link" href="scenarios.html" id="switch-role-link">Сменить роль</a>
+        <button id="logout-button" type="button" class="role-link">Выйти</button>
+      </div>
     </div>
     <div class="account-strip">
       <span id="dispatcher-name">Диспетчер</span>
-      <button id="logout-button" type="button" class="role-link">Выйти</button>
     </div>
     <section class="request-panel">
       <div class="section-heading"><h2>Новая заявка</h2><span class="live-label">LIVE</span></div>
@@ -36,6 +38,7 @@
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="auth.js"></script>
+  <script src="scenarios.js"></script>
   <script src="map.js"></script>
 </body>
 </html>
