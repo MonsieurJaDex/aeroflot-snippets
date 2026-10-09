@@ -29,6 +29,7 @@ use crate::{
     },
 };
 
+// handler responsible for user registration
 #[utoipa::path(
     post,
     path="/api/auth/register",
@@ -44,10 +45,12 @@ pub async fn register_handler(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<RegisterRequest>,
 ) -> Response<Body> {
+    // request body validation
     if let Err(e) = payload.validate() {
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
+    // extracting connections from pools
     let mut pg_conn = match app_state.db_pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -64,6 +67,7 @@ pub async fn register_handler(
         }
     };
 
+    // hashing user password
     let hashed_password = match hash_password(payload.password) {
         Ok(hash) => hash,
         Err(e) => {
@@ -72,10 +76,13 @@ pub async fn register_handler(
         }
     };
 
+    // generating new user's UUID v4
     let new_id = Uuid::new_v4();
 
+    // branching user role
     match payload.user_role {
         UserRole::Dispatcher => {
+            // creating and pushing new dispatcher
             let new_dispatcher = Dispatcher {
                 id: new_id,
                 name: payload.name.clone(),
@@ -94,6 +101,7 @@ pub async fn register_handler(
             }
         }
         UserRole::Engineer => {
+            // creating and pushing new engineer
             if payload.engineer_type.is_none() {
                 return (
                     StatusCode::BAD_REQUEST,
@@ -123,6 +131,7 @@ pub async fn register_handler(
         }
     };
 
+    // generating JWT token pair
     let (access, refresh) = match create_token_pair(
         new_id,
         payload.user_role.clone(),
@@ -135,6 +144,7 @@ pub async fn register_handler(
         }
     };
 
+    // revoke old tokens if needed
     if let Err(e) = revoke_and_store_tokens(
         &mut redis_conn,
         new_id,
@@ -155,6 +165,7 @@ pub async fn register_handler(
     .into_response()
 }
 
+// additional API handler: user name getter
 #[utoipa::path(
     post,
     path="/api/auth/get_engineer_name",
@@ -208,6 +219,7 @@ pub async fn get_engineer_name_handler(
     .into_response()
 }
 
+// user login handler
 #[utoipa::path(
     post,
     path="/api/auth/login",
@@ -223,10 +235,12 @@ pub async fn login_handler(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<LoginRequest>,
 ) -> Response<Body> {
+    // request body validation
     if let Err(e) = payload.validate() {
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
+    // extracting connections from pool
     let mut pg_conn = match app_state.db_pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -243,6 +257,7 @@ pub async fn login_handler(
         }
     };
 
+    // looking for possible users in both tables
     let found_engineer = match schema::engineers::table
         .filter(schema::engineers::email.eq(&payload.email))
         .select(Engineer::as_select())
@@ -269,6 +284,7 @@ pub async fn login_handler(
         }
     };
 
+    // branching by user role and throw unathorized error if needed
     let (user, role) = match (found_engineer, found_dispatcher) {
         (None, None) => {
             return (StatusCode::UNAUTHORIZED, "incorrect login or password").into_response();
@@ -281,6 +297,7 @@ pub async fn login_handler(
         }
     };
 
+    // verifying user password
     match verify_password(payload.password.as_str(), user.password_hash()) {
         Ok(_) => (),
         Err(_) => {
@@ -288,6 +305,7 @@ pub async fn login_handler(
         }
     }
 
+    // JWT token pair
     let (access, refresh) = match create_token_pair(
         user.id(),
         user.role(),
@@ -300,6 +318,7 @@ pub async fn login_handler(
         }
     };
 
+    // revoke and restore JWT tokens
     if let Err(e) = revoke_and_store_tokens(&mut redis_conn, user.id(), &access, &refresh, &role) {
         tracing::error!(error = %e, "error during storing tokens in redis");
         return (StatusCode::INTERNAL_SERVER_ERROR, "").into_response();
@@ -314,6 +333,7 @@ pub async fn login_handler(
     .into_response()
 }
 
+// update access token with refresh
 #[utoipa::path(
     post,
     path="/api/auth/update_access",
@@ -329,6 +349,7 @@ pub async fn update_access_token(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<UpdateAccessRequest>,
 ) -> Response<Body> {
+    // extracting database connections
     let mut redis_conn = match app_state.redis_pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -337,6 +358,7 @@ pub async fn update_access_token(
         }
     };
 
+    // looking for user refresh
     let user_id = match redis_conn.get(format!("refresh:{}", payload.refresh_token)) {
         Ok(Some(id)) => match Uuid::from_str(&id) {
             Ok(uuid) => uuid,
@@ -358,6 +380,7 @@ pub async fn update_access_token(
         }
     };
 
+    // verifying user role
     let role = match redis_conn.get(format!("role:{}", user_id)) {
         Ok(Some(found)) => found,
         Ok(None) => {
@@ -370,6 +393,7 @@ pub async fn update_access_token(
         }
     };
 
+    // parsing user role
     let role = match UserRole::try_from(role) {
         Ok(r) => r,
         Err(e) => {
@@ -378,6 +402,7 @@ pub async fn update_access_token(
         }
     };
 
+    // reassign access token
     let access = match create_token_pair(user_id, role, app_state.jwt_secret.as_bytes()) {
         Ok((a, _)) => a,
         Err(e) => {

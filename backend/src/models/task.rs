@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::types::enums::AircraftIssue;
 
-// diesel model
+// business and diesel model for tasks
 #[derive(Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::database::schema::tasks)]
 #[diesel(check_for_backend(diesel::pg::Pg))]

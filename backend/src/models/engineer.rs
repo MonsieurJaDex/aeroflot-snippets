@@ -4,6 +4,7 @@ use validator::Validate;
 
 use crate::types::enums::EngineerType;
 
+// Business and ORM model for engineers
 #[derive(Debug, Queryable, Selectable, Insertable, Validate)]
 #[diesel(table_name = crate::database::schema::engineers)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
@@ -16,8 +17,4 @@ pub struct Engineer {
     pub name: String,
     pub password_hash: String,
     pub engineer_type: EngineerType,
-}
-
-impl Engineer {
-    // fn get_position(redis: Pool<>) -> Point {}
 }

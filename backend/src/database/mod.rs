@@ -7,9 +7,9 @@ use diesel::{
 };
 use redis::Client;
 
-
 pub mod schema;
 
+// postgres connection establishment
 pub async fn establish_pg_connection(
     url: &String,
 ) -> Result<Pool<ConnectionManager<PgConnection>>> {
@@ -25,6 +25,7 @@ pub async fn establish_pg_connection(
     Ok(pool)
 }
 
+// redis connection estalishment
 pub async fn establish_redis_connection(url: &String) -> Result<Pool<Client>> {
     tracing::info!("Attempting to establish redis connection...");
 

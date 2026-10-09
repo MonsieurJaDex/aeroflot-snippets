@@ -38,6 +38,7 @@ use crate::{
     },
 };
 
+// get map matrix
 #[utoipa::path(
     get,
     path="/api/map",
@@ -52,6 +53,7 @@ pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
     Json(&app_state.map).into_response()
 }
 
+// get point-to-point route
 #[utoipa::path(
     post,
     path="/api/getRoute",
@@ -77,6 +79,7 @@ pub async fn get_route(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GetRouteRequest>,
 ) -> Response<Body> {
+    // get redis connection
     let mut redis_conn = match app_state.redis_pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -85,6 +88,7 @@ pub async fn get_route(
         }
     };
 
+    // apply BFS on provided data
     let res = crate::search::bfs(
         &app_state.map,
         Point::new(payload.start_point.0, payload.start_point.1),
@@ -99,6 +103,7 @@ pub async fn get_route(
     }
 }
 
+// get current engineer task
 #[utoipa::path(
     get,
     path="/api/tasks/current",
@@ -109,10 +114,12 @@ pub async fn get_current_task(
     State(app_state): State<Arc<AppState>>,
     Extension(auth_user): Extension<AuthUser>,
 ) -> Response<Body> {
+    // verifying user role
     if auth_user.role != UserRole::Engineer {
         return (StatusCode::FORBIDDEN, "only engineers can view their tasks").into_response();
     }
 
+    // connect to postgres
     let mut pg_conn = match app_state.db_pool.get() {
         Ok(connection) => connection,
         Err(error) => {
@@ -121,6 +128,7 @@ pub async fn get_current_task(
         }
     };
 
+    // get tasks from database
     use self::tasks::dsl::*;
     let task = match tasks
         .filter(assigned_engineer.eq(auth_user.id))
@@ -137,6 +145,7 @@ pub async fn get_current_task(
         }
     };
 
+    // get task information
     match task {
         Some(task) => match serde_json::from_str::<Route>(&task.task_route) {
             Ok(route) => Json(Some(CurrentTaskResponse {
@@ -197,6 +206,7 @@ pub async fn accept_current_task(
     }
 }
 
+// create new task and assign engineer
 #[utoipa::path(
     post,
     path="/api/assign",
@@ -239,6 +249,7 @@ pub async fn assign_engineer(
     Extension(auth_user): Extension<AuthUser>,
     Json(payload): Json<AssignEngineerRequest>,
 ) -> Response<Body> {
+    // verifying user role
     if auth_user.role != UserRole::Dispatcher {
         return (
             StatusCode::FORBIDDEN,
@@ -247,6 +258,7 @@ pub async fn assign_engineer(
             .into_response();
     }
 
+    // database connections extraction
     let mut pg_conn = match app_state.db_pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -271,6 +283,8 @@ pub async fn assign_engineer(
 
     use self::tasks::dsl::*;
 
+    // finding suitable engineers
+
     let active_engineers = tasks
         .filter(is_active.eq(true))
         .filter(issue_type.eq(payload.issue))
@@ -289,6 +303,7 @@ pub async fn assign_engineer(
         }
     };
 
+    // looking for required vehicle (if needed)
     let mut keys = HashSet::new();
     let required_vehicle = payload.issue.required_vehicle();
 
@@ -349,7 +364,7 @@ pub async fn assign_engineer(
         };
     }
 
-    // fetch suitable engineers' positions
+    // fetch suitable engineers positions
     let mut engineers_positions: HashMap<Point, Uuid> = HashMap::new();
     suitable_engineers.iter().for_each(|u| {
         match redis_conn.get(format!("position:{}", u)) {
@@ -371,10 +386,12 @@ pub async fn assign_engineer(
         };
     });
 
+    // check if no one found
     if engineers_positions.is_empty() {
         return (StatusCode::NOT_FOUND, "no suitable engineer available").into_response();
     }
 
+    // check if nearest engineer can be assigned
     let nearest_engineer_probe = match find_nearest(
         &app_state.map,
         payload.plane_point,
@@ -386,12 +403,15 @@ pub async fn assign_engineer(
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
 
+    // engineer position
     let chosen_pos = match nearest_engineer_probe.get_vec().last() {
         Some(p) => *p,
         None => return (StatusCode::NOT_FOUND, "engineer was not found").into_response(),
     };
+    // engineer UUID
     let chosed_uuid = *engineers_positions.get(&chosen_pos).unwrap();
 
+    // getting final route
     let (final_route, total_cells): (Route, usize) = if !transport_map.is_empty() {
         let route_to_transport = match find_nearest(
             &app_state.map,

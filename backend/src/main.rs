@@ -39,6 +39,7 @@ mod search;
 mod types;
 mod utils;
 
+// migration folder initializing
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
 #[tokio::main]
@@ -65,6 +66,7 @@ async fn main() {
     // loading map
     tracing::info!("Loading map from JSON...");
 
+    // parsing map and roads from json config file
     let (map, roads) = match parser::parse_from_json(&args.map_path) {
         Ok(jm) => {
             let map = jm.map;
@@ -80,6 +82,7 @@ async fn main() {
 
     tracing::info!("Attempting to establish database connections...");
 
+    // initializing database and redis connection pools
     let (db_pool, redis_pool) = match tokio::try_join!(
         establish_pg_connection(&app_config.database_url),
         establish_redis_connection(&app_config.redis_url)
@@ -94,7 +97,7 @@ async fn main() {
         }
     };
 
-    // run database migrations from diesel
+    // applying database migrations from diesel
 
     match db_pool.get() {
         Ok(mut pool) => match pool.run_pending_migrations(MIGRATIONS) {
@@ -118,6 +121,7 @@ async fn main() {
 
     // application API layer
 
+    // global application state
     let app_state = Arc::new(AppState {
         road_points: roads,
         map: map,
@@ -126,6 +130,7 @@ async fn main() {
         jwt_secret: app_config.jwt_secret.clone(),
     });
 
+    // authentication and authorization router
     let auth_router = Router::new()
         .route("/register", post(router::auth::register_handler))
         .route("/login", post(router::auth::login_handler))
@@ -135,6 +140,7 @@ async fn main() {
             post(router::auth::get_engineer_name_handler),
         );
 
+    // routes that protected with required bearer auth header
     let protected_routes = Router::new()
         .route("/map", get(get_map))
         .route("/getRoute", post(get_route))
@@ -146,6 +152,7 @@ async fn main() {
             middleware::auth_middleware,
         ));
 
+    // routes of simulation functionalitj
     let simulate_routes = Router::new()
         .route(
             "/update_engineer_position",
@@ -166,12 +173,14 @@ async fn main() {
         .route("/active_engineers", get(router::simulate::active_engineers))
         .with_state(Arc::clone(&app_state));
 
+    // global API router
     let api_routes = Router::new()
         .nest("/auth", auth_router)
         .nest("/simulate", simulate_routes)
         .merge(protected_routes)
         .with_state(Arc::clone(&app_state));
 
+    // application router
     let app = Router::new()
         .nest("/api", api_routes)
         .merge(SwaggerUi::new("/swagger").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -186,6 +195,7 @@ async fn main() {
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid));
 
+    // server start
     let server_addr = format!("{}:{}", &app_config.host, &app_config.port);
 
     let listener = tokio::net::TcpListener::bind(&server_addr).await.unwrap();

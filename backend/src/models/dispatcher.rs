@@ -2,6 +2,7 @@ use diesel::{Selectable, deserialize::Queryable, prelude::Insertable};
 use uuid::Uuid;
 use validator::Validate;
 
+// Business and ORM model for dispatchers
 #[derive(Validate, Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::database::schema::dispatchers)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
