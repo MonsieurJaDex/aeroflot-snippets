@@ -5,6 +5,8 @@
 /backend/assets/*
 /backend/.cargo
 
+/backend/build/*
+
 /.DS_Store
 
 # tools/parser
