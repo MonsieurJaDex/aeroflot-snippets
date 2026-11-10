@@ -1,4 +1,4 @@
-package config
+package cfg
 
 import (
 	"fmt"
@@ -12,11 +12,9 @@ type Config struct {
 	Debug bool `json:"debug"`
 }
 
-func LoadConfig(path *string) (*Config, error) {
-	if path != nil {
-		if err := godotenv.Load(*path); err != nil {
-			return nil, fmt.Errorf("error loading .env file: %v", err)
-		}
+func LoadConfig(path string) (*Config, error) {
+	if err := godotenv.Load(path); err != nil {
+		return nil, fmt.Errorf("error loading .env file: %v", err)
 	}
 
 	debug, err := strconv.ParseBool(os.Getenv("DEBUG"))
