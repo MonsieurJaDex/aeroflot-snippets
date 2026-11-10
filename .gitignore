@@ -15,6 +15,7 @@
 # MISC
 .env
 .venv/
+*.sum
 
 # Python
 __pycache__
