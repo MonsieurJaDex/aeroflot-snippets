@@ -20,3 +20,6 @@ __pycache__
 # local runtime artifacts
 *.exe
 *.log
+
+# Jetbrains IDE
+.idea/
