@@ -1,7 +1,7 @@
 use crate::types::map::Route;
 use anyhow::{Ok, Result, anyhow};
 use diesel::r2d2::PooledConnection;
-use redis::{Client, TypedCommands};
+use redis::{Client, Connection, TypedCommands};
 use uuid::Uuid;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -14,30 +14,22 @@ pub fn bfs(
     start: Point,
     end: Point,
     road_points: &HashSet<i64>,
-    redis_conn: &mut PooledConnection<Client>,
+    redis_conn: &mut Connection,
 ) -> Result<Route> {
-    let row_len = matrix
-        .0
-        .get(start.0 as usize)
-        .ok_or_else(|| anyhow!("row index out of matrix bound"))?
-        .len();
-
     if start.1 < 0 || start.1 as usize >= matrix.0.len() {
         return Err(anyhow!("start y coordinate out of matrix"));
     }
-    if start.0 < 0 || start.0 as usize >= row_len {
-        return Err(anyhow!("start x coordinate out of matrix"));
-    }
-
     if end.1 < 0 || end.1 as usize >= matrix.0.len() {
         return Err(anyhow!("end y coordinate out of matrix"));
     }
-    if end.0 < 0 || end.0 as usize >= row_len {
-        return Err(anyhow!("end x coordinate out of matrix"));
-    }
 
-    if start == end {
-        return Ok(Route::new(vec![start]));
+    let start_row = &matrix.0[start.1 as usize];
+    if start.0 < 0 || start.0 as usize >= start_row.len() {
+        return Err(anyhow!("start x coordinate out of matrix"));
+    }
+    let end_row = &matrix.0[end.1 as usize];
+    if end.0 < 0 || end.0 as usize >= end_row.len() {
+        return Err(anyhow!("end x coordinate out of matrix"));
     }
 
     let path_key = Route::new(vec![start, end]).compute_universal_key();
@@ -121,19 +113,6 @@ pub fn bfs(
                 route_points.reverse();
                 let route = Route::new(route_points);
 
-                let value: Vec<String> = route.get_vec().iter().map(|x| x.as_value()).collect();
-
-                match serde_json::to_string(&value) {
-                    Result::Ok(serialized) => {
-                        if let Err(e) = redis_conn.set(&path_key, serialized) {
-                            tracing::warn!(error = %e, key = %path_key, "failed to cache computed route");
-                        }
-                    }
-                    Result::Err(e) => {
-                        tracing::warn!(error = %e, "failed to serialize route for caching");
-                    }
-                }
-
                 return Ok(route);
             }
 
@@ -149,7 +128,7 @@ pub fn find_nearest(
     start: Point,
     road_points: &HashSet<i64>,
     target_positions: &HashMap<Point, Uuid>,
-    redis_conn: &mut PooledConnection<Client>,
+    redis_conn: &mut redis::Connection,
 ) -> anyhow::Result<Route> {
     if start.1 < 0 || start.1 as usize >= matrix.0.len() {
         return Err(anyhow!("start Y point out of matrix bound"));
@@ -159,7 +138,7 @@ pub fn find_nearest(
         return Err(anyhow!("start X point out of matrix bound"));
     }
 
-    if target_positions.get(&start).is_some() {
+    if target_positions.contains_key(&start) {
         return Ok(Route::new(vec![]));
     }
 
@@ -213,7 +192,7 @@ pub fn find_nearest(
                 route.reverse();
                 let route = Route::new(route);
 
-                let value: Vec<String> = route.get_vec().iter().map(|x| x.as_value()).collect();
+                let value: Vec<String> = route.as_slice().iter().map(|x| x.as_value()).collect();
 
                 match serde_json::to_string(&value) {
                     Result::Ok(serialized) => {

@@ -44,16 +44,14 @@ const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
 #[tokio::main]
 async fn main() {
-    // load configuration
     let app_config: Arc<AppConfig> = match AppConfig::new() {
         Ok(cfg) => Arc::new(cfg),
         Err(e) => {
-            tracing::error!("Error during app configuration loading: {}", e);
+            eprintln!("Error during app configuration loading: {}", e);
             process::exit(1);
         }
     };
 
-    // load logger
     init_logger(app_config.debug);
 
     // loading cli arguments
@@ -99,22 +97,21 @@ async fn main() {
 
     // applying database migrations from diesel
 
-    match db_pool.get() {
-        Ok(mut pool) => match pool.run_pending_migrations(MIGRATIONS) {
-            Ok(_) => (),
-            Err(e) => {
-                tracing::error!(
-                    "Error during database pool using for migrations pending: {}",
-                    e
-                );
-                process::exit(1);
-            }
-        },
+    let migrations_pool = db_pool.clone();
+    let migrate_result = tokio::task::spawn_blocking(move || {
+        let mut conn = migrations_pool.get()?;
+        conn.run_pending_migrations(MIGRATIONS).map(|_| ())
+    })
+        .await;
+
+    match migrate_result {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            tracing::error!("migrations failed: {}", e);
+            process::exit(1);
+        }
         Err(e) => {
-            tracing::error!(
-                "Error during database pool using for migrations pending: {}",
-                e
-            );
+            tracing::error!("migrations task join error: {}", e);
             process::exit(1);
         }
     }
@@ -124,9 +121,9 @@ async fn main() {
     // global application state
     let app_state = Arc::new(AppState {
         road_points: roads,
-        map: map,
-        db_pool: db_pool,
-        redis_pool: redis_pool,
+        map,
+        db_pool,
+        redis_pool,
         jwt_secret: app_config.jwt_secret.clone(),
     });
 
@@ -170,8 +167,7 @@ async fn main() {
             "/get_transport_positions",
             get(router::simulate::get_transport_positions),
         )
-        .route("/active_engineers", get(router::simulate::active_engineers))
-        .with_state(Arc::clone(&app_state));
+        .route("/active_engineers", get(router::simulate::active_engineers));
 
     // global API router
     let api_routes = Router::new()
@@ -198,8 +194,41 @@ async fn main() {
     // server start
     let server_addr = format!("{}:{}", &app_config.host, &app_config.port);
 
-    let listener = tokio::net::TcpListener::bind(&server_addr).await.unwrap();
-    tracing::info!("Running sever at: http://{server_addr}");
+    let listener = match tokio::net::TcpListener::bind(&server_addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("failed to bind {}: {}", server_addr, e);
+            process::exit(1);
+        }
+    };
+    tracing::info!("Running server at: http://{server_addr}");
 
-    _ = axum::serve(listener, app).await;
+    if let Err(e) = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+    {
+        tracing::error!("server error: {}", e);
+    }
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c().await.expect("install ctrl_c handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    tracing::info!("shutdown signal received");
 }

@@ -5,6 +5,8 @@
 /backend/assets/*
 /backend/.cargo
 
+/backend/build/*
+
 /.DS_Store
 
 # tools/parser
@@ -13,6 +15,7 @@
 # MISC
 .env
 .venv/
+*.sum
 
 # Python
 __pycache__
@@ -20,3 +23,6 @@ __pycache__
 # local runtime artifacts
 *.exe
 *.log
+
+# Jetbrains IDE
+.idea/
