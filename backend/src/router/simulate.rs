@@ -1,17 +1,22 @@
-use std::{str::FromStr, sync::Arc};
+//! Simulation handlers: manual position updates and read endpoints.
+
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use axum::{
     Json,
     body::Body,
     extract::State,
-    http::{Response, StatusCode},
+    http::StatusCode,
     response::IntoResponse,
 };
+use axum::http::Response;
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use redis::TypedCommands;
-use serde_json::json;
+use serde::Serialize;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
+use super::{bad_request, internal_error};
 use crate::{
     database::schema,
     types::{
@@ -22,292 +27,264 @@ use crate::{
     },
 };
 
-// add possibility to move engineer and control simulation params from API (speed etc.)
+// ---------------------------------------------------------------------------
+// Position updates
+// ---------------------------------------------------------------------------
+
+/// Manually updates an engineer's position.
 #[utoipa::path(
     post,
-    path="/api/simulate/update_engineer_position",
-    description="Manual engineer position update",
-    request_body=UpdateEngineerPositionRequest,
+    path = "/api/simulate/update_engineer_position",
+    description = "Manually update an engineer's position (simulation only)",
+    request_body = UpdateEngineerPositionRequest,
     responses(
-        (status=200, description="Successful update", body=String),
-        (status=400, description="Invalid request format", body=String),
-        (status=500, description="Server-side error", body=String)
-    )
+        (status = 200, description = "Position updated"),
+        (status = 400, description = "Invalid UUID or out-of-bounds coordinate", body = String),
+        (status = 500, description = "Server-side error", body = String),
+    ),
 )]
 pub async fn update_engineer_position_handler(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<UpdateEngineerPositionRequest>,
-) -> Response<Body> {
-    let uuid: Uuid = match Uuid::parse_str(&payload.id) {
-        Ok(id) => id,
-        Err(_) => {
-            return (StatusCode::BAD_REQUEST, "invalid ID format, parsing faile").into_response();
-        }
-    };
+) -> Result<Response<Body>, Response<Body>> {
+    let uuid = Uuid::parse_str(&payload.id)
+        .map_err(|_| bad_request("invalid UUID format"))?;
 
-    if payload.new_point.1 < 0 || payload.new_point.1 as usize > app_state.map.0.len() {
-        return (StatusCode::BAD_REQUEST, "invalid Y point coordinate").into_response();
+    if !app_state.map.in_bounds(payload.new_point) {
+        return Err(bad_request("point is outside of map bounds"));
     }
 
-    if let Some(row) = app_state.map.0.get(0) {
-        if payload.new_point.0 < 0 || payload.new_point.0 as usize > row.len() {
-            return (StatusCode::BAD_REQUEST, "invalid X point coordinate").into_response();
-        }
-    }
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
 
-    let mut redis_conn = match app_state.redis_pool.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "Error during extracting redis connection from pool");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    redis_conn
+        .set(format!("position:{}", uuid), payload.new_point.as_value())
+        .map_err(|e| {
+            tracing::error!(%uuid, error = %e, "failed to set engineer position");
+            internal_error()
+        })?;
 
-    match redis_conn.set(format!("position:{}", uuid), payload.new_point.as_value()) {
-        Ok(_) => (),
-        Err(e) => {
-            tracing::error!(error = %e, "Error during extracting redis connection from pool");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    StatusCode::OK.into_response()
+    Ok(StatusCode::OK.into_response())
 }
 
+/// Manually updates a special vehicle's position.
 #[utoipa::path(
     post,
-    path="/api/simulate/update_transport_position",
-    description="Manual special vehicle position update (creates the vehicle in redis if it did not exist yet)",
-    request_body=UpdateTransportPositionRequest,
+    path = "/api/simulate/update_transport_position",
+    description = "Manually update a special-vehicle position (creates the vehicle if it does not exist)",
+    request_body = UpdateTransportPositionRequest,
     responses(
-        (status=200, description="Successful update", body=String),
-        (status=400, description="Invalid request format", body=String),
-        (status=500, description="Server-side error", body=String)
-    )
+        (status = 200, description = "Position updated"),
+        (status = 400, description = "Invalid UUID or out-of-bounds coordinate", body = String),
+        (status = 500, description = "Server-side error", body = String),
+    ),
 )]
 pub async fn update_transport_position_handler(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<UpdateTransportPositionRequest>,
-) -> Response<Body> {
-    let uuid: Uuid = match Uuid::parse_str(&payload.id) {
-        Ok(id) => id,
-        Err(_) => {
-            return (StatusCode::BAD_REQUEST, "invalid ID format, parsing failed").into_response();
-        }
-    };
+) -> Result<Response<Body>, Response<Body>> {
+    let uuid = Uuid::parse_str(&payload.id)
+        .map_err(|_| bad_request("invalid UUID format"))?;
 
-    if payload.new_point.1 < 0 || payload.new_point.1 as usize > app_state.map.0.len() {
-        return (StatusCode::BAD_REQUEST, "invalid Y point coordinate").into_response();
+    if !app_state.map.in_bounds(payload.new_point) {
+        return Err(bad_request("point is outside of map bounds"));
     }
 
-    if let Some(row) = app_state.map.0.get(0) {
-        if payload.new_point.0 < 0 || payload.new_point.0 as usize > row.len() {
-            return (StatusCode::BAD_REQUEST, "invalid X point coordinate").into_response();
-        }
-    }
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
 
-    let mut redis_conn = match app_state.redis_pool.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "Error during extracting redis connection from pool");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    // ключ вида position:{vehicle_type}:{uuid} — то же соглашение, что уже
-    // используется в assign_engineer при поиске техники через scan_match
     let key = format!("position:{}:{}", payload.vehicle_type, uuid);
+    redis_conn
+        .set(key, payload.new_point.as_value())
+        .map_err(|e| {
+            tracing::error!(%uuid, error = %e, "failed to set transport position");
+            internal_error()
+        })?;
 
-    match redis_conn.set(key, payload.new_point.as_value()) {
-        Ok(_) => (),
-        Err(e) => {
-            tracing::error!(error = %e, "Error during setting transport position in redis");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    StatusCode::OK.into_response()
+    Ok(StatusCode::OK.into_response())
 }
 
+// ---------------------------------------------------------------------------
+// Read endpoints
+// ---------------------------------------------------------------------------
+
+/// Response payload for [`active_engineers`].
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ActiveEngineersResponse {
+    /// UUIDs of engineers currently assigned to an active task.
+    pub active_engineers: Vec<String>,
+}
+
+/// Returns the list of engineers with at least one active task.
 #[utoipa::path(
     get,
-    path="/api/simulate/active_engineers",
-    description="Get all active engineers",
+    path = "/api/simulate/active_engineers",
+    description = "List engineers who currently have an active task",
     responses(
-        (status=200, description="Successful fetch", body=Vec<String>),
-        (status=500, description="Server-side error", body=String)
-    )
+        (status = 200, description = "List of engineer UUIDs", body = ActiveEngineersResponse),
+        (status = 500, description = "Server-side error", body = String),
+    ),
 )]
-pub async fn active_engineers(State(app_state): State<Arc<AppState>>) -> Response<Body> {
-    let mut pg_conn = match app_state.db_pool.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "Error during extracting postgres connection from pool");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+pub async fn active_engineers(
+    State(app_state): State<Arc<AppState>>,
+) -> Result<Response<Body>, Response<Body>> {
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
 
-    let ids: Vec<Uuid> = match schema::tasks::table
+    let ids: Vec<Uuid> = schema::tasks::table
         .filter(schema::tasks::is_active.eq(true))
         .select(schema::tasks::assigned_engineer)
         .load(&mut pg_conn)
-    {
-        Ok(u) => u,
-        Err(e) => {
-            tracing::error!(error = %e, "error happened during gathering all engineers");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-    let ids: Vec<String> = ids.iter().map(|u| u.to_string()).collect();
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load active engineers");
+            internal_error()
+        })?;
 
-    (StatusCode::OK, Json(json!({"active_engineers": ids}))).into_response()
+    Ok(Json(ActiveEngineersResponse {
+        active_engineers: ids.into_iter().map(|u| u.to_string()).collect(),
+    })
+        .into_response())
 }
 
+/// Response entry for [`get_engineers_positions`].
+#[derive(Debug, Serialize, ToSchema)]
+pub struct EngineerPositionEntry {
+    /// Engineer UUID.
+    pub id: Uuid,
+    /// Current position, if known.
+    pub position: Option<Point>,
+}
+
+/// Returns every engineer together with their current position.
 #[utoipa::path(
     get,
-    path="/api/simulate/get_engineers_positions",
-    description="Get all engineers with their positions",
+    path = "/api/simulate/get_engineers_positions",
+    description = "List all engineers and their positions",
     responses(
-        (status=200, description="Successful fetch", body=String),
-        (status=500, description="Server-side error", body=String)
-    )
+        (status = 200, description = "Engineer positions", body = Vec<EngineerPositionEntry>),
+        (status = 500, description = "Server-side error", body = String),
+    ),
 )]
-pub async fn get_engineers_positions(State(app_state): State<Arc<AppState>>) -> Response<Body> {
-    let mut pg_conn = match app_state.db_pool.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "Error during extracting postgres connection from pool");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+pub async fn get_engineers_positions(
+    State(app_state): State<Arc<AppState>>,
+) -> Result<Response<Body>, Response<Body>> {
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
 
-    let mut redis_conn = match app_state.redis_pool.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "Error during extracting redis connection from pool");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    let ids: Vec<Uuid> = match schema::engineers::table
+    let ids: Vec<Uuid> = schema::engineers::table
         .select(schema::engineers::id)
         .load(&mut pg_conn)
-    {
-        Err(e) => {
-            tracing::error!(error = %e, "error happened during gathering all engineers");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-        Ok(u) => u,
-    };
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load engineers");
+            internal_error()
+        })?;
 
-    let mut pos = Vec::new();
-    for id in &ids {
-        match redis_conn.get(format!("position:{}", id)) {
-            Ok(r) => match r {
-                Some(res) => pos.push(Some(Point::from_value(res).unwrap())),
-                None => pos.push(None),
-            },
-            Err(e) => {
-                tracing::error!(error = %e, "error happened during position extracting");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
-    }
+    // One round-trip instead of N.
+    let keys: Vec<String> = ids
+        .iter()
+        .map(|id| format!("position:{}", id))
+        .collect();
 
-    let response: Vec<(&Uuid, Option<Point>)> = ids.iter().zip(pos).map(|(i, p)| (i, p)).collect();
+    let raw: Vec<Option<String>> = redis::cmd("MGET")
+        .arg(&keys)
+        .query(&mut redis_conn)
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to fetch engineer positions");
+            internal_error()
+        })?;
 
-    Json(response).into_response()
+    let result: Vec<EngineerPositionEntry> = ids
+        .into_iter()
+        .zip(raw)
+        .map(|(id, value)| EngineerPositionEntry {
+            id,
+            position: value.and_then(|v| Point::from_value(v).ok()),
+        })
+        .collect();
+
+    Ok(Json(result).into_response())
 }
 
-#[derive(serde::Serialize, utoipa::ToSchema)]
+/// Response entry for [`get_transport_positions`].
+#[derive(Debug, Serialize, ToSchema)]
 pub struct TransportPositionEntry {
+    /// Vehicle UUID.
     pub id: Uuid,
+    /// Vehicle type.
     pub vehicle_type: SpecialVehicle,
+    /// Current position.
     pub point: Point,
 }
 
+/// Returns every special vehicle with its type and current position.
 #[utoipa::path(
     get,
-    path="/api/simulate/get_transport_positions",
-    description="Get all special vehicles with their type, uuid and position",
+    path = "/api/simulate/get_transport_positions",
+    description = "List all special vehicles with type, UUID and position",
     responses(
-        (status=200, description="Successful fetch", body=Vec<TransportPositionEntry>),
-        (status=500, description="Server-side error", body=String)
-    )
+        (status = 200, description = "Transport positions", body = Vec<TransportPositionEntry>),
+        (status = 500, description = "Server-side error", body = String),
+    ),
 )]
-pub async fn get_transport_positions(State(app_state): State<Arc<AppState>>) -> Response<Body> {
-    let mut redis_conn = match app_state.redis_pool.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "Error during extracting redis connection from pool");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+pub async fn get_transport_positions(
+    State(app_state): State<Arc<AppState>>,
+) -> Result<Response<Body>, Response<Body>> {
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
 
-    // Транспорт не хранится в Postgres (в отличие от инженеров) — единственный
-    // источник истины про весь существующий транспорт это сам Redis, поэтому
-    // перечисляем ключи через SCAN, а не через выборку из БД.
-    let keys: Vec<String> = {
-        let iter: redis::Iter<'_, String> = match redis_conn.scan_match("position:*:*") {
-            Ok(iter) => iter,
-            Err(e) => {
-                tracing::error!(error = %e, "error happened during scanning transport keys");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
-        iter.filter_map(|k| k.ok()).collect()
-    };
+    let keys: Vec<String> = redis_conn
+        .scan_match("position:*:*")
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to scan transport keys");
+            internal_error()
+        })?
+        .filter_map(Result::ok)
+        .collect();
 
-    let mut result: Vec<TransportPositionEntry> = Vec::with_capacity(keys.len());
+    let mut result = Vec::with_capacity(keys.len());
 
     for key in keys {
-        // ключ вида position:{vehicle_type}:{uuid}
+        // Key shape: position:{vehicle_type}:{uuid}
         let mut parts = key.splitn(3, ':');
-        let _prefix = parts.next(); // "position"
-        let type_str = match parts.next() {
-            Some(t) => t,
-            None => {
-                tracing::warn!(key = %key, "malformed transport key, skipped");
-                continue;
-            }
-        };
-        let uuid_str = match parts.next() {
-            Some(u) => u,
-            None => {
-                tracing::warn!(key = %key, "malformed transport key, skipped");
-                continue;
-            }
+        let _prefix = parts.next();
+        let (Some(type_str), Some(uuid_str)) = (parts.next(), parts.next()) else {
+            tracing::warn!(%key, "malformed transport key, skipped");
+            continue;
         };
 
-        let vehicle_type = match SpecialVehicle::try_from(type_str) {
-            Ok(v) => v,
-            Err(_) => {
-                tracing::warn!(key = %key, type_str = %type_str, "unknown vehicle type in key, skipped");
-                continue;
-            }
+        let Ok(vehicle_type) = SpecialVehicle::try_from(type_str) else {
+            tracing::warn!(%key, type_str, "unknown vehicle type, skipped");
+            continue;
+        };
+        let Ok(id) = Uuid::from_str(uuid_str) else {
+            tracing::warn!(%key, "malformed transport uuid, skipped");
+            continue;
         };
 
-        let id = match Uuid::from_str(uuid_str) {
-            Ok(id) => id,
-            Err(e) => {
-                tracing::warn!(error = %e, key = %key, "malformed transport uuid, skipped");
-                continue;
-            }
+        let Some(value) = redis_conn.get(&key).map_err(|e| {
+            tracing::error!(%key, error = %e, "failed to fetch transport position");
+            internal_error()
+        })? else {
+            continue; // key disappeared between SCAN and GET
         };
 
-        let point = match redis_conn.get(&key) {
-            Ok(Some(v)) => match Point::from_value(v) {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::warn!(error = %e, key = %key, "malformed transport position, skipped");
-                    continue;
-                }
-            },
-            Ok(None) => continue, // ключ исчез между SCAN и GET — редко, но возможно
-            Err(e) => {
-                tracing::error!(error = %e, key = %key, "error happened during transport position fetching");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
+        let Ok(point) = Point::from_value(value) else {
+            tracing::warn!(%key, "malformed transport position, skipped");
+            continue;
         };
 
         result.push(TransportPositionEntry {
@@ -317,5 +294,5 @@ pub async fn get_transport_positions(State(app_state): State<Arc<AppState>>) -> 
         });
     }
 
-    Json(result).into_response()
+    Ok(Json(result).into_response())
 }

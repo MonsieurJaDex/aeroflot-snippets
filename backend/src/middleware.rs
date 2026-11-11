@@ -10,6 +10,7 @@ use redis::TypedCommands;
 use uuid::Uuid;
 
 use crate::types::{auth::AccessClaims, config::AppState, enums::UserRole};
+use crate::types::enums::TokenType;
 
 #[derive(Clone)]
 pub struct AuthUser {
@@ -40,25 +41,30 @@ pub async fn auth_middleware(
         }
     };
 
-    let mut redis_conn = match app_state.redis_pool.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "error during extracting redis connection from pool");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let redis_pool = app_state.redis_pool.clone();
+    let token_key = format!("access:{}", token);
+    let lookup = tokio::task::spawn_blocking(move || {
+        let mut conn = redis_pool.get()?;
+        let id: Option<String> = conn.get(&token_key)?;
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(id)
+    })
+        .await;
 
-    let stored_user_id = match redis_conn.get(format!("access:{}", token)) {
-        Ok(Some(id)) => id,
-        Ok(None) => {
+    let stored_user_id = match lookup {
+        Ok(Ok(Some(id))) => id,
+        Ok(Ok(None)) => {
             return (
                 StatusCode::UNAUTHORIZED,
                 "access token was revoked, please login again",
             )
                 .into_response();
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             tracing::error!(error = %e, "error checking access token in redis");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "redis lookup task failed");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
@@ -84,14 +90,21 @@ pub async fn auth_middleware(
     next.run(req).await
 }
 
-fn decode_access_token(
+pub(crate) fn decode_access_token(
     token: &str,
     secret: &[u8],
 ) -> Result<AccessClaims, jsonwebtoken::errors::Error> {
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.set_required_spec_claims(&["exp", "sub"]);
     let data = jsonwebtoken::decode::<AccessClaims>(
         token,
         &jsonwebtoken::DecodingKey::from_secret(secret),
-        &jsonwebtoken::Validation::default(),
+        &validation,
     )?;
+    if data.claims.token_type != TokenType::Access {
+        return Err(jsonwebtoken::errors::Error::from(
+            jsonwebtoken::errors::ErrorKind::InvalidToken,
+        ));
+    }
     Ok(data.claims)
 }

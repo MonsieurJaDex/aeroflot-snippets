@@ -188,7 +188,7 @@ impl AircraftIssue {
     }
 }
 
-#[derive(Serialize, Deserialize, ToSchema, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, PartialEq, Eq, Debug)]
 pub enum UserRole {
     Dispatcher,
     Engineer,
@@ -219,7 +219,7 @@ impl TryFrom<String> for UserRole {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub enum TokenType {
     Access,
     Refresh,

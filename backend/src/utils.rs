@@ -4,6 +4,9 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{EncodingKey, Header};
 use uuid::Uuid;
 
+pub const ACCESS_TTL_SECS: i64 = 3600;
+pub const REFRESH_TTL_SECS: i64 = 604800;
+
 use crate::types::{
     auth::{AccessClaims, RefreshClaims},
     enums::{TokenType, UserRole},
@@ -18,21 +21,23 @@ pub fn revoke_and_store_tokens(
     refresh: &str,
     role: &UserRole,
 ) -> Result<(), redis::RedisError> {
-    if let Some(old_access) = redis_conn.get(format!("access_from_id:{}", user_id))? {
-        redis_conn.del(format!("access:{}", old_access))?;
+    let old_access: Option<String> = redis_conn.get(format!("access_from_id:{}", user_id))?;
+    let old_refresh: Option<String> = redis_conn.get(format!("refresh_from_id:{}", user_id))?;
+
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    if let Some(old) = old_access.as_deref() {
+        pipe.del(format!("access:{}", old)).ignore();
     }
-    if let Some(old_refresh) = redis_conn.get(format!("refresh_from_id:{}", user_id))? {
-        redis_conn.del(format!("refresh:{}", old_refresh))?;
+    if let Some(old) = old_refresh.as_deref() {
+        pipe.del(format!("refresh:{}", old)).ignore();
     }
-
-    redis_conn.set_ex(format!("refresh:{}", refresh), user_id.to_string(), 604800)?;
-    redis_conn.set_ex(format!("refresh_from_id:{}", user_id), refresh, 604800)?;
-
-    redis_conn.set_ex(format!("access:{}", access), user_id.to_string(), 3600)?;
-    redis_conn.set_ex(format!("access_from_id:{}", user_id), access, 3600)?;
-
-    redis_conn.set(format!("role:{}", user_id), role.to_string())?;
-
+    pipe.set_ex(format!("refresh:{}", refresh), user_id.to_string(), REFRESH_TTL_SECS as u64).ignore();
+    pipe.set_ex(format!("refresh_from_id:{}", user_id), refresh, REFRESH_TTL_SECS as u64).ignore();
+    pipe.set_ex(format!("access:{}", access), user_id.to_string(), ACCESS_TTL_SECS as u64).ignore();
+    pipe.set_ex(format!("access_from_id:{}", user_id), access, ACCESS_TTL_SECS as u64).ignore();
+    pipe.set_ex(format!("role:{}", user_id), role.to_string(), REFRESH_TTL_SECS as u64).ignore();
+    pipe.query::<()>(redis_conn)?;
     Ok(())
 }
 
@@ -41,13 +46,16 @@ pub fn revoke_and_store_access_token(
     user_id: Uuid,
     access: &str,
 ) -> Result<(), redis::RedisError> {
-    if let Some(old_access) = redis_conn.get(format!("access_from_id:{}", user_id))? {
-        redis_conn.del(format!("access:{}", old_access))?;
+    let old_access: Option<String> = redis_conn.get(format!("access_from_id:{}", user_id))?;
+
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    if let Some(old) = old_access.as_deref() {
+        pipe.del(format!("access:{}", old)).ignore();
     }
-
-    redis_conn.set_ex(format!("access:{}", access), user_id.to_string(), 3600)?;
-    redis_conn.set_ex(format!("access_from_id:{}", user_id), access, 3600)?;
-
+    pipe.set_ex(format!("access:{}", access), user_id.to_string(), ACCESS_TTL_SECS as u64).ignore();
+    pipe.set_ex(format!("access_from_id:{}", user_id), access, ACCESS_TTL_SECS as u64).ignore();
+    pipe.query::<()>(redis_conn)?;
     Ok(())
 }
 
@@ -69,10 +77,10 @@ pub fn create_token_pair(
     role: UserRole,
     secret: &[u8],
 ) -> anyhow::Result<(String, String)> {
-    let access_exp = (Utc::now() + Duration::hours(1)).timestamp() as usize;
+    let access_exp = (Utc::now() + Duration::seconds(ACCESS_TTL_SECS)).timestamp() as usize;
     let access_claims = AccessClaims {
         sub: user_id,
-        role: role,
+        role,
         exp: access_exp,
         token_type: TokenType::Access,
     };
@@ -84,7 +92,7 @@ pub fn create_token_pair(
     )?;
 
     let refresh_jti = Uuid::new_v4();
-    let refresh_exp = (Utc::now() + Duration::days(7)).timestamp() as usize;
+    let refresh_exp = (Utc::now() + Duration::seconds(REFRESH_TTL_SECS)).timestamp() as usize;
     let refresh_claims = RefreshClaims {
         sub: user_id,
         exp: refresh_exp,
