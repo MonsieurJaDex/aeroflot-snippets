@@ -18,7 +18,7 @@ pub enum EngineerType {
     EngineTechnician,   // техник по двигателю
     AvionicsEngineer,   // инженер по радиоэлектронному оборудованию
     AviationTechnician, // диагностика, дефектация, регулировка, ремонт
-    NotCagegorized,     // неопределен
+    NotCategorized,     // неопределен
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
@@ -134,7 +134,7 @@ impl AircraftIssue {
                 EngineerType::AvionicsEngineer
             }
 
-            Other => EngineerType::NotCagegorized,
+            Other => EngineerType::NotCategorized,
         }
     }
 
