@@ -25,7 +25,7 @@ use crate::types::{
         UpdateAccessRequest, UpdateAccessResponse, UpdateEngineerPositionRequest,
         UpdateTransportPositionRequest,
     },
-    enums::{AircraftIssue, EngineerType, SpecialVehicle, UserRole},
+    enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
     map::{MapMatrix, Point, Route},
 };
 
@@ -69,7 +69,7 @@ use crate::types::{
         // --- Enums ---
         AircraftIssue,
         EngineerType,
-        SpecialVehicle,
+        VehicleType,
         UserRole,
         // --- DTOs: routes ---
         GetRouteRequest,

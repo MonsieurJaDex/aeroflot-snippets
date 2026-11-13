@@ -26,8 +26,8 @@ use crate::{
     types::{
         config::AppState,
         dto::{
-            AssignEngineerRequest, AssignEngineerResponse, CurrentTaskResponse, GetRouteRequest,
-            GetRouteResponse,
+            AssignEngineerRequest, AssignEngineerResponse, CurrentTaskAogRequest,
+            CurrentTaskResponse, GetRouteRequest, GetRouteResponse,
         },
         enums::UserRole,
         map::{MapMatrix, Point, Route},
@@ -198,6 +198,62 @@ pub async fn get_current_task(
     }))
     .into_response())
 }
+
+// #[utoipa::path(
+//     post,
+//     path = "/api/tasks/current/aog",
+//     request_body=CurrentTaskAogRequest,
+//     responses(
+//         (status = 200, description = "Current active task's AOG state removed", body = Option<CurrentTaskResponse>),
+//         (status = 201, description = "Current active task's AOG state set", body = Option<CurrentTaskResponse>),
+//         (status = 403, description = "Authenticated user is not an engineer", body = String),
+//         (status = 404, description = "Engineer has no active task", body = String),
+//         (status = 500, description = "Server-side error", body = String),
+//     ),
+//     params(
+//         ("Authorization" = String, Header, description = "Bearer access token"),
+//     ),
+// )]
+// pub async fn current_task_aog(
+//     State(app_state): State<Arc<AppState>>,
+//     Extension(auth_user): Extension<AuthUser>,
+//     Json(payload): Json<CurrentTaskAogRequest>,
+// ) -> Result<Response<Body>, Response<Body>> {
+//     if auth_user.role != UserRole::Engineer {
+//         return Err(forbidden("only engineers can view their tasks"));
+//     }
+
+//     let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+//         tracing::error!(error = %e, "failed to acquire postgres connection");
+//         internal_error()
+//     })?;
+//     let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+//         tracing::error!(error = %e, "failed to acquire redis connection");
+//         internal_error()
+//     })?;
+
+//     use self::tasks::dsl::*;
+//     let task = tasks
+//         .filter(assigned_engineer.eq(auth_user.id))
+//         .filter(is_active.eq(true))
+//         .order(created_at.desc())
+//         .select(Task::as_select())
+//         .first::<Task>(&mut pg_conn)
+//         .optional()
+//         .map_err(|e| {
+//             tracing::error!(error = %e, "failed to load current task");
+//             internal_error()
+//         })?;
+
+//     let Some(task) = task else {
+//         return Ok(StatusCode::NOT_FOUND.into_response());
+//     };
+
+//     if payload.toggle {
+//         redis_conn.set(format!("aog:"), value)
+//     }
+//     todo!()
+// }
 
 /// Fetches the currently active task for the authenticated engineer.
 #[utoipa::path(
@@ -453,7 +509,7 @@ fn load_engineer_positions(
 /// Loads special-vehicle positions of the given type into a `Point -> Uuid` map.
 fn load_transport_positions(
     redis_conn: &mut redis::Connection,
-    vehicle_type: crate::types::enums::SpecialVehicle,
+    vehicle_type: crate::types::enums::VehicleType,
 ) -> Result<HashMap<Point, Uuid>, Response<Body>> {
     let mut positions = HashMap::new();
 

@@ -8,7 +8,7 @@
 use std::fmt;
 
 use crate::types::{
-    enums::{AircraftIssue, EngineerType, SpecialVehicle, UserRole},
+    enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
     map::{Point, Route},
 };
 use serde::{Deserialize, Serialize};
@@ -212,6 +212,12 @@ impl fmt::Debug for UpdateAccessResponse {
     }
 }
 
+/// AOG
+#[derive(Serialize, ToSchema)]
+pub struct CurrentTaskAogRequest {
+    pub toggle: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Simulation
 // ---------------------------------------------------------------------------
@@ -231,7 +237,7 @@ pub struct UpdateTransportPositionRequest {
     /// UUID of the special vehicle.
     pub id: String,
     /// Type of the special vehicle.
-    pub vehicle_type: SpecialVehicle,
+    pub vehicle_type: VehicleType,
     /// New position on the map.
     pub new_point: Point,
 }

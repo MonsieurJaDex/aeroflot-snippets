@@ -11,12 +11,13 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::{bad_request, internal_error};
+use crate::utils::get_transport_from_redis;
 use crate::{
     database::schema,
     types::{
         config::AppState,
         dto::{UpdateEngineerPositionRequest, UpdateTransportPositionRequest},
-        enums::SpecialVehicle,
+        enums::VehicleType,
         map::Point,
     },
 };
@@ -212,7 +213,7 @@ pub struct TransportPositionEntry {
     /// Vehicle UUID.
     pub id: Uuid,
     /// Vehicle type.
-    pub vehicle_type: SpecialVehicle,
+    pub vehicle_type: VehicleType,
     /// Current position.
     pub point: Point,
 }
@@ -235,54 +236,10 @@ pub async fn get_transport_positions(
         internal_error()
     })?;
 
-    let keys: Vec<String> = redis_conn
-        .scan_match("position:*:*")
-        .map_err(|e| {
-            tracing::error!(error = %e, "failed to scan transport keys");
-            internal_error()
-        })?
-        .filter_map(Result::ok)
-        .collect();
+    let result = get_transport_from_redis(&mut redis_conn, "*".to_string()).map_err(|e| {
+        tracing::error!(error = %e, "failed to fetch transport positions");
+        internal_error()
+    });
 
-    let mut result = Vec::with_capacity(keys.len());
-
-    for key in keys {
-        // Key shape: position:{vehicle_type}:{uuid}
-        let mut parts = key.splitn(3, ':');
-        let _prefix = parts.next();
-        let (Some(type_str), Some(uuid_str)) = (parts.next(), parts.next()) else {
-            tracing::warn!(%key, "malformed transport key, skipped");
-            continue;
-        };
-
-        let Ok(vehicle_type) = SpecialVehicle::try_from(type_str) else {
-            tracing::warn!(%key, type_str, "unknown vehicle type, skipped");
-            continue;
-        };
-        let Ok(id) = Uuid::from_str(uuid_str) else {
-            tracing::warn!(%key, "malformed transport uuid, skipped");
-            continue;
-        };
-
-        let Some(value) = redis_conn.get(&key).map_err(|e| {
-            tracing::error!(%key, error = %e, "failed to fetch transport position");
-            internal_error()
-        })?
-        else {
-            continue; // key disappeared between SCAN and GET
-        };
-
-        let Ok(point) = Point::from_value(value) else {
-            tracing::warn!(%key, "malformed transport position, skipped");
-            continue;
-        };
-
-        result.push(TransportPositionEntry {
-            id,
-            vehicle_type,
-            point,
-        });
-    }
-
-    Ok(Json(result).into_response())
+    Ok(Json(result.unwrap()).into_response())
 }
