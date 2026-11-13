@@ -19,6 +19,5 @@ pub struct Task {
     pub plane_x: i64,
     pub plane_y: i64,
     pub task_route: String,
-    pub is_accepted: bool,
     pub is_active: bool,
 }

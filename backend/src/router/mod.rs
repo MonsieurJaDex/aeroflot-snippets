@@ -127,7 +127,7 @@ pub async fn get_route(
         &app_state.road_points,
         &mut redis_conn,
     )
-        .map_err(|e| bad_request(e.to_string()))?;
+    .map_err(|e| bad_request(e.to_string()))?;
 
     Ok((StatusCode::OK, Json(route)).into_response())
 }
@@ -143,6 +143,7 @@ pub async fn get_route(
     responses(
         (status = 200, description = "Current active task", body = Option<CurrentTaskResponse>),
         (status = 403, description = "Authenticated user is not an engineer", body = String),
+        (status = 404, description = "Engineer has no active task", body = String),
         (status = 500, description = "Server-side error", body = String),
     ),
     params(
@@ -176,7 +177,7 @@ pub async fn get_current_task(
         })?;
 
     let Some(task) = task else {
-        return Ok(Json(Option::<CurrentTaskResponse>::None).into_response());
+        return Ok(StatusCode::NOT_FOUND.into_response());
     };
 
     let route: Route = serde_json::from_str(&task.task_route).map_err(|e| {
@@ -194,31 +195,31 @@ pub async fn get_current_task(
         issue: task.issue_type,
         plane_point: Point::new(task.plane_x, task.plane_y),
         route,
-        is_accepted: task.is_accepted,
     }))
-        .into_response())
+    .into_response())
 }
 
-/// Marks the current active task of the authenticated engineer as accepted.
+/// Fetches the currently active task for the authenticated engineer.
 #[utoipa::path(
     post,
-    path = "/api/tasks/current/accept",
+    path = "/api/tasks/current/complete",
+    description = "Marks the current active task of the authenticated engineer as completed",
     responses(
-        (status = 200, description = "Task accepted"),
+        (status = 200, description = "Task marked as completed"),
         (status = 403, description = "Authenticated user is not an engineer", body = String),
-        (status = 404, description = "No active task found", body = String),
+        (status = 404, description = "Engineer has no active task", body = String),
         (status = 500, description = "Server-side error", body = String),
     ),
     params(
         ("Authorization" = String, Header, description = "Bearer access token"),
     ),
 )]
-pub async fn accept_current_task(
+pub async fn complete_current_task(
     State(app_state): State<Arc<AppState>>,
     Extension(auth_user): Extension<AuthUser>,
 ) -> Result<Response<Body>, Response<Body>> {
     if auth_user.role != UserRole::Engineer {
-        return Err(forbidden("only engineers can accept tasks"));
+        return Err(forbidden("only engineers can view their tasks"));
     }
 
     let mut pg_conn = app_state.db_pool.get().map_err(|e| {
@@ -227,21 +228,29 @@ pub async fn accept_current_task(
     })?;
 
     use self::tasks::dsl::*;
-    let updated = diesel::update(
-        tasks
-            .filter(assigned_engineer.eq(auth_user.id))
-            .filter(is_active.eq(true)),
-    )
-        .set(is_accepted.eq(true))
-        .execute(&mut pg_conn)
+    let task = tasks
+        .filter(assigned_engineer.eq(auth_user.id))
+        .filter(is_active.eq(true))
+        .order(created_at.desc())
+        .select(Task::as_select())
+        .first::<Task>(&mut pg_conn)
+        .optional()
         .map_err(|e| {
-            tracing::error!(error = %e, "failed to accept current task");
+            tracing::error!(error = %e, "failed to load current task");
             internal_error()
         })?;
 
-    if updated == 0 {
-        return Err(not_found("no active task found"));
-    }
+    let Some(task) = task else {
+        return Ok(Json(Option::<CurrentTaskResponse>::None).into_response());
+    };
+
+    diesel::update(tasks.find(task.id))
+        .set(is_active.eq(false)) // Указываем поле и новое значение
+        .execute(&mut pg_conn)
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to update task");
+            internal_error()
+        })?;
 
     Ok(StatusCode::OK.into_response())
 }
@@ -288,10 +297,7 @@ pub async fn assign_engineer(
     // 1. Suitable engineers (of the right specialization, not already busy with
     //    the same issue type).
     use self::tasks::dsl::*;
-    let busy_engineers = tasks
-        .filter(is_active.eq(true))
-        .filter(issue_type.eq(payload.issue))
-        .select(assigned_engineer);
+    let busy_engineers = tasks.filter(is_active.eq(true)).select(assigned_engineer);
 
     let suitable_engineers: Vec<Uuid> = engineers::table
         .filter(engineers::engineer_type.eq(payload.issue.responsible_engineer()))
@@ -304,8 +310,7 @@ pub async fn assign_engineer(
         })?;
 
     // 2. Their current positions (from Redis).
-    let engineers_positions =
-        load_engineer_positions(&mut redis_conn, &suitable_engineers)?;
+    let engineers_positions = load_engineer_positions(&mut redis_conn, &suitable_engineers)?;
     if engineers_positions.is_empty() {
         return Err(not_found("no suitable engineer available"));
     }
@@ -324,7 +329,7 @@ pub async fn assign_engineer(
         &engineers_positions,
         &mut redis_conn,
     )
-        .map_err(|e| bad_request(e.to_string()))?;
+    .map_err(|e| bad_request(e.to_string()))?;
 
     let chosen_pos = *nearest_route
         .as_slice()
@@ -334,7 +339,10 @@ pub async fn assign_engineer(
         .get(&chosen_pos)
         .copied()
         .ok_or_else(|| {
-            tracing::error!(?chosen_pos, "nearest engineer route ends at unknown position");
+            tracing::error!(
+                ?chosen_pos,
+                "nearest engineer route ends at unknown position"
+            );
             internal_error()
         })?;
 
@@ -346,7 +354,7 @@ pub async fn assign_engineer(
             &app_state.road_points,
             &mut redis_conn,
         )
-            .map_err(|e| bad_request(e.to_string()))?;
+        .map_err(|e| bad_request(e.to_string()))?;
         let len = route.len();
         (route, len)
     } else {
@@ -363,8 +371,7 @@ pub async fn assign_engineer(
     // 5. Task timing.
     let travel_secs = total_cells as f32 / ENGINEER_SPEED_CELLS_PER_SEC;
     let now = Utc::now();
-    let task_ends_at =
-        now + payload.issue.resolution_time() + Duration::from_secs_f32(travel_secs);
+    let task_ends_at = now + payload.issue.resolution_time() + Duration::from_secs_f32(travel_secs);
 
     // 6. Persist task.
     let new_task = Task {
@@ -377,9 +384,7 @@ pub async fn assign_engineer(
         issue_type: payload.issue,
         plane_x: payload.plane_point.0,
         plane_y: payload.plane_point.1,
-        task_route: serde_json::to_string(&final_route)
-            .expect("Route is always serializable"),
-        is_accepted: false,
+        task_route: serde_json::to_string(&final_route).expect("Route is always serializable"),
         is_active: true,
     };
 
@@ -408,7 +413,7 @@ pub async fn assign_engineer(
         time_limit_exceeded: travel_secs >= SLA_LIMIT_SECS,
         route: final_route,
     })
-        .into_response())
+    .into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -512,7 +517,7 @@ fn build_route_with_transport(
         transport_map,
         redis_conn,
     )
-        .map_err(|e| bad_request(e.to_string()))?;
+    .map_err(|e| bad_request(e.to_string()))?;
 
     if to_transport.is_empty() {
         return Err(not_found("no available transport of required type found"));
@@ -534,7 +539,7 @@ fn build_route_with_transport(
         &state.road_points,
         redis_conn,
     )
-        .map_err(|e| bad_request(e.to_string()))?;
+    .map_err(|e| bad_request(e.to_string()))?;
 
     let mut combined = to_transport.as_slice().to_vec();
     let tail = to_plane.as_slice();

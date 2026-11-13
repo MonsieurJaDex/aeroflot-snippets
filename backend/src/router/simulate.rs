@@ -1,15 +1,9 @@
 //! Simulation handlers: manual position updates and read endpoints.
 
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
-use axum::{
-    Json,
-    body::Body,
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-};
 use axum::http::Response;
+use axum::{Json, body::Body, extract::State, http::StatusCode, response::IntoResponse};
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use redis::TypedCommands;
 use serde::Serialize;
@@ -34,7 +28,7 @@ use crate::{
 /// Manually updates an engineer's position.
 #[utoipa::path(
     post,
-    path = "/api/simulate/update_engineer_position",
+    path = "/api/simulate/updateEngineerPosition",
     description = "Manually update an engineer's position (simulation only)",
     request_body = UpdateEngineerPositionRequest,
     responses(
@@ -47,8 +41,7 @@ pub async fn update_engineer_position_handler(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<UpdateEngineerPositionRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
-    let uuid = Uuid::parse_str(&payload.id)
-        .map_err(|_| bad_request("invalid UUID format"))?;
+    let uuid = Uuid::parse_str(&payload.id).map_err(|_| bad_request("invalid UUID format"))?;
 
     if !app_state.map.in_bounds(payload.new_point) {
         return Err(bad_request("point is outside of map bounds"));
@@ -72,7 +65,7 @@ pub async fn update_engineer_position_handler(
 /// Manually updates a special vehicle's position.
 #[utoipa::path(
     post,
-    path = "/api/simulate/update_transport_position",
+    path = "/api/simulate/updateTransportPosition",
     description = "Manually update a special-vehicle position (creates the vehicle if it does not exist)",
     request_body = UpdateTransportPositionRequest,
     responses(
@@ -85,8 +78,7 @@ pub async fn update_transport_position_handler(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<UpdateTransportPositionRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
-    let uuid = Uuid::parse_str(&payload.id)
-        .map_err(|_| bad_request("invalid UUID format"))?;
+    let uuid = Uuid::parse_str(&payload.id).map_err(|_| bad_request("invalid UUID format"))?;
 
     if !app_state.map.in_bounds(payload.new_point) {
         return Err(bad_request("point is outside of map bounds"));
@@ -122,7 +114,7 @@ pub struct ActiveEngineersResponse {
 /// Returns the list of engineers with at least one active task.
 #[utoipa::path(
     get,
-    path = "/api/simulate/active_engineers",
+    path = "/api/simulate/activeEngineers",
     description = "List engineers who currently have an active task",
     responses(
         (status = 200, description = "List of engineer UUIDs", body = ActiveEngineersResponse),
@@ -149,7 +141,7 @@ pub async fn active_engineers(
     Ok(Json(ActiveEngineersResponse {
         active_engineers: ids.into_iter().map(|u| u.to_string()).collect(),
     })
-        .into_response())
+    .into_response())
 }
 
 /// Response entry for [`get_engineers_positions`].
@@ -164,7 +156,7 @@ pub struct EngineerPositionEntry {
 /// Returns every engineer together with their current position.
 #[utoipa::path(
     get,
-    path = "/api/simulate/get_engineers_positions",
+    path = "/api/simulate/getEngineersPositions",
     description = "List all engineers and their positions",
     responses(
         (status = 200, description = "Engineer positions", body = Vec<EngineerPositionEntry>),
@@ -192,10 +184,7 @@ pub async fn get_engineers_positions(
         })?;
 
     // One round-trip instead of N.
-    let keys: Vec<String> = ids
-        .iter()
-        .map(|id| format!("position:{}", id))
-        .collect();
+    let keys: Vec<String> = ids.iter().map(|id| format!("position:{}", id)).collect();
 
     let raw: Vec<Option<String>> = redis::cmd("MGET")
         .arg(&keys)
@@ -231,7 +220,7 @@ pub struct TransportPositionEntry {
 /// Returns every special vehicle with its type and current position.
 #[utoipa::path(
     get,
-    path = "/api/simulate/get_transport_positions",
+    path = "/api/simulate/getTransportPositions",
     description = "List all special vehicles with type, UUID and position",
     responses(
         (status = 200, description = "Transport positions", body = Vec<TransportPositionEntry>),
@@ -278,7 +267,8 @@ pub async fn get_transport_positions(
         let Some(value) = redis_conn.get(&key).map_err(|e| {
             tracing::error!(%key, error = %e, "failed to fetch transport position");
             internal_error()
-        })? else {
+        })?
+        else {
             continue; // key disappeared between SCAN and GET
         };
 

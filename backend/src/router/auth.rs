@@ -5,26 +5,24 @@ use std::sync::Arc;
 use axum::{
     Json,
     body::Body,
-    extract::State,
-    http::{Response, StatusCode},
+    extract::{Path, State},
+    http::Response,
     response::IntoResponse,
 };
-use diesel::{
-    ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper,
-};
+use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper};
 use redis::TypedCommands;
 use uuid::Uuid;
 use validator::Validate;
 
-use super::{bad_request, forbidden, internal_error, not_found, unauthorized};
+use super::{bad_request, internal_error, not_found, unauthorized};
 use crate::{
     database::schema,
     models::{dispatcher::Dispatcher, engineer::Engineer},
     types::{
         config::AppState,
         dto::{
-            GetUserNameRequest, GetUserNameResponse, LoginRequest, LoginResponse, RegisterRequest,
-            UpdateAccessRequest, UpdateAccessResponse,
+            GetUserNameResponse, LoginRequest, LoginResponse, RegisterRequest, UpdateAccessRequest,
+            UpdateAccessResponse,
         },
         enums::{AuthenticatedUser, UserRole},
     },
@@ -103,10 +101,10 @@ pub async fn register_handler(
         payload.user_role.clone(),
         app_state.jwt_secret.as_bytes(),
     )
-        .map_err(|e| {
-            tracing::error!(uuid = %new_id, error = %e, "failed to create token pair");
-            internal_error()
-        })?;
+    .map_err(|e| {
+        tracing::error!(uuid = %new_id, error = %e, "failed to create token pair");
+        internal_error()
+    })?;
 
     revoke_and_store_tokens(
         &mut redis_conn,
@@ -115,18 +113,19 @@ pub async fn register_handler(
         &refresh,
         &payload.user_role,
     )
-        .map_err(|e| {
-            tracing::error!(error = %e, "failed to store tokens in redis");
-            internal_error()
-        })?;
+    .map_err(|e| {
+        tracing::error!(error = %e, "failed to store tokens in redis");
+        internal_error()
+    })?;
 
     Ok(Json(LoginResponse {
+        id: new_id.to_string(),
         name: payload.name,
         user_role: payload.user_role,
         access_token: access,
         refresh_token: refresh,
     })
-        .into_response())
+    .into_response())
 }
 
 fn insert_dispatcher(
@@ -251,12 +250,13 @@ pub async fn login_handler(
     })?;
 
     Ok(Json(LoginResponse {
+        id: user.id().to_string(),
         name: user.name().to_owned(),
         access_token: access,
         refresh_token: refresh,
         user_role: role,
     })
-        .into_response())
+    .into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -265,12 +265,11 @@ pub async fn login_handler(
 
 /// Returns the display name of an engineer by UUID.
 #[utoipa::path(
-    post,
-    path = "/api/auth/get_engineer_name",
+    get,
+    path = "/api/auth/getEngineerName/{engineer_uuid}",
     description = "Fetch the display name of an engineer by UUID",
-    request_body = GetUserNameRequest,
     responses(
-        (status = 200, description = "Engineer found", body = GetUserNameResponse),
+        (status = 200, description = "Engineer found", body = String),
         (status = 400, description = "Malformed UUID", body = String),
         (status = 404, description = "Engineer not found", body = String),
         (status = 500, description = "Server-side error", body = String),
@@ -278,10 +277,9 @@ pub async fn login_handler(
 )]
 pub async fn get_engineer_name_handler(
     State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<GetUserNameRequest>,
+    Path(engineer_uuid): Path<String>,
 ) -> Result<Response<Body>, Response<Body>> {
-    let uuid = Uuid::parse_str(&payload.id)
-        .map_err(|_| bad_request("invalid UUID format"))?;
+    let uuid = Uuid::parse_str(&engineer_uuid).map_err(|_| bad_request("invalid UUID format"))?;
 
     let mut pg_conn = app_state.db_pool.get().map_err(|e| {
         tracing::error!(error = %e, "failed to acquire postgres connection");
@@ -372,7 +370,7 @@ pub async fn update_access_token(
     Ok(Json(UpdateAccessResponse {
         access_token: access,
     })
-        .into_response())
+    .into_response())
 }
 
 use std::str::FromStr;

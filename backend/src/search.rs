@@ -1,7 +1,6 @@
 use crate::types::map::Route;
 use anyhow::{Ok, Result, anyhow};
-use diesel::r2d2::PooledConnection;
-use redis::{Client, Connection, TypedCommands};
+use redis::{Connection, TypedCommands};
 use uuid::Uuid;
 
 use std::collections::{HashMap, HashSet, VecDeque};

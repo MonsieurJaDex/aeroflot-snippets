@@ -57,7 +57,7 @@ pub struct AssignEngineerRequest {
 pub struct AssignEngineerResponse {
     /// UUID of the engineer chosen for this task.
     pub engineer_uuid: String,
-    /// Estimated resolution time in minutes.
+    /// Estimated resolution time in seconds.
     pub time: u64,
     /// Whether the assignment exceeds the allowed SLA.
     pub time_limit_exceeded: bool,
@@ -78,8 +78,6 @@ pub struct CurrentTaskResponse {
     pub plane_point: Point,
     /// Route from the engineer to the aircraft.
     pub route: Route,
-    /// Whether the engineer has already accepted the task.
-    pub is_accepted: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -87,12 +85,6 @@ pub struct CurrentTaskResponse {
 // ---------------------------------------------------------------------------
 
 /// Request payload for the `get_engineer_name` endpoint.
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct GetUserNameRequest {
-    /// UUID (as a string) of the engineer whose display name is requested.
-    #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
-    pub id: String,
-}
 
 /// Response payload for the `get_engineer_name` endpoint.
 #[derive(Debug, Serialize, ToSchema)]
@@ -166,6 +158,8 @@ impl fmt::Debug for LoginRequest {
 /// Response payload for the `login` endpoint.
 #[derive(Serialize, ToSchema)]
 pub struct LoginResponse {
+    /// User UUID
+    pub id: String,
     /// Display name of the authenticated user.
     pub name: String,
     /// Role of the authenticated user.
