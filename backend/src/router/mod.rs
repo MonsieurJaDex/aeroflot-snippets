@@ -479,52 +479,57 @@ pub async fn assign_engineer(
         None => HashMap::new(),
     };
 
-    // 4. Pick nearest engineer and compute the final route.
-    let nearest_route = find_nearest(
-        &app_state.map,
-        plane_point,
-        &app_state.road_points,
-        &engineers_positions,
-        &mut redis_conn,
-    )
-    .map_err(|e| bad_request(e.to_string()))?;
+    // 4. Engineer already standing on the aircraft needs no path.
+    //    find_nearest treats that cell as the search start and returns an empty
+    //    route, which used to be reported as "engineer was not found".
+    let (chosen_uuid, final_route, total_cells) =
+        if let Some(engineer_id) = engineers_positions.get(&plane_point).copied() {
+            (engineer_id, Route::new(Vec::new()), 0)
+        } else {
+            let nearest_route = find_nearest(
+                &app_state.map,
+                plane_point,
+                &app_state.road_points,
+                &engineers_positions,
+                &mut redis_conn,
+            )
+            .map_err(|e| bad_request(e.to_string()))?;
 
-    let chosen_pos = *nearest_route
-        .as_slice()
-        .last()
-        .ok_or_else(|| not_found("engineer was not found"))?;
-    let chosen_uuid = engineers_positions
-        .get(&chosen_pos)
-        .copied()
-        .ok_or_else(|| {
-            tracing::error!(
-                ?chosen_pos,
-                "nearest engineer route ends at unknown position"
-            );
-            internal_error()
-        })?;
+            let chosen_pos = *nearest_route
+                .as_slice()
+                .last()
+                .ok_or_else(|| not_found("engineer was not found"))?;
+            let chosen_uuid = engineers_positions.get(&chosen_pos).copied().ok_or_else(|| {
+                tracing::error!(
+                    ?chosen_pos,
+                    "nearest engineer route ends at unknown position"
+                );
+                internal_error()
+            })?;
 
-    let (final_route, total_cells) = if transport_map.is_empty() {
-        let route = crate::search::bfs(
-            &app_state.map,
-            chosen_pos,
-            plane_point,
-            &app_state.road_points,
-            &mut redis_conn,
-        )
-        .map_err(|e| bad_request(e.to_string()))?;
-        let len = route.len();
-        (route, len)
-    } else {
-        build_route_with_transport(
-            &app_state,
-            &mut redis_conn,
-            chosen_pos,
-            plane_point,
-            &transport_map,
-            chosen_uuid,
-        )?
-    };
+            let (final_route, total_cells) = if transport_map.is_empty() {
+                let route = crate::search::bfs(
+                    &app_state.map,
+                    chosen_pos,
+                    plane_point,
+                    &app_state.road_points,
+                    &mut redis_conn,
+                )
+                .map_err(|e| bad_request(e.to_string()))?;
+                let len = route.len();
+                (route, len)
+            } else {
+                build_route_with_transport(
+                    &app_state,
+                    &mut redis_conn,
+                    chosen_pos,
+                    plane_point,
+                    &transport_map,
+                    chosen_uuid,
+                )?
+            };
+            (chosen_uuid, final_route, total_cells)
+        };
 
     // 5. Task timing.
     let travel_secs = total_cells as f32 / ENGINEER_SPEED_CELLS_PER_SEC;
