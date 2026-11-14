@@ -53,7 +53,7 @@ flowchart TB
   end
 
   subgraph Server["Backend (Rust / Axum)"]
-    API["/api/auth, /api/assign,\n/api/tasks, /api/simulate, /api/map"]
+    API["/api/auth, /api/assign,\n/api/tasks, /api/geo, /api/map"]
     Search["search.rs\nBFS / find_nearest"]
   end
 
@@ -110,7 +110,7 @@ sequenceDiagram
 | Модуль | Назначение |
 |--------|------------|
 | `backend/src/router/mod.rs` | `assign_engineer`, задачи, карта |
-| `backend/src/router/simulate.rs` | Позиции инженеров и спецтранспорта |
+| `backend/src/router/geo.rs` | Позиции инженеров и спецтранспорта |
 | `backend/src/search.rs` | BFS и поиск ближайшей цели |
 | `backend/src/types/enums.rs` | Неисправности → специализация / спецтранспорт |
 | `tools/scheduler/` | Автозакрытие задач по сроку |
@@ -233,9 +233,9 @@ sequenceDiagram
 | POST | `/api/assign` | Назначение инженера + маршрут |
 | GET | `/api/tasks/current` | Текущая задача инженера |
 | POST | `/api/tasks/current/accept` | Принятие задачи |
-| GET | `/api/simulate/get_engineers_positions` | Позиции инженеров |
-| POST | `/api/simulate/update_engineer_position` | Обновление позиции |
-| GET/POST | `/api/simulate/get_transport_positions` / `update_transport_position` | Спецтранспорт |
+| GET | `/api/geo/getEngineersPositions` | Позиции инженеров |
+| POST | `/api/geo/updateEngineerPosition` | Обновление позиции |
+| GET/POST | `/api/geo/getTransportPositions` / `updateTransportPosition` | Спецтранспорт |
 | GET | `/api/map` | Матрица карты |
 
 ---

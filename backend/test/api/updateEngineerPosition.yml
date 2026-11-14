@@ -1,0 +1,28 @@
+info:
+  name: updateEngineerPosition
+  type: http
+  seq: 8
+
+http:
+  method: POST
+  url: "{{HOST}}/geo/updateEngineerPosition"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "id": "866e2f6c-c479-44a8-b0f8-0dfbe292c200",
+        "batch": [
+          [[12, 14], 1710000000],
+          [[13, 14], 1710000005]
+        ]
+      }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

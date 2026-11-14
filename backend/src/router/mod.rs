@@ -1,7 +1,7 @@
 //! HTTP router: common helpers, state and public handler definitions.
 
 pub mod auth;
-pub mod simulate;
+pub mod geo;
 
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
@@ -26,10 +26,11 @@ use crate::{
     types::{
         config::AppState,
         dto::{
-            AssignEngineerRequest, AssignEngineerResponse, CurrentTaskResponse, GetRouteRequest,
-            GetRouteResponse,
+            AircraftEntry, AircraftListResponse, AogListResponse, AssignEngineerRequest,
+            AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse,
+            CurrentTaskResponse, GetRouteRequest,
         },
-        enums::UserRole,
+        enums::{UserRole, VehicleType},
         map::{MapMatrix, Point, Route},
     },
 };
@@ -103,7 +104,7 @@ pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
     description = "Classic point-to-point BFS route",
     request_body = GetRouteRequest,
     responses(
-        (status = 200, description = "Successfully found a route", body = GetRouteResponse),
+        (status = 200, description = "Successfully found a route", body = Route),
         (status = 400, description = "Invalid input data", body = String),
         (status = 500, description = "Server-side error", body = String),
     ),
@@ -127,7 +128,7 @@ pub async fn get_route(
         &app_state.road_points,
         &mut redis_conn,
     )
-        .map_err(|e| bad_request(e.to_string()))?;
+    .map_err(|e| bad_request(e.to_string()))?;
 
     Ok((StatusCode::OK, Json(route)).into_response())
 }
@@ -143,6 +144,7 @@ pub async fn get_route(
     responses(
         (status = 200, description = "Current active task", body = Option<CurrentTaskResponse>),
         (status = 403, description = "Authenticated user is not an engineer", body = String),
+        (status = 404, description = "Engineer has no active task", body = String),
         (status = 500, description = "Server-side error", body = String),
     ),
     params(
@@ -176,7 +178,7 @@ pub async fn get_current_task(
         })?;
 
     let Some(task) = task else {
-        return Ok(Json(Option::<CurrentTaskResponse>::None).into_response());
+        return Err(not_found("engineer has no active task"));
     };
 
     let route: Route = serde_json::from_str(&task.task_route).map_err(|e| {
@@ -193,32 +195,182 @@ pub async fn get_current_task(
         description: task.description,
         issue: task.issue_type,
         plane_point: Point::new(task.plane_x, task.plane_y),
+        plane_uuid: task.plane_id.map(|aircraft_id| aircraft_id.to_string()),
         route,
-        is_accepted: task.is_accepted,
     }))
-        .into_response())
+    .into_response())
 }
 
-/// Marks the current active task of the authenticated engineer as accepted.
+/// Sets or clears the AOG status of an aircraft for the engineer's current task.
+///
+/// The status is stored in Redis under `aog:{plane_uuid}`.
 #[utoipa::path(
     post,
-    path = "/api/tasks/current/accept",
+    path = "/api/tasks/current/aog",
+    request_body = CurrentTaskAogRequest,
     responses(
-        (status = 200, description = "Task accepted"),
+        (status = 200, description = "AOG status removed", body = CurrentTaskAogResponse),
+        (status = 201, description = "AOG status set", body = CurrentTaskAogResponse),
+        (status = 400, description = "Current task has no aircraft", body = String),
         (status = 403, description = "Authenticated user is not an engineer", body = String),
-        (status = 404, description = "No active task found", body = String),
+        (status = 404, description = "Engineer has no active task", body = String),
         (status = 500, description = "Server-side error", body = String),
     ),
     params(
         ("Authorization" = String, Header, description = "Bearer access token"),
     ),
 )]
-pub async fn accept_current_task(
+pub async fn current_task_aog(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    Json(payload): Json<CurrentTaskAogRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Engineer {
+        return Err(forbidden("only engineers can change AOG status"));
+    }
+
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    use self::tasks::dsl::*;
+    let task = tasks
+        .filter(assigned_engineer.eq(auth_user.id))
+        .filter(is_active.eq(true))
+        .order(created_at.desc())
+        .select(Task::as_select())
+        .first::<Task>(&mut pg_conn)
+        .optional()
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load current task");
+            internal_error()
+        })?;
+
+    let Some(task) = task else {
+        return Err(not_found("engineer has no active task"));
+    };
+    let Some(plane_uuid) = task.plane_id else {
+        return Err(bad_request("current task has no aircraft"));
+    };
+
+    let key = format!("aog:{plane_uuid}");
+    if payload.toggle {
+        redis_conn.set(&key, "1").map_err(|e| {
+            tracing::error!(%plane_uuid, error = %e, "failed to set aircraft AOG status");
+            internal_error()
+        })?;
+
+        return Ok((
+            StatusCode::CREATED,
+            Json(CurrentTaskAogResponse {
+                plane_uuid: plane_uuid.to_string(),
+                aog: true,
+            }),
+        )
+            .into_response());
+    }
+
+    redis_conn.del(&key).map_err(|e| {
+        tracing::error!(%plane_uuid, error = %e, "failed to clear aircraft AOG status");
+        internal_error()
+    })?;
+
+    Ok((
+        StatusCode::OK,
+        Json(CurrentTaskAogResponse {
+            plane_uuid: plane_uuid.to_string(),
+            aog: false,
+        }),
+    )
+        .into_response())
+}
+
+/// Lists aircraft UUIDs that currently have an AOG status.
+#[utoipa::path(
+    get,
+    path = "/api/tasks/aog",
+    responses(
+        (status = 200, description = "Aircraft currently marked AOG", body = AogListResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = String),
+        (status = 500, description = "Server-side error", body = String),
+    ),
+    params(
+        ("Authorization" = String, Header, description = "Bearer access token"),
+    ),
+)]
+pub async fn list_aog(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can view AOG aircraft"));
+    }
+
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    let plane_uuids = load_aog_aircraft(&mut redis_conn)?;
+    Ok(Json(AogListResponse { plane_uuids }).into_response())
+}
+
+/// Lists every aircraft currently stored in Redis.
+#[utoipa::path(
+    get,
+    path = "/api/aircraft",
+    responses(
+        (status = 200, description = "Current aircraft", body = AircraftListResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = String),
+        (status = 500, description = "Server-side error", body = String),
+    ),
+    params(
+        ("Authorization" = String, Header, description = "Bearer access token"),
+    ),
+)]
+pub async fn list_aircraft(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can view aircraft"));
+    }
+
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    let aircraft = load_aircraft(&mut redis_conn)?;
+    Ok(Json(AircraftListResponse { aircraft }).into_response())
+}
+
+/// Fetches the currently active task for the authenticated engineer.
+#[utoipa::path(
+    post,
+    path = "/api/tasks/current/complete",
+    description = "Marks the current active task of the authenticated engineer as completed",
+    responses(
+        (status = 200, description = "Task marked as completed"),
+        (status = 403, description = "Authenticated user is not an engineer", body = String),
+        (status = 404, description = "Engineer has no active task", body = String),
+        (status = 500, description = "Server-side error", body = String),
+    ),
+    params(
+        ("Authorization" = String, Header, description = "Bearer access token"),
+    ),
+)]
+pub async fn complete_current_task(
     State(app_state): State<Arc<AppState>>,
     Extension(auth_user): Extension<AuthUser>,
 ) -> Result<Response<Body>, Response<Body>> {
     if auth_user.role != UserRole::Engineer {
-        return Err(forbidden("only engineers can accept tasks"));
+        return Err(forbidden("only engineers can view their tasks"));
     }
 
     let mut pg_conn = app_state.db_pool.get().map_err(|e| {
@@ -227,21 +379,29 @@ pub async fn accept_current_task(
     })?;
 
     use self::tasks::dsl::*;
-    let updated = diesel::update(
-        tasks
-            .filter(assigned_engineer.eq(auth_user.id))
-            .filter(is_active.eq(true)),
-    )
-        .set(is_accepted.eq(true))
-        .execute(&mut pg_conn)
+    let task = tasks
+        .filter(assigned_engineer.eq(auth_user.id))
+        .filter(is_active.eq(true))
+        .order(created_at.desc())
+        .select(Task::as_select())
+        .first::<Task>(&mut pg_conn)
+        .optional()
         .map_err(|e| {
-            tracing::error!(error = %e, "failed to accept current task");
+            tracing::error!(error = %e, "failed to load current task");
             internal_error()
         })?;
 
-    if updated == 0 {
-        return Err(not_found("no active task found"));
-    }
+    let Some(task) = task else {
+        return Err(not_found("engineer has no active task"));
+    };
+
+    diesel::update(tasks.find(task.id))
+        .set(is_active.eq(false)) // Указываем поле и новое значение
+        .execute(&mut pg_conn)
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to update task");
+            internal_error()
+        })?;
 
     Ok(StatusCode::OK.into_response())
 }
@@ -285,13 +445,17 @@ pub async fn assign_engineer(
         internal_error()
     })?;
 
+    let plane_uuid =
+        Uuid::from_str(&payload.plane_uuid).map_err(|_| bad_request("invalid aircraft UUID"))?;
+    let plane_point = load_aircraft_position(&mut redis_conn, plane_uuid)?;
+    if !app_state.map.in_bounds(plane_point) {
+        return Err(bad_request("aircraft position is outside of map bounds"));
+    }
+
     // 1. Suitable engineers (of the right specialization, not already busy with
     //    the same issue type).
     use self::tasks::dsl::*;
-    let busy_engineers = tasks
-        .filter(is_active.eq(true))
-        .filter(issue_type.eq(payload.issue))
-        .select(assigned_engineer);
+    let busy_engineers = tasks.filter(is_active.eq(true)).select(assigned_engineer);
 
     let suitable_engineers: Vec<Uuid> = engineers::table
         .filter(engineers::engineer_type.eq(payload.issue.responsible_engineer()))
@@ -304,8 +468,7 @@ pub async fn assign_engineer(
         })?;
 
     // 2. Their current positions (from Redis).
-    let engineers_positions =
-        load_engineer_positions(&mut redis_conn, &suitable_engineers)?;
+    let engineers_positions = load_engineer_positions(&mut redis_conn, &suitable_engineers)?;
     if engineers_positions.is_empty() {
         return Err(not_found("no suitable engineer available"));
     }
@@ -316,55 +479,62 @@ pub async fn assign_engineer(
         None => HashMap::new(),
     };
 
-    // 4. Pick nearest engineer and compute the final route.
-    let nearest_route = find_nearest(
-        &app_state.map,
-        payload.plane_point,
-        &app_state.road_points,
-        &engineers_positions,
-        &mut redis_conn,
-    )
-        .map_err(|e| bad_request(e.to_string()))?;
-
-    let chosen_pos = *nearest_route
-        .as_slice()
-        .last()
-        .ok_or_else(|| not_found("engineer was not found"))?;
-    let chosen_uuid = engineers_positions
-        .get(&chosen_pos)
-        .copied()
-        .ok_or_else(|| {
-            tracing::error!(?chosen_pos, "nearest engineer route ends at unknown position");
-            internal_error()
-        })?;
-
-    let (final_route, total_cells) = if transport_map.is_empty() {
-        let route = crate::search::bfs(
-            &app_state.map,
-            chosen_pos,
-            payload.plane_point,
-            &app_state.road_points,
-            &mut redis_conn,
-        )
+    // 4. Engineer already standing on the aircraft needs no path.
+    //    find_nearest treats that cell as the search start and returns an empty
+    //    route, which used to be reported as "engineer was not found".
+    let (chosen_uuid, final_route, total_cells) =
+        if let Some(engineer_id) = engineers_positions.get(&plane_point).copied() {
+            (engineer_id, Route::new(Vec::new()), 0)
+        } else {
+            let nearest_route = find_nearest(
+                &app_state.map,
+                plane_point,
+                &app_state.road_points,
+                &engineers_positions,
+                &mut redis_conn,
+            )
             .map_err(|e| bad_request(e.to_string()))?;
-        let len = route.len();
-        (route, len)
-    } else {
-        build_route_with_transport(
-            &app_state,
-            &mut redis_conn,
-            chosen_pos,
-            payload.plane_point,
-            &transport_map,
-            chosen_uuid,
-        )?
-    };
+
+            let chosen_pos = *nearest_route
+                .as_slice()
+                .last()
+                .ok_or_else(|| not_found("engineer was not found"))?;
+            let chosen_uuid = engineers_positions.get(&chosen_pos).copied().ok_or_else(|| {
+                tracing::error!(
+                    ?chosen_pos,
+                    "nearest engineer route ends at unknown position"
+                );
+                internal_error()
+            })?;
+
+            let (final_route, total_cells) = if transport_map.is_empty() {
+                let route = crate::search::bfs(
+                    &app_state.map,
+                    chosen_pos,
+                    plane_point,
+                    &app_state.road_points,
+                    &mut redis_conn,
+                )
+                .map_err(|e| bad_request(e.to_string()))?;
+                let len = route.len();
+                (route, len)
+            } else {
+                build_route_with_transport(
+                    &app_state,
+                    &mut redis_conn,
+                    chosen_pos,
+                    plane_point,
+                    &transport_map,
+                    chosen_uuid,
+                )?
+            };
+            (chosen_uuid, final_route, total_cells)
+        };
 
     // 5. Task timing.
     let travel_secs = total_cells as f32 / ENGINEER_SPEED_CELLS_PER_SEC;
     let now = Utc::now();
-    let task_ends_at =
-        now + payload.issue.resolution_time() + Duration::from_secs_f32(travel_secs);
+    let task_ends_at = now + payload.issue.resolution_time() + Duration::from_secs_f32(travel_secs);
 
     // 6. Persist task.
     let new_task = Task {
@@ -375,11 +545,10 @@ pub async fn assign_engineer(
         created_by: auth_user.id,
         assigned_engineer: chosen_uuid,
         issue_type: payload.issue,
-        plane_x: payload.plane_point.0,
-        plane_y: payload.plane_point.1,
-        task_route: serde_json::to_string(&final_route)
-            .expect("Route is always serializable"),
-        is_accepted: false,
+        plane_x: plane_point.0,
+        plane_y: plane_point.1,
+        plane_id: Some(plane_uuid),
+        task_route: serde_json::to_string(&final_route).expect("Route is always serializable"),
         is_active: true,
     };
 
@@ -393,10 +562,7 @@ pub async fn assign_engineer(
 
     // 7. Teleport engineer to destination (simulation only).
     redis_conn
-        .set(
-            format!("position:{}", chosen_uuid),
-            payload.plane_point.as_value(),
-        )
+        .set(format!("position:{}", chosen_uuid), plane_point.as_value())
         .map_err(|e| {
             tracing::error!(error = %e, "failed to teleport engineer");
             internal_error()
@@ -408,12 +574,103 @@ pub async fn assign_engineer(
         time_limit_exceeded: travel_secs >= SLA_LIMIT_SECS,
         route: final_route,
     })
-        .into_response())
+    .into_response())
 }
 
 // ---------------------------------------------------------------------------
 // assign_engineer helpers
 // ---------------------------------------------------------------------------
+
+/// Loads the current map position of an aircraft (`position:aircraft:{uuid}`).
+fn load_aircraft_position(
+    redis_conn: &mut redis::Connection,
+    id: Uuid,
+) -> Result<Point, Response<Body>> {
+    match redis_conn.get(format!("position:aircraft:{id}")) {
+        Ok(Some(raw)) => Point::from_value(raw).map_err(|e| {
+            tracing::error!(%id, error = %e, "aircraft position could not be parsed");
+            internal_error()
+        }),
+        Ok(None) => Err(not_found("aircraft not found")),
+        Err(e) => {
+            tracing::error!(%id, error = %e, "failed to fetch aircraft position");
+            Err(internal_error())
+        }
+    }
+}
+
+/// Loads every aircraft stored as a vehicle in Redis.
+fn load_aircraft(redis_conn: &mut redis::Connection) -> Result<Vec<AircraftEntry>, Response<Body>> {
+    let keys: Vec<String> = redis_conn
+        .scan_match("position:aircraft:*")
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to scan aircraft keys");
+            internal_error()
+        })?
+        .filter_map(Result::ok)
+        .collect();
+
+    let mut aircraft = Vec::with_capacity(keys.len());
+    for key in keys {
+        let Some(uuid_str) = key.strip_prefix("position:aircraft:") else {
+            continue;
+        };
+        let id = match Uuid::from_str(uuid_str) {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::warn!(%key, error = %e, "malformed aircraft key, skipped");
+                continue;
+            }
+        };
+        let raw = match redis_conn.get(&key) {
+            Ok(Some(raw)) => raw,
+            Ok(None) => continue,
+            Err(e) => {
+                tracing::error!(%key, error = %e, "failed to fetch aircraft position");
+                return Err(internal_error());
+            }
+        };
+        let point = match Point::from_value(raw) {
+            Ok(point) => point,
+            Err(e) => {
+                tracing::warn!(%key, error = %e, "malformed aircraft position, skipped");
+                continue;
+            }
+        };
+        aircraft.push(AircraftEntry { id, point });
+    }
+
+    aircraft.sort_by_key(|entry| entry.id);
+    Ok(aircraft)
+}
+
+/// Loads aircraft UUIDs that currently have an AOG flag (`aog:{uuid}`).
+fn load_aog_aircraft(redis_conn: &mut redis::Connection) -> Result<Vec<String>, Response<Body>> {
+    let keys: Vec<String> = redis_conn
+        .scan_match("aog:*")
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to scan AOG keys");
+            internal_error()
+        })?
+        .filter_map(Result::ok)
+        .collect();
+
+    let mut plane_uuids = Vec::with_capacity(keys.len());
+    for key in keys {
+        let Some(uuid_str) = key.strip_prefix("aog:") else {
+            continue;
+        };
+        match Uuid::from_str(uuid_str) {
+            Ok(uuid) => plane_uuids.push(uuid.to_string()),
+            Err(e) => {
+                tracing::warn!(%key, error = %e, "malformed AOG key, skipped");
+            }
+        }
+    }
+
+    plane_uuids.sort();
+    Ok(plane_uuids)
+}
 
 /// Loads current engineer positions from Redis into a `Point -> Uuid` map.
 fn load_engineer_positions(
@@ -448,7 +705,7 @@ fn load_engineer_positions(
 /// Loads special-vehicle positions of the given type into a `Point -> Uuid` map.
 fn load_transport_positions(
     redis_conn: &mut redis::Connection,
-    vehicle_type: crate::types::enums::SpecialVehicle,
+    vehicle_type: VehicleType,
 ) -> Result<HashMap<Point, Uuid>, Response<Body>> {
     let mut positions = HashMap::new();
 
@@ -512,7 +769,7 @@ fn build_route_with_transport(
         transport_map,
         redis_conn,
     )
-        .map_err(|e| bad_request(e.to_string()))?;
+    .map_err(|e| bad_request(e.to_string()))?;
 
     if to_transport.is_empty() {
         return Err(not_found("no available transport of required type found"));
@@ -534,7 +791,7 @@ fn build_route_with_transport(
         &state.road_points,
         redis_conn,
     )
-        .map_err(|e| bad_request(e.to_string()))?;
+    .map_err(|e| bad_request(e.to_string()))?;
 
     let mut combined = to_transport.as_slice().to_vec();
     let tail = to_plane.as_slice();

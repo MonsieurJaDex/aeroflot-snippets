@@ -1,4 +1,6 @@
-use anyhow::anyhow;
+use std::str::FromStr;
+
+use anyhow::{Context, anyhow};
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{EncodingKey, Header};
@@ -7,9 +9,13 @@ use uuid::Uuid;
 pub const ACCESS_TTL_SECS: i64 = 3600;
 pub const REFRESH_TTL_SECS: i64 = 604800;
 
-use crate::types::{
-    auth::{AccessClaims, RefreshClaims},
-    enums::{TokenType, UserRole},
+use crate::{
+    router::geo::TransportPositionEntry,
+    types::{
+        auth::{AccessClaims, RefreshClaims},
+        enums::{TokenType, UserRole, VehicleType},
+        map::Point,
+    },
 };
 
 use redis::{Connection, TypedCommands};
@@ -32,11 +38,36 @@ pub fn revoke_and_store_tokens(
     if let Some(old) = old_refresh.as_deref() {
         pipe.del(format!("refresh:{}", old)).ignore();
     }
-    pipe.set_ex(format!("refresh:{}", refresh), user_id.to_string(), REFRESH_TTL_SECS as u64).ignore();
-    pipe.set_ex(format!("refresh_from_id:{}", user_id), refresh, REFRESH_TTL_SECS as u64).ignore();
-    pipe.set_ex(format!("access:{}", access), user_id.to_string(), ACCESS_TTL_SECS as u64).ignore();
-    pipe.set_ex(format!("access_from_id:{}", user_id), access, ACCESS_TTL_SECS as u64).ignore();
-    pipe.set_ex(format!("role:{}", user_id), role.to_string(), REFRESH_TTL_SECS as u64).ignore();
+    pipe.set_ex(
+        format!("refresh:{}", refresh),
+        user_id.to_string(),
+        REFRESH_TTL_SECS as u64,
+    )
+    .ignore();
+    pipe.set_ex(
+        format!("refresh_from_id:{}", user_id),
+        refresh,
+        REFRESH_TTL_SECS as u64,
+    )
+    .ignore();
+    pipe.set_ex(
+        format!("access:{}", access),
+        user_id.to_string(),
+        ACCESS_TTL_SECS as u64,
+    )
+    .ignore();
+    pipe.set_ex(
+        format!("access_from_id:{}", user_id),
+        access,
+        ACCESS_TTL_SECS as u64,
+    )
+    .ignore();
+    pipe.set_ex(
+        format!("role:{}", user_id),
+        role.to_string(),
+        REFRESH_TTL_SECS as u64,
+    )
+    .ignore();
     pipe.query::<()>(redis_conn)?;
     Ok(())
 }
@@ -53,8 +84,18 @@ pub fn revoke_and_store_access_token(
     if let Some(old) = old_access.as_deref() {
         pipe.del(format!("access:{}", old)).ignore();
     }
-    pipe.set_ex(format!("access:{}", access), user_id.to_string(), ACCESS_TTL_SECS as u64).ignore();
-    pipe.set_ex(format!("access_from_id:{}", user_id), access, ACCESS_TTL_SECS as u64).ignore();
+    pipe.set_ex(
+        format!("access:{}", access),
+        user_id.to_string(),
+        ACCESS_TTL_SECS as u64,
+    )
+    .ignore();
+    pipe.set_ex(
+        format!("access_from_id:{}", user_id),
+        access,
+        ACCESS_TTL_SECS as u64,
+    )
+    .ignore();
     pipe.query::<()>(redis_conn)?;
     Ok(())
 }
@@ -106,4 +147,58 @@ pub fn create_token_pair(
     )?;
 
     Ok((access_token, refresh_token))
+}
+pub fn get_transport_from_redis(
+    redis_conn: &mut Connection,
+    transport_type: String,
+) -> Result<Vec<TransportPositionEntry>, anyhow::Error> {
+    // Redis фильтрует по паттерну — не гоняем лишние ключи по сети
+    let pattern = format!("position:{}:*", transport_type);
+
+    let keys: Vec<String> = redis_conn
+        .scan_match(&pattern)
+        .context("failed to scan transport keys")?
+        .filter_map(Result::ok)
+        .collect();
+
+    let mut result = Vec::with_capacity(keys.len());
+
+    for key in keys {
+        // Key shape: position:{vehicle_type}:{uuid}
+        let mut parts = key.splitn(3, ':');
+        let _prefix = parts.next();
+        let (Some(type_str), Some(uuid_str)) = (parts.next(), parts.next()) else {
+            tracing::warn!(%key, "malformed transport key, skipped");
+            continue;
+        };
+
+        let Ok(vehicle_type) = VehicleType::try_from(type_str) else {
+            tracing::warn!(%key, type_str, "unknown vehicle type, skipped");
+            continue;
+        };
+        let Ok(id) = Uuid::from_str(uuid_str) else {
+            tracing::warn!(%key, "malformed transport uuid, skipped");
+            continue;
+        };
+
+        let Some(value) = redis_conn
+            .get(&key)
+            .with_context(|| format!("failed to fetch transport position for key {key}"))?
+        else {
+            continue; // key disappeared between SCAN and GET
+        };
+
+        let Ok(point) = Point::from_value(value) else {
+            tracing::warn!(%key, "malformed transport position, skipped");
+            continue;
+        };
+
+        result.push(TransportPositionEntry {
+            id,
+            vehicle_type,
+            point,
+        });
+    }
+
+    Ok(result)
 }

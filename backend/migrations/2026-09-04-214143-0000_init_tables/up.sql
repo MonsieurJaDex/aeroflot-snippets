@@ -5,6 +5,7 @@ CREATE TYPE engineer_type AS ENUM (
     'engine_technician',
     'avionics_engineer',
     'aviation_technician',
+    -- TODO: remove not_categorized later
     'not_categorized'
 );
 

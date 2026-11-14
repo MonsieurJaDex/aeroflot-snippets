@@ -18,11 +18,13 @@ pub enum EngineerType {
     EngineTechnician,   // техник по двигателю
     AvionicsEngineer,   // инженер по радиоэлектронному оборудованию
     AviationTechnician, // диагностика, дефектация, регулировка, ремонт
-    NotCategorized,     // неопределен
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
-pub enum SpecialVehicle {
+pub enum VehicleType {
+    // Воздушное судно
+    Aircraft,
+
     // Топливозаправщик или кислородная зарядная станция
     FuelTruck,
 
@@ -39,30 +41,32 @@ pub enum SpecialVehicle {
     AvionicsTestSet,
 }
 
-impl fmt::Display for SpecialVehicle {
+impl fmt::Display for VehicleType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let string = match self {
-            SpecialVehicle::FuelTruck => "fuel_truck",
-            SpecialVehicle::OilCart => "oil_cart",
-            SpecialVehicle::MaintenanceLift => "maintenance_lift",
-            SpecialVehicle::BorescopeCart => "borescope_cart",
-            SpecialVehicle::AvionicsTestSet => "avionics_test_set",
+            VehicleType::FuelTruck => "fuel_truck",
+            VehicleType::OilCart => "oil_cart",
+            VehicleType::MaintenanceLift => "maintenance_lift",
+            VehicleType::BorescopeCart => "borescope_cart",
+            VehicleType::AvionicsTestSet => "avionics_test_set",
+            VehicleType::Aircraft => "aircraft",
         };
 
         f.write_str(string)
     }
 }
 
-impl TryFrom<&str> for SpecialVehicle {
+impl TryFrom<&str> for VehicleType {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "fuel_truck" => Ok(SpecialVehicle::FuelTruck),
-            "oil_cart" => Ok(SpecialVehicle::OilCart),
-            "maintenance_lift" => Ok(SpecialVehicle::MaintenanceLift),
-            "borescope_cart" => Ok(SpecialVehicle::BorescopeCart),
-            "avionics_test_set" => Ok(SpecialVehicle::AvionicsTestSet),
+            "fuel_truck" => Ok(VehicleType::FuelTruck),
+            "oil_cart" => Ok(VehicleType::OilCart),
+            "maintenance_lift" => Ok(VehicleType::MaintenanceLift),
+            "borescope_cart" => Ok(VehicleType::BorescopeCart),
+            "avionics_test_set" => Ok(VehicleType::AvionicsTestSet),
+            "aircraft" => Ok(VehicleType::Aircraft),
             _ => Err(anyhow::anyhow!("unknown vehicle type: {}", value)),
         }
     }
@@ -134,7 +138,8 @@ impl AircraftIssue {
                 EngineerType::AvionicsEngineer
             }
 
-            Other => EngineerType::NotCategorized,
+            // Predict with AI
+            Other => todo!(),
         }
     }
 
@@ -168,21 +173,21 @@ impl AircraftIssue {
         }
     }
 
-    pub fn required_vehicle(&self) -> Option<SpecialVehicle> {
+    pub fn required_vehicle(&self) -> Option<VehicleType> {
         match self {
-            Self::FuelLeakFromDrainCap => Some(SpecialVehicle::FuelTruck),
-            Self::OilStainNearGearbox => Some(SpecialVehicle::OilCart),
-            Self::FairingChipOrScratch => Some(SpecialVehicle::MaintenanceLift),
-            Self::PaintPeelingAtRivets => Some(SpecialVehicle::MaintenanceLift),
-            Self::MissingPitotCover => Some(SpecialVehicle::MaintenanceLift),
-            Self::IndicationFault => Some(SpecialVehicle::AvionicsTestSet),
-            Self::LooseConnector => Some(SpecialVehicle::AvionicsTestSet),
-            Self::ThrustOrParameterDrop => Some(SpecialVehicle::BorescopeCart),
-            Self::ExcessiveVibration => Some(SpecialVehicle::BorescopeCart),
-            Self::MetalDebrisInOilFilter => Some(SpecialVehicle::BorescopeCart),
-            Self::RadarFailureOrFalseReading => Some(SpecialVehicle::AvionicsTestSet),
-            Self::CommsLossOrDistortion => Some(SpecialVehicle::AvionicsTestSet),
-            Self::InsGyroDrift => Some(SpecialVehicle::AvionicsTestSet),
+            Self::FuelLeakFromDrainCap => Some(VehicleType::FuelTruck),
+            Self::OilStainNearGearbox => Some(VehicleType::OilCart),
+            Self::FairingChipOrScratch => Some(VehicleType::MaintenanceLift),
+            Self::PaintPeelingAtRivets => Some(VehicleType::MaintenanceLift),
+            Self::MissingPitotCover => Some(VehicleType::MaintenanceLift),
+            Self::IndicationFault => Some(VehicleType::AvionicsTestSet),
+            Self::LooseConnector => Some(VehicleType::AvionicsTestSet),
+            Self::ThrustOrParameterDrop => Some(VehicleType::BorescopeCart),
+            Self::ExcessiveVibration => Some(VehicleType::BorescopeCart),
+            Self::MetalDebrisInOilFilter => Some(VehicleType::BorescopeCart),
+            Self::RadarFailureOrFalseReading => Some(VehicleType::AvionicsTestSet),
+            Self::CommsLossOrDistortion => Some(VehicleType::AvionicsTestSet),
+            Self::InsGyroDrift => Some(VehicleType::AvionicsTestSet),
             _ => None,
         }
     }

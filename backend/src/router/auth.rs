@@ -3,27 +3,26 @@
 use std::sync::Arc;
 
 use axum::{
-    Json,
+    Extension, Json,
     body::Body,
-    extract::State,
-    http::{Response, StatusCode},
+    extract::{Path, State},
+    http::Response,
     response::IntoResponse,
 };
-use diesel::{
-    ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper,
-};
+use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper};
 use redis::TypedCommands;
 use uuid::Uuid;
 use validator::Validate;
 
-use super::{bad_request, forbidden, internal_error, not_found, unauthorized};
+use super::{bad_request, internal_error, not_found, unauthorized};
 use crate::{
     database::schema,
+    middleware::AuthUser,
     models::{dispatcher::Dispatcher, engineer::Engineer},
     types::{
         config::AppState,
         dto::{
-            GetUserNameRequest, GetUserNameResponse, LoginRequest, LoginResponse, RegisterRequest,
+            GetUserNameResponse, LoginRequest, LoginResponse, MeResponse, RegisterRequest,
             UpdateAccessRequest, UpdateAccessResponse,
         },
         enums::{AuthenticatedUser, UserRole},
@@ -65,6 +64,10 @@ pub async fn register_handler(
         internal_error()
     })?;
 
+    if email_taken(&mut pg_conn, &payload.email)? {
+        return Err(bad_request("email already registered"));
+    }
+
     let hashed_password = hash_password(payload.password.clone()).map_err(|e| {
         tracing::error!(error = %e, "failed to hash password");
         internal_error()
@@ -103,10 +106,10 @@ pub async fn register_handler(
         payload.user_role.clone(),
         app_state.jwt_secret.as_bytes(),
     )
-        .map_err(|e| {
-            tracing::error!(uuid = %new_id, error = %e, "failed to create token pair");
-            internal_error()
-        })?;
+    .map_err(|e| {
+        tracing::error!(uuid = %new_id, error = %e, "failed to create token pair");
+        internal_error()
+    })?;
 
     revoke_and_store_tokens(
         &mut redis_conn,
@@ -115,18 +118,43 @@ pub async fn register_handler(
         &refresh,
         &payload.user_role,
     )
-        .map_err(|e| {
-            tracing::error!(error = %e, "failed to store tokens in redis");
-            internal_error()
-        })?;
+    .map_err(|e| {
+        tracing::error!(error = %e, "failed to store tokens in redis");
+        internal_error()
+    })?;
 
     Ok(Json(LoginResponse {
+        id: new_id.to_string(),
         name: payload.name,
         user_role: payload.user_role,
         access_token: access,
         refresh_token: refresh,
     })
-        .into_response())
+    .into_response())
+}
+
+/// True when the address is already stored for a dispatcher or an engineer.
+fn email_taken(conn: &mut diesel::PgConnection, email: &str) -> Result<bool, Response<Body>> {
+    let engineer_exists = diesel::select(diesel::dsl::exists(
+        schema::engineers::table.filter(schema::engineers::email.eq(email)),
+    ))
+    .get_result(conn)
+    .map_err(|e| {
+        tracing::error!(error = %e, "failed to check engineer email");
+        internal_error()
+    })?;
+    if engineer_exists {
+        return Ok(true);
+    }
+
+    diesel::select(diesel::dsl::exists(
+        schema::dispatchers::table.filter(schema::dispatchers::email.eq(email)),
+    ))
+    .get_result(conn)
+    .map_err(|e| {
+        tracing::error!(error = %e, "failed to check dispatcher email");
+        internal_error()
+    })
 }
 
 fn insert_dispatcher(
@@ -251,12 +279,13 @@ pub async fn login_handler(
     })?;
 
     Ok(Json(LoginResponse {
+        id: user.id().to_string(),
         name: user.name().to_owned(),
         access_token: access,
         refresh_token: refresh,
         user_role: role,
     })
-        .into_response())
+    .into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -265,10 +294,9 @@ pub async fn login_handler(
 
 /// Returns the display name of an engineer by UUID.
 #[utoipa::path(
-    post,
-    path = "/api/auth/get_engineer_name",
+    get,
+    path = "/api/auth/getEngineerName/{engineer_uuid}",
     description = "Fetch the display name of an engineer by UUID",
-    request_body = GetUserNameRequest,
     responses(
         (status = 200, description = "Engineer found", body = GetUserNameResponse),
         (status = 400, description = "Malformed UUID", body = String),
@@ -278,10 +306,9 @@ pub async fn login_handler(
 )]
 pub async fn get_engineer_name_handler(
     State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<GetUserNameRequest>,
+    Path(engineer_uuid): Path<String>,
 ) -> Result<Response<Body>, Response<Body>> {
-    let uuid = Uuid::parse_str(&payload.id)
-        .map_err(|_| bad_request("invalid UUID format"))?;
+    let uuid = Uuid::parse_str(&engineer_uuid).map_err(|_| bad_request("invalid UUID format"))?;
 
     let mut pg_conn = app_state.db_pool.get().map_err(|e| {
         tracing::error!(error = %e, "failed to acquire postgres connection");
@@ -300,6 +327,70 @@ pub async fn get_engineer_name_handler(
         .ok_or_else(|| not_found("engineer not found"))?;
 
     Ok(Json(GetUserNameResponse { name }).into_response())
+}
+
+/// Returns the authenticated user's profile. The password hash is never included.
+#[utoipa::path(
+    get,
+    path = "/api/auth/me",
+    responses(
+        (status = 200, description = "Current user profile", body = MeResponse),
+        (status = 401, description = "Missing or invalid access token", body = String),
+        (status = 404, description = "User no longer exists", body = String),
+        (status = 500, description = "Server-side error", body = String),
+    ),
+    params(
+        ("Authorization" = String, Header, description = "Bearer access token"),
+    ),
+)]
+pub async fn me_handler(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> Result<Response<Body>, Response<Body>> {
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
+
+    if let Some(engineer) = schema::engineers::table
+        .filter(schema::engineers::id.eq(auth_user.id))
+        .select(Engineer::as_select())
+        .first(&mut pg_conn)
+        .optional()
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load engineer profile");
+            internal_error()
+        })?
+    {
+        return Ok(Json(MeResponse {
+            id: engineer.id.to_string(),
+            email: engineer.email,
+            name: engineer.name,
+            user_role: UserRole::Engineer,
+            engineer_type: Some(engineer.engineer_type),
+        })
+        .into_response());
+    }
+
+    let dispatcher = schema::dispatchers::table
+        .filter(schema::dispatchers::id.eq(auth_user.id))
+        .select(Dispatcher::as_select())
+        .first(&mut pg_conn)
+        .optional()
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load dispatcher profile");
+            internal_error()
+        })?
+        .ok_or_else(|| not_found("user not found"))?;
+
+    Ok(Json(MeResponse {
+        id: dispatcher.id.to_string(),
+        email: dispatcher.email,
+        name: dispatcher.name,
+        user_role: UserRole::Dispatcher,
+        engineer_type: None,
+    })
+    .into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -372,7 +463,7 @@ pub async fn update_access_token(
     Ok(Json(UpdateAccessResponse {
         access_token: access,
     })
-        .into_response())
+    .into_response())
 }
 
 use std::str::FromStr;

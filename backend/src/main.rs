@@ -1,7 +1,10 @@
 use crate::{
     database::{establish_pg_connection, establish_redis_connection},
     logging::init_logger,
-    router::{accept_current_task, assign_engineer, get_current_task, get_route},
+    router::{
+        assign_engineer, complete_current_task, current_task_aog, get_current_task, get_route,
+        list_aircraft, list_aog,
+    },
     types::{
         config::{AppConfig, AppState, Args},
         doc::ApiDoc,
@@ -102,7 +105,7 @@ async fn main() {
         let mut conn = migrations_pool.get()?;
         conn.run_pending_migrations(MIGRATIONS).map(|_| ())
     })
-        .await;
+    .await;
 
     match migrate_result {
         Ok(Ok(())) => {}
@@ -128,51 +131,61 @@ async fn main() {
     });
 
     // authentication and authorization router
-    let auth_router = Router::new()
+    let auth_public = Router::new()
         .route("/register", post(router::auth::register_handler))
         .route("/login", post(router::auth::login_handler))
         .route("/update_access", post(router::auth::update_access_token))
         .route(
-            "/get_engineer_name",
-            post(router::auth::get_engineer_name_handler),
+            "/getEngineerName/{engineer_uuid}",
+            get(router::auth::get_engineer_name_handler),
         );
+    let auth_me = Router::new()
+        .route("/me", get(router::auth::me_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&app_state),
+            middleware::auth_middleware,
+        ));
+    let auth_router = auth_public.merge(auth_me);
 
     // routes that protected with required bearer auth header
     let protected_routes = Router::new()
         .route("/map", get(get_map))
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
+        .route("/aircraft", get(list_aircraft))
         .route("/tasks/current", get(get_current_task))
-        .route("/tasks/current/accept", post(accept_current_task))
+        .route("/tasks/current/aog", post(current_task_aog))
+        .route("/tasks/current/complete", post(complete_current_task))
+        .route("/tasks/aog", get(list_aog))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&app_state),
             middleware::auth_middleware,
         ));
 
-    // routes of simulation functionalitj
-    let simulate_routes = Router::new()
+    // routes of geo functionality
+    let geo_routes = Router::new()
         .route(
-            "/update_engineer_position",
-            post(router::simulate::update_engineer_position_handler),
+            "/updateEngineerPosition",
+            post(router::geo::update_engineer_position_handler),
         )
         .route(
-            "/update_transport_position",
-            post(router::simulate::update_transport_position_handler),
+            "/updateTransportPosition",
+            post(router::geo::update_transport_position_handler),
         )
         .route(
-            "/get_engineers_positions",
-            get(router::simulate::get_engineers_positions),
+            "/getEngineersPositions",
+            get(router::geo::get_engineers_positions),
         )
         .route(
-            "/get_transport_positions",
-            get(router::simulate::get_transport_positions),
+            "/getTransportPositions",
+            get(router::geo::get_transport_positions),
         )
-        .route("/active_engineers", get(router::simulate::active_engineers));
+        .route("/activeEngineers", get(router::geo::active_engineers));
 
     // global API router
     let api_routes = Router::new()
         .nest("/auth", auth_router)
-        .nest("/simulate", simulate_routes)
+        .nest("/geo", geo_routes)
         .merge(protected_routes)
         .with_state(Arc::clone(&app_state));
 
@@ -213,7 +226,9 @@ async fn main() {
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c().await.expect("install ctrl_c handler");
+        tokio::signal::ctrl_c()
+            .await
+            .expect("install ctrl_c handler");
     };
 
     #[cfg(unix)]

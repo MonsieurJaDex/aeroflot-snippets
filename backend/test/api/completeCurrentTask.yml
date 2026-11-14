@@ -1,0 +1,18 @@
+info:
+  name: completeCurrentTask
+  type: http
+  seq: 18
+
+http:
+  method: POST
+  url: "{{HOST}}/tasks/current/complete"
+  auth:
+    type: bearer
+    token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxNjdmNTMwYy0wNzVmLTRjY2EtYjQ0NS03YWNiN2Y4MWYzMDMiLCJyb2xlIjoiRGlzcGF0Y2hlciIsImV4cCI6MTc5NDUyOTU3NSwidG9rZW5fdHlwZSI6IkFjY2VzcyJ9.goWaio-UYaCTQsfYzbZkWdvvLNy6oJunA6ERclHtdck
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

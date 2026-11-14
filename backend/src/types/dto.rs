@@ -8,7 +8,7 @@
 use std::fmt;
 
 use crate::types::{
-    enums::{AircraftIssue, EngineerType, SpecialVehicle, UserRole},
+    enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
     map::{Point, Route},
 };
 use serde::{Deserialize, Serialize};
@@ -46,10 +46,26 @@ pub struct GetRouteRequest {
 pub struct AssignEngineerRequest {
     /// Type of the reported aircraft issue.
     pub issue: AircraftIssue,
-    /// Location of the aircraft on the map.
-    pub plane_point: Point,
+    /// UUID of the aircraft stored in Redis (`position:aircraft:{uuid}`).
+    #[schema(example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
+    pub plane_uuid: String,
     /// Free-form problem description supplied by the dispatcher.
     pub description: String,
+}
+
+/// One aircraft currently stored in Redis.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AircraftEntry {
+    /// Aircraft UUID.
+    pub id: uuid::Uuid,
+    /// Current position on the map.
+    pub point: Point,
+}
+
+/// Aircraft positions visible to a dispatcher.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AircraftListResponse {
+    pub aircraft: Vec<AircraftEntry>,
 }
 
 /// Response payload for the `assign_engineer` endpoint.
@@ -57,7 +73,7 @@ pub struct AssignEngineerRequest {
 pub struct AssignEngineerResponse {
     /// UUID of the engineer chosen for this task.
     pub engineer_uuid: String,
-    /// Estimated resolution time in minutes.
+    /// Estimated resolution time in seconds.
     pub time: u64,
     /// Whether the assignment exceeds the allowed SLA.
     pub time_limit_exceeded: bool,
@@ -74,12 +90,12 @@ pub struct CurrentTaskResponse {
     pub description: String,
     /// Reported aircraft issue.
     pub issue: AircraftIssue,
-    /// Location of the aircraft on the map.
+    /// Location of the aircraft on the map at the time of assignment.
     pub plane_point: Point,
+    /// UUID of the aircraft attached to this task.
+    pub plane_uuid: Option<String>,
     /// Route from the engineer to the aircraft.
     pub route: Route,
-    /// Whether the engineer has already accepted the task.
-    pub is_accepted: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -87,11 +103,16 @@ pub struct CurrentTaskResponse {
 // ---------------------------------------------------------------------------
 
 /// Request payload for the `get_engineer_name` endpoint.
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct GetUserNameRequest {
-    /// UUID (as a string) of the engineer whose display name is requested.
-    #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
+
+/// Profile of the authenticated user. Never includes the password hash.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MeResponse {
     pub id: String,
+    pub email: String,
+    pub name: String,
+    pub user_role: UserRole,
+    /// Set only when the caller is an engineer.
+    pub engineer_type: Option<EngineerType>,
 }
 
 /// Response payload for the `get_engineer_name` endpoint.
@@ -166,6 +187,8 @@ impl fmt::Debug for LoginRequest {
 /// Response payload for the `login` endpoint.
 #[derive(Serialize, ToSchema)]
 pub struct LoginResponse {
+    /// User UUID
+    pub id: String,
     /// Display name of the authenticated user.
     pub name: String,
     /// Role of the authenticated user.
@@ -218,17 +241,50 @@ impl fmt::Debug for UpdateAccessResponse {
     }
 }
 
+/// Request payload for setting or clearing AOG on the engineer's current task.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CurrentTaskAogRequest {
+    /// `true` marks the task's aircraft as AOG, `false` clears the status.
+    pub toggle: bool,
+}
+
+/// Response payload for the current-task AOG endpoint.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CurrentTaskAogResponse {
+    /// UUID of the aircraft whose status was updated.
+    pub plane_uuid: String,
+    /// Whether the aircraft is currently marked AOG.
+    pub aog: bool,
+}
+
+/// Aircraft that currently have an AOG status in Redis.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AogListResponse {
+    /// UUIDs of aircraft marked AOG.
+    pub plane_uuids: Vec<String>,
+}
+
 // ---------------------------------------------------------------------------
-// Simulation
+// Geo
 // ---------------------------------------------------------------------------
 
-/// Request payload for updating an engineer's position in the simulator.
+/// One buffered engineer fix: `[point, unix_timestamp]`.
+///
+/// The timestamp is seconds since the Unix epoch, recorded when the device
+/// produced the point.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct EngineerPositionSample(pub Point, pub i64);
+
+/// Request payload for flushing a buffered batch of engineer positions.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateEngineerPositionRequest {
     /// UUID of the engineer.
     pub id: String,
-    /// New position on the map.
-    pub new_point: Point,
+    /// Fixes the device buffered before it could send them.
+    ///
+    /// Each item is `[point, unix_timestamp]`. The handler keeps the fix with
+    /// the greatest timestamp.
+    pub batch: Vec<EngineerPositionSample>,
 }
 
 /// Request payload for updating a special vehicle's position in the simulator.
@@ -237,7 +293,7 @@ pub struct UpdateTransportPositionRequest {
     /// UUID of the special vehicle.
     pub id: String,
     /// Type of the special vehicle.
-    pub vehicle_type: SpecialVehicle,
+    pub vehicle_type: VehicleType,
     /// New position on the map.
     pub new_point: Point,
 }

@@ -1,0 +1,15 @@
+info:
+  name: getTransportPositions
+  type: http
+  seq: 11
+
+http:
+  method: GET
+  url: "{{HOST}}/geo/getTransportPositions"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

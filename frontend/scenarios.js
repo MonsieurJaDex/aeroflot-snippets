@@ -246,7 +246,7 @@ const DemoScenarios = (() => {
       const point = [58 + (park % 4), 58 + Math.floor(park / 4)];
       park += 1;
       try {
-        await AeroAuth.apiRequest("/api/simulate/update_engineer_position", {
+        await AeroAuth.apiRequest("/api/geo/updateEngineerPosition", {
           method: "POST",
           auth: false,
           body: { id, new_point: point },
@@ -258,7 +258,7 @@ const DemoScenarios = (() => {
 
     for (const vehicle of scenario.fleet) {
       try {
-        await AeroAuth.apiRequest("/api/simulate/update_transport_position", {
+        await AeroAuth.apiRequest("/api/geo/updateTransportPosition", {
           method: "POST",
           auth: false,
           body: {
@@ -276,7 +276,7 @@ const DemoScenarios = (() => {
       const id = roster[engineer.email];
       if (!id || !engineer.point) continue;
       try {
-        await AeroAuth.apiRequest("/api/simulate/update_engineer_position", {
+        await AeroAuth.apiRequest("/api/geo/updateEngineerPosition", {
           method: "POST",
           auth: false,
           body: { id, new_point: engineer.point },
