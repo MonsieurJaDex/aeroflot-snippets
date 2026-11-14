@@ -46,10 +46,26 @@ pub struct GetRouteRequest {
 pub struct AssignEngineerRequest {
     /// Type of the reported aircraft issue.
     pub issue: AircraftIssue,
-    /// Location of the aircraft on the map.
-    pub plane_point: Point,
+    /// UUID of the aircraft stored in Redis (`position:aircraft:{uuid}`).
+    #[schema(example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
+    pub plane_uuid: String,
     /// Free-form problem description supplied by the dispatcher.
     pub description: String,
+}
+
+/// One aircraft currently stored in Redis.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AircraftEntry {
+    /// Aircraft UUID.
+    pub id: uuid::Uuid,
+    /// Current position on the map.
+    pub point: Point,
+}
+
+/// Aircraft positions visible to a dispatcher.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AircraftListResponse {
+    pub aircraft: Vec<AircraftEntry>,
 }
 
 /// Response payload for the `assign_engineer` endpoint.
@@ -74,8 +90,10 @@ pub struct CurrentTaskResponse {
     pub description: String,
     /// Reported aircraft issue.
     pub issue: AircraftIssue,
-    /// Location of the aircraft on the map.
+    /// Location of the aircraft on the map at the time of assignment.
     pub plane_point: Point,
+    /// UUID of the aircraft attached to this task.
+    pub plane_uuid: Option<String>,
     /// Route from the engineer to the aircraft.
     pub route: Route,
 }
@@ -85,6 +103,17 @@ pub struct CurrentTaskResponse {
 // ---------------------------------------------------------------------------
 
 /// Request payload for the `get_engineer_name` endpoint.
+
+/// Profile of the authenticated user. Never includes the password hash.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MeResponse {
+    pub id: String,
+    pub email: String,
+    pub name: String,
+    pub user_role: UserRole,
+    /// Set only when the caller is an engineer.
+    pub engineer_type: Option<EngineerType>,
+}
 
 /// Response payload for the `get_engineer_name` endpoint.
 #[derive(Debug, Serialize, ToSchema)]
@@ -215,11 +244,8 @@ impl fmt::Debug for UpdateAccessResponse {
 /// Request payload for setting or clearing AOG on the engineer's current task.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CurrentTaskAogRequest {
-    /// `true` marks the aircraft as AOG, `false` clears the status.
+    /// `true` marks the task's aircraft as AOG, `false` clears the status.
     pub toggle: bool,
-    /// UUID of the aircraft whose AOG status is being changed.
-    #[schema(example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
-    pub plane_uuid: String,
 }
 
 /// Response payload for the current-task AOG endpoint.

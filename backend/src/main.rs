@@ -3,7 +3,7 @@ use crate::{
     logging::init_logger,
     router::{
         assign_engineer, complete_current_task, current_task_aog, get_current_task, get_route,
-        list_aog,
+        list_aircraft, list_aog,
     },
     types::{
         config::{AppConfig, AppState, Args},
@@ -131,7 +131,7 @@ async fn main() {
     });
 
     // authentication and authorization router
-    let auth_router = Router::new()
+    let auth_public = Router::new()
         .route("/register", post(router::auth::register_handler))
         .route("/login", post(router::auth::login_handler))
         .route("/UpdateAccess", post(router::auth::update_access_token))
@@ -139,12 +139,20 @@ async fn main() {
             "/getEngineerName/{engineer_uuid}",
             get(router::auth::get_engineer_name_handler),
         );
+    let auth_me = Router::new()
+        .route("/me", get(router::auth::me_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&app_state),
+            middleware::auth_middleware,
+        ));
+    let auth_router = auth_public.merge(auth_me);
 
     // routes that protected with required bearer auth header
     let protected_routes = Router::new()
         .route("/map", get(get_map))
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
+        .route("/aircraft", get(list_aircraft))
         .route("/tasks/current", get(get_current_task))
         .route("/tasks/current/aog", post(current_task_aog))
         .route("/tasks/current/complete", post(complete_current_task))

@@ -18,6 +18,7 @@ pub struct Task {
     pub issue_type: AircraftIssue,
     pub plane_x: i64,
     pub plane_y: i64,
+    pub plane_id: Option<Uuid>,
     pub task_route: String,
     pub is_active: bool,
 }

@@ -50,12 +50,21 @@ const DEFAULT_FLEET = [
   { id: "a1111111-1111-4111-8111-111111111105", vehicle_type: "AvionicsTestSet", label: "КПА авионики", point: [28, 42] },
 ];
 
+// Один борт на стоянку. Координата — [col, row], как Point на бэкенде.
+const AIRCRAFT = STANDS.map((stand, index) => ({
+  id: `b1111111-1111-4111-8111-11111111110${index + 1}`,
+  vehicle_type: "Aircraft",
+  standId: stand.id,
+  point: [stand.col, stand.row],
+}));
+
 const VEHICLE_LABELS = {
   FuelTruck: "Топливозаправщик",
   OilCart: "Маслораздаточная тележка",
   MaintenanceLift: "Аэродромный подъёмник",
   BorescopeCart: "Бороскоп-тележка",
   AvionicsTestSet: "КПА авионики",
+  Aircraft: "Воздушное судно",
   fuel_truck: "Топливозаправщик",
   oil_cart: "Маслораздаточная тележка",
   maintenance_lift: "Аэродромный подъёмник",
@@ -224,6 +233,24 @@ async function loadTransport() {
   } catch (error) {
     console.warn("[map] не удалось загрузить спецтранспорт", error);
     return [];
+  }
+}
+
+async function ensureAircraft() {
+  for (const aircraft of AIRCRAFT) {
+    try {
+      await AeroAuth.apiRequest("/api/simulate/updateTransportPosition", {
+        method: "POST",
+        auth: false,
+        body: {
+          id: aircraft.id,
+          vehicle_type: aircraft.vehicle_type,
+          new_point: aircraft.point,
+        },
+      });
+    } catch (error) {
+      console.warn("[map] не удалось поставить самолёт", aircraft.standId, error);
+    }
   }
 }
 
@@ -536,6 +563,7 @@ async function main() {
   }
 
   let agents = await loadStaff();
+  await ensureAircraft();
   let fleet = await ensureDefaultFleet();
   let busyIds = await loadBusyEngineerIds();
   let lastAssignedId = null;
@@ -643,6 +671,7 @@ async function main() {
   const result = document.getElementById("assignment-result");
   document.getElementById("assign-button").addEventListener("click", async () => {
     const stand = STANDS.find((item) => item.id === standSelect.value);
+    const aircraft = AIRCRAFT.find((item) => item.standId === stand.id);
     const issue = faultSelect.value;
     const description = document.getElementById("fault-description").value.trim() || AeroAuth.issueLabel(issue);
     const busyBefore = new Set(busyIds);
@@ -650,16 +679,14 @@ async function main() {
     result.className = "assignment-result";
     result.innerHTML = "Поиск свободного инженера и спецтранспорта...";
 
-    // Назначение: бэкенд сам выбирает свободного инженера нужного типа и строит маршрут
-    // (при необходимости — через точку спецтранспорта).
-    // Без ИИ: поля body (issue, plane_point, description) не менять «на глаз».
+    // Назначение идёт по uuid самолёта; координату бэкенд берёт из Redis.
     let response;
     try {
       response = await AeroAuth.apiRequest("/api/assign", {
         method: "POST",
         body: {
           issue,
-          plane_point: [stand.col, stand.row],
+          plane_uuid: aircraft.id,
           description,
         },
       });

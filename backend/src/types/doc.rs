@@ -8,10 +8,10 @@ use utoipa::OpenApi;
 
 use crate::router::{
     __path_assign_engineer, __path_complete_current_task, __path_current_task_aog,
-    __path_get_current_task, __path_get_map, __path_get_route, __path_list_aog,
+    __path_get_current_task, __path_get_map, __path_get_route, __path_list_aircraft, __path_list_aog,
     auth::{
-        __path_get_engineer_name_handler, __path_login_handler, __path_register_handler,
-        __path_update_access_token,
+        __path_get_engineer_name_handler, __path_login_handler, __path_me_handler,
+        __path_register_handler, __path_update_access_token,
     },
     simulate::{
         __path_active_engineers, __path_get_engineers_positions, __path_get_transport_positions,
@@ -20,10 +20,11 @@ use crate::router::{
 };
 use crate::types::{
     dto::{
-        AogListResponse, AssignEngineerRequest, AssignEngineerResponse, CurrentTaskAogRequest,
-        CurrentTaskAogResponse, CurrentTaskResponse, GetRouteRequest, GetRouteResponse,
-        GetUserNameResponse, LoginRequest, LoginResponse, RegisterRequest, UpdateAccessRequest,
-        UpdateAccessResponse, UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
+        AircraftEntry, AircraftListResponse, AogListResponse, AssignEngineerRequest,
+        AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse,
+        GetRouteRequest, GetRouteResponse, GetUserNameResponse, LoginRequest, LoginResponse,
+        MeResponse, RegisterRequest, UpdateAccessRequest, UpdateAccessResponse,
+        UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
     },
     enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
     map::{MapMatrix, Point, Route},
@@ -49,12 +50,14 @@ use crate::types::{
         get_map,
         get_route,
         assign_engineer,
+        list_aircraft,
         get_current_task,
         current_task_aog,
         list_aog,
         complete_current_task,
         login_handler,
         register_handler,
+        me_handler,
         update_access_token,
         get_engineer_name_handler,
         get_engineers_positions,
@@ -79,6 +82,8 @@ use crate::types::{
         // --- DTOs: assignment ---
         AssignEngineerRequest,
         AssignEngineerResponse,
+        AircraftEntry,
+        AircraftListResponse,
         CurrentTaskResponse,
         CurrentTaskAogRequest,
         CurrentTaskAogResponse,
@@ -89,6 +94,7 @@ use crate::types::{
         RegisterRequest,
         LoginRequest,
         LoginResponse,
+        MeResponse,
         UpdateAccessRequest,
         UpdateAccessResponse,
         // --- DTOs: simulation ---

@@ -1,0 +1,28 @@
+info:
+  name: register
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{HOST}}/auth/register"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "email": "engineer@aeroflot.example",
+        "name": "Ivan Ivanov",
+        "password": "password",
+        "user_role": "Engineer",
+        "engineer_type": "aviation_technician"
+      }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

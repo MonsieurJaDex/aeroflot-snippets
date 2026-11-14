@@ -1,0 +1,24 @@
+info:
+  name: UpdateAccess
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{HOST}}/auth/UpdateAccess"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "refresh_token": "paste-refresh-token-from-login"
+      }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

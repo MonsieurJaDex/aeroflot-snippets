@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::{
-    Json,
+    Extension, Json,
     body::Body,
     extract::{Path, State},
     http::Response,
@@ -17,12 +17,13 @@ use validator::Validate;
 use super::{bad_request, internal_error, not_found, unauthorized};
 use crate::{
     database::schema,
+    middleware::AuthUser,
     models::{dispatcher::Dispatcher, engineer::Engineer},
     types::{
         config::AppState,
         dto::{
-            GetUserNameResponse, LoginRequest, LoginResponse, RegisterRequest, UpdateAccessRequest,
-            UpdateAccessResponse,
+            GetUserNameResponse, LoginRequest, LoginResponse, MeResponse, RegisterRequest,
+            UpdateAccessRequest, UpdateAccessResponse,
         },
         enums::{AuthenticatedUser, UserRole},
     },
@@ -62,6 +63,10 @@ pub async fn register_handler(
         tracing::error!(error = %e, "failed to acquire redis connection");
         internal_error()
     })?;
+
+    if email_taken(&mut pg_conn, &payload.email)? {
+        return Err(bad_request("email already registered"));
+    }
 
     let hashed_password = hash_password(payload.password.clone()).map_err(|e| {
         tracing::error!(error = %e, "failed to hash password");
@@ -126,6 +131,30 @@ pub async fn register_handler(
         refresh_token: refresh,
     })
     .into_response())
+}
+
+/// True when the address is already stored for a dispatcher or an engineer.
+fn email_taken(conn: &mut diesel::PgConnection, email: &str) -> Result<bool, Response<Body>> {
+    let engineer_exists = diesel::select(diesel::dsl::exists(
+        schema::engineers::table.filter(schema::engineers::email.eq(email)),
+    ))
+    .get_result(conn)
+    .map_err(|e| {
+        tracing::error!(error = %e, "failed to check engineer email");
+        internal_error()
+    })?;
+    if engineer_exists {
+        return Ok(true);
+    }
+
+    diesel::select(diesel::dsl::exists(
+        schema::dispatchers::table.filter(schema::dispatchers::email.eq(email)),
+    ))
+    .get_result(conn)
+    .map_err(|e| {
+        tracing::error!(error = %e, "failed to check dispatcher email");
+        internal_error()
+    })
 }
 
 fn insert_dispatcher(
@@ -298,6 +327,70 @@ pub async fn get_engineer_name_handler(
         .ok_or_else(|| not_found("engineer not found"))?;
 
     Ok(Json(GetUserNameResponse { name }).into_response())
+}
+
+/// Returns the authenticated user's profile. The password hash is never included.
+#[utoipa::path(
+    get,
+    path = "/api/auth/me",
+    responses(
+        (status = 200, description = "Current user profile", body = MeResponse),
+        (status = 401, description = "Missing or invalid access token", body = String),
+        (status = 404, description = "User no longer exists", body = String),
+        (status = 500, description = "Server-side error", body = String),
+    ),
+    params(
+        ("Authorization" = String, Header, description = "Bearer access token"),
+    ),
+)]
+pub async fn me_handler(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> Result<Response<Body>, Response<Body>> {
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
+
+    if let Some(engineer) = schema::engineers::table
+        .filter(schema::engineers::id.eq(auth_user.id))
+        .select(Engineer::as_select())
+        .first(&mut pg_conn)
+        .optional()
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load engineer profile");
+            internal_error()
+        })?
+    {
+        return Ok(Json(MeResponse {
+            id: engineer.id.to_string(),
+            email: engineer.email,
+            name: engineer.name,
+            user_role: UserRole::Engineer,
+            engineer_type: Some(engineer.engineer_type),
+        })
+        .into_response());
+    }
+
+    let dispatcher = schema::dispatchers::table
+        .filter(schema::dispatchers::id.eq(auth_user.id))
+        .select(Dispatcher::as_select())
+        .first(&mut pg_conn)
+        .optional()
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load dispatcher profile");
+            internal_error()
+        })?
+        .ok_or_else(|| not_found("user not found"))?;
+
+    Ok(Json(MeResponse {
+        id: dispatcher.id.to_string(),
+        email: dispatcher.email,
+        name: dispatcher.name,
+        user_role: UserRole::Dispatcher,
+        engineer_type: None,
+    })
+    .into_response())
 }
 
 // ---------------------------------------------------------------------------

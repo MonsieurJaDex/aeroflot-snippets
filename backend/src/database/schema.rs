@@ -46,6 +46,7 @@ diesel::table! {
         issue_type -> AircraftIssue,
         plane_x -> Int8,
         plane_y -> Int8,
+        plane_id -> Nullable<Uuid>,
         task_route -> Text,
         is_accepted -> Bool,
         is_active -> Bool,

@@ -66,6 +66,7 @@ impl TryFrom<&str> for VehicleType {
             "maintenance_lift" => Ok(VehicleType::MaintenanceLift),
             "borescope_cart" => Ok(VehicleType::BorescopeCart),
             "avionics_test_set" => Ok(VehicleType::AvionicsTestSet),
+            "aircraft" => Ok(VehicleType::Aircraft),
             _ => Err(anyhow::anyhow!("unknown vehicle type: {}", value)),
         }
     }
