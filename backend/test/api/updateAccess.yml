@@ -1,11 +1,11 @@
 info:
-  name: UpdateAccess
+  name: update_access
   type: http
   seq: 4
 
 http:
   method: POST
-  url: "{{HOST}}/auth/UpdateAccess"
+  url: "{{HOST}}/auth/update_access"
   headers:
     - name: content-type
       value: application/json

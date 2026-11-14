@@ -134,7 +134,7 @@ async fn main() {
     let auth_public = Router::new()
         .route("/register", post(router::auth::register_handler))
         .route("/login", post(router::auth::login_handler))
-        .route("/UpdateAccess", post(router::auth::update_access_token))
+        .route("/update_access", post(router::auth::update_access_token))
         .route(
             "/getEngineerName/{engineer_uuid}",
             get(router::auth::get_engineer_name_handler),
@@ -162,30 +162,30 @@ async fn main() {
             middleware::auth_middleware,
         ));
 
-    // routes of simulation functionality
-    let simulate_routes = Router::new()
+    // routes of geo functionality
+    let geo_routes = Router::new()
         .route(
             "/updateEngineerPosition",
-            post(router::simulate::update_engineer_position_handler),
+            post(router::geo::update_engineer_position_handler),
         )
         .route(
             "/updateTransportPosition",
-            post(router::simulate::update_transport_position_handler),
+            post(router::geo::update_transport_position_handler),
         )
         .route(
             "/getEngineersPositions",
-            get(router::simulate::get_engineers_positions),
+            get(router::geo::get_engineers_positions),
         )
         .route(
             "/getTransportPositions",
-            get(router::simulate::get_transport_positions),
+            get(router::geo::get_transport_positions),
         )
-        .route("/activeEngineers", get(router::simulate::active_engineers));
+        .route("/activeEngineers", get(router::geo::active_engineers));
 
     // global API router
     let api_routes = Router::new()
         .nest("/auth", auth_router)
-        .nest("/simulate", simulate_routes)
+        .nest("/geo", geo_routes)
         .merge(protected_routes)
         .with_state(Arc::clone(&app_state));
 

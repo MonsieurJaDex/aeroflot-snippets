@@ -13,9 +13,10 @@ use crate::router::{
         __path_get_engineer_name_handler, __path_login_handler, __path_me_handler,
         __path_register_handler, __path_update_access_token,
     },
-    simulate::{
+    geo::{
         __path_active_engineers, __path_get_engineers_positions, __path_get_transport_positions,
         __path_update_engineer_position_handler, __path_update_transport_position_handler,
+        ActiveEngineersResponse, EngineerPositionEntry, TransportPositionEntry,
     },
 };
 use crate::types::{
@@ -24,7 +25,7 @@ use crate::types::{
         AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse,
         GetRouteRequest, GetRouteResponse, GetUserNameResponse, LoginRequest, LoginResponse,
         MeResponse, RegisterRequest, UpdateAccessRequest, UpdateAccessResponse,
-        UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
+        UpdateEngineerPositionRequest, UpdateTransportPositionRequest, EngineerPositionSample,
     },
     enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
     map::{MapMatrix, Point, Route},
@@ -42,7 +43,7 @@ use crate::types::{
                        - Route computation between any two map points.\n\
                        - Automatic engineer assignment based on the aircraft issue type.\n\
                        - Task acceptance / progress tracking.\n\
-                       - Simulation endpoints for engineers and special transport vehicles.\n\
+                       - Geo endpoints for engineers, aircraft and special transport vehicles.\n\
                        - JWT-based authentication (access + refresh tokens).",
         contact(name = "Aeroflot Backend Team"),
     ),
@@ -97,8 +98,12 @@ use crate::types::{
         MeResponse,
         UpdateAccessRequest,
         UpdateAccessResponse,
-        // --- DTOs: simulation ---
+        // --- DTOs: geo ---
         UpdateEngineerPositionRequest,
+        EngineerPositionSample,
+        ActiveEngineersResponse,
+        EngineerPositionEntry,
+        TransportPositionEntry,
         UpdateTransportPositionRequest,
     )),
     tags(

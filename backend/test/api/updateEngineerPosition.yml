@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: "{{HOST}}/simulate/updateEngineerPosition"
+  url: "{{HOST}}/geo/updateEngineerPosition"
   headers:
     - name: content-type
       value: application/json
@@ -14,7 +14,10 @@ http:
     data: |-
       {
         "id": "866e2f6c-c479-44a8-b0f8-0dfbe292c200",
-        "new_point": [12, 14]
+        "batch": [
+          [[12, 14], 1710000000],
+          [[13, 14], 1710000005]
+        ]
       }
 
 settings:

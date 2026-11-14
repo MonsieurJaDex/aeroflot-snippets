@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: "{{HOST}}/simulate/activeEngineers"
+  url: "{{HOST}}/geo/activeEngineers"
 
 settings:
   encodeUrl: true

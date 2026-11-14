@@ -298,7 +298,7 @@ pub async fn login_handler(
     path = "/api/auth/getEngineerName/{engineer_uuid}",
     description = "Fetch the display name of an engineer by UUID",
     responses(
-        (status = 200, description = "Engineer found", body = String),
+        (status = 200, description = "Engineer found", body = GetUserNameResponse),
         (status = 400, description = "Malformed UUID", body = String),
         (status = 404, description = "Engineer not found", body = String),
         (status = 500, description = "Server-side error", body = String),

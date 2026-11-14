@@ -1,6 +1,6 @@
-//! Simulation handlers: manual position updates and read endpoints.
+//! Geo handlers: position updates and read endpoints for engineers, aircraft and vehicles.
 
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use axum::http::Response;
 use axum::{Json, body::Body, extract::State, http::StatusCode, response::IntoResponse};
@@ -26,15 +26,19 @@ use crate::{
 // Position updates
 // ---------------------------------------------------------------------------
 
-/// Manually updates an engineer's position.
+/// Applies a buffered batch of engineer positions.
+///
+/// Samples may arrive out of order. The stored position becomes the sample
+/// with the latest unix timestamp, and an older batch does not move the
+/// engineer backwards.
 #[utoipa::path(
     post,
-    path = "/api/simulate/updateEngineerPosition",
-    description = "Manually update an engineer's position (simulation only)",
+    path = "/api/geo/updateEngineerPosition",
+    description = "Flush a buffered batch of engineer positions. Each sample is [point, unix_timestamp]; the newest timestamp wins.",
     request_body = UpdateEngineerPositionRequest,
     responses(
-        (status = 200, description = "Position updated"),
-        (status = 400, description = "Invalid UUID or out-of-bounds coordinate", body = String),
+        (status = 200, description = "Batch applied, or ignored because a newer position is already stored"),
+        (status = 400, description = "Invalid UUID, empty batch, or out-of-bounds coordinate", body = String),
         (status = 500, description = "Server-side error", body = String),
     ),
 )]
@@ -44,17 +48,49 @@ pub async fn update_engineer_position_handler(
 ) -> Result<Response<Body>, Response<Body>> {
     let uuid = Uuid::parse_str(&payload.id).map_err(|_| bad_request("invalid UUID format"))?;
 
-    if !app_state.map.in_bounds(payload.new_point) {
-        return Err(bad_request("point is outside of map bounds"));
+    if payload.batch.is_empty() {
+        return Err(bad_request("batch is empty"));
     }
+
+    let mut latest: Option<(Point, i64)> = None;
+    for sample in payload.batch {
+        let point = sample.0;
+        let timestamp = sample.1;
+        if timestamp < 0 {
+            return Err(bad_request("timestamp must be a unix time in seconds"));
+        }
+        if !app_state.map.in_bounds(point) {
+            return Err(bad_request("point is outside of map bounds"));
+        }
+        if latest.is_none_or(|(_, best)| timestamp >= best) {
+            latest = Some((point, timestamp));
+        }
+    }
+    let (point, timestamp) = latest.expect("batch was checked to be non-empty");
 
     let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
         tracing::error!(error = %e, "failed to acquire redis connection");
         internal_error()
     })?;
 
-    redis_conn
-        .set(format!("position:{}", uuid), payload.new_point.as_value())
+    let ts_key = format!("position_ts:{uuid}");
+    let stored_raw: Option<String> = redis_conn.get(&ts_key).map_err(|e| {
+        tracing::error!(%uuid, error = %e, "failed to read engineer position timestamp");
+        internal_error()
+    })?;
+    let stored_ts = stored_raw.and_then(|raw| raw.parse::<i64>().ok());
+    if stored_ts.is_some_and(|stored| stored > timestamp) {
+        tracing::debug!(%uuid, stored_ts, timestamp, "ignored stale engineer position batch");
+        return Ok(StatusCode::OK.into_response());
+    }
+
+    let mut pipe = redis::pipe();
+    pipe.atomic()
+        .set(format!("position:{uuid}"), point.as_value())
+        .ignore()
+        .set(ts_key, timestamp.to_string())
+        .ignore()
+        .query::<()>(&mut redis_conn)
         .map_err(|e| {
             tracing::error!(%uuid, error = %e, "failed to set engineer position");
             internal_error()
@@ -66,7 +102,7 @@ pub async fn update_engineer_position_handler(
 /// Manually updates a special vehicle's position.
 #[utoipa::path(
     post,
-    path = "/api/simulate/updateTransportPosition",
+    path = "/api/geo/updateTransportPosition",
     description = "Manually update a special-vehicle position (creates the vehicle if it does not exist)",
     request_body = UpdateTransportPositionRequest,
     responses(
@@ -115,7 +151,7 @@ pub struct ActiveEngineersResponse {
 /// Returns the list of engineers with at least one active task.
 #[utoipa::path(
     get,
-    path = "/api/simulate/activeEngineers",
+    path = "/api/geo/activeEngineers",
     description = "List engineers who currently have an active task",
     responses(
         (status = 200, description = "List of engineer UUIDs", body = ActiveEngineersResponse),
@@ -157,7 +193,7 @@ pub struct EngineerPositionEntry {
 /// Returns every engineer together with their current position.
 #[utoipa::path(
     get,
-    path = "/api/simulate/getEngineersPositions",
+    path = "/api/geo/getEngineersPositions",
     description = "List all engineers and their positions",
     responses(
         (status = 200, description = "Engineer positions", body = Vec<EngineerPositionEntry>),
@@ -221,7 +257,7 @@ pub struct TransportPositionEntry {
 /// Returns every special vehicle with its type and current position.
 #[utoipa::path(
     get,
-    path = "/api/simulate/getTransportPositions",
+    path = "/api/geo/getTransportPositions",
     description = "List all special vehicles with type, UUID and position",
     responses(
         (status = 200, description = "Transport positions", body = Vec<TransportPositionEntry>),

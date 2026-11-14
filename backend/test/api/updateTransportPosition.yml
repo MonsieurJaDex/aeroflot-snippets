@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: "{{HOST}}/simulate/updateTransportPosition"
+  url: "{{HOST}}/geo/updateTransportPosition"
   headers:
     - name: content-type
       value: application/json

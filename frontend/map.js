@@ -147,7 +147,7 @@ function randomMapPoint() {
 async function ensureEngineerPosition(id) {
   const point = randomMapPoint();
   try {
-    await AeroAuth.apiRequest("/api/simulate/update_engineer_position", {
+    await AeroAuth.apiRequest("/api/geo/updateEngineerPosition", {
       method: "POST",
       auth: false,
       body: { id, new_point: point },
@@ -163,7 +163,7 @@ async function loadStaff() {
   // В демо-сценарии показываем только инженеров текущей команды (не всех 25).
   let engineers = [];
   try {
-    engineers = await AeroAuth.apiRequest("/api/simulate/get_engineers_positions");
+    engineers = await AeroAuth.apiRequest("/api/geo/getEngineersPositions");
   } catch (error) {
     console.warn("[map] не удалось загрузить список сотрудников", error);
     return [];
@@ -207,7 +207,7 @@ async function loadStaff() {
 
 async function loadBusyEngineerIds() {
   try {
-    const data = await AeroAuth.apiRequest("/api/simulate/active_engineers");
+    const data = await AeroAuth.apiRequest("/api/geo/activeEngineers");
     const ids = data && data.active_engineers ? data.active_engineers : [];
     return new Set(ids.map(String));
   } catch (error) {
@@ -222,7 +222,7 @@ function vehicleLabel(type) {
 
 async function loadTransport() {
   try {
-    const list = await AeroAuth.apiRequest("/api/simulate/get_transport_positions");
+    const list = await AeroAuth.apiRequest("/api/geo/getTransportPositions");
     if (!Array.isArray(list)) return [];
     return list.map((item) => ({
       id: String(item.id),
@@ -239,7 +239,7 @@ async function loadTransport() {
 async function ensureAircraft() {
   for (const aircraft of AIRCRAFT) {
     try {
-      await AeroAuth.apiRequest("/api/simulate/updateTransportPosition", {
+      await AeroAuth.apiRequest("/api/geo/updateTransportPosition", {
         method: "POST",
         auth: false,
         body: {
@@ -261,7 +261,7 @@ async function ensureDefaultFleet() {
 
   for (const vehicle of desired) {
     try {
-      await AeroAuth.apiRequest("/api/simulate/update_transport_position", {
+      await AeroAuth.apiRequest("/api/geo/updateTransportPosition", {
         method: "POST",
         auth: false,
         body: {

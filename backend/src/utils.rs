@@ -10,7 +10,7 @@ pub const ACCESS_TTL_SECS: i64 = 3600;
 pub const REFRESH_TTL_SECS: i64 = 604800;
 
 use crate::{
-    router::simulate::TransportPositionEntry,
+    router::geo::TransportPositionEntry,
     types::{
         auth::{AccessClaims, RefreshClaims},
         enums::{TokenType, UserRole, VehicleType},

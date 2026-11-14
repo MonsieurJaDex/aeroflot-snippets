@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: "{{HOST}}/simulate/getTransportPositions"
+  url: "{{HOST}}/geo/getTransportPositions"
 
 settings:
   encodeUrl: true

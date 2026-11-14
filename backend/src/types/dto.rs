@@ -265,16 +265,26 @@ pub struct AogListResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Simulation
+// Geo
 // ---------------------------------------------------------------------------
 
-/// Request payload for updating an engineer's position in the simulator.
+/// One buffered engineer fix: `[point, unix_timestamp]`.
+///
+/// The timestamp is seconds since the Unix epoch, recorded when the device
+/// produced the point.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct EngineerPositionSample(pub Point, pub i64);
+
+/// Request payload for flushing a buffered batch of engineer positions.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateEngineerPositionRequest {
     /// UUID of the engineer.
     pub id: String,
-    /// New position on the map.
-    pub new_point: Point,
+    /// Fixes the device buffered before it could send them.
+    ///
+    /// Each item is `[point, unix_timestamp]`. The handler keeps the fix with
+    /// the greatest timestamp.
+    pub batch: Vec<EngineerPositionSample>,
 }
 
 /// Request payload for updating a special vehicle's position in the simulator.

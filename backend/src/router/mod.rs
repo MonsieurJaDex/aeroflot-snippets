@@ -1,7 +1,7 @@
 //! HTTP router: common helpers, state and public handler definitions.
 
 pub mod auth;
-pub mod simulate;
+pub mod geo;
 
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
@@ -28,7 +28,7 @@ use crate::{
         dto::{
             AircraftEntry, AircraftListResponse, AogListResponse, AssignEngineerRequest,
             AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse,
-            CurrentTaskResponse, GetRouteRequest, GetRouteResponse,
+            CurrentTaskResponse, GetRouteRequest,
         },
         enums::{UserRole, VehicleType},
         map::{MapMatrix, Point, Route},
@@ -104,7 +104,7 @@ pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
     description = "Classic point-to-point BFS route",
     request_body = GetRouteRequest,
     responses(
-        (status = 200, description = "Successfully found a route", body = GetRouteResponse),
+        (status = 200, description = "Successfully found a route", body = Route),
         (status = 400, description = "Invalid input data", body = String),
         (status = 500, description = "Server-side error", body = String),
     ),
@@ -178,7 +178,7 @@ pub async fn get_current_task(
         })?;
 
     let Some(task) = task else {
-        return Ok(StatusCode::NOT_FOUND.into_response());
+        return Err(not_found("engineer has no active task"));
     };
 
     let route: Route = serde_json::from_str(&task.task_route).map_err(|e| {
@@ -392,7 +392,7 @@ pub async fn complete_current_task(
         })?;
 
     let Some(task) = task else {
-        return Ok(Json(Option::<CurrentTaskResponse>::None).into_response());
+        return Err(not_found("engineer has no active task"));
     };
 
     diesel::update(tasks.find(task.id))
