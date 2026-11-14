@@ -212,10 +212,30 @@ impl fmt::Debug for UpdateAccessResponse {
     }
 }
 
-/// AOG
-#[derive(Serialize, ToSchema)]
+/// Request payload for setting or clearing AOG on the engineer's current task.
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CurrentTaskAogRequest {
+    /// `true` marks the aircraft as AOG, `false` clears the status.
     pub toggle: bool,
+    /// UUID of the aircraft whose AOG status is being changed.
+    #[schema(example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
+    pub plane_uuid: String,
+}
+
+/// Response payload for the current-task AOG endpoint.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CurrentTaskAogResponse {
+    /// UUID of the aircraft whose status was updated.
+    pub plane_uuid: String,
+    /// Whether the aircraft is currently marked AOG.
+    pub aog: bool,
+}
+
+/// Aircraft that currently have an AOG status in Redis.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AogListResponse {
+    /// UUIDs of aircraft marked AOG.
+    pub plane_uuids: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------

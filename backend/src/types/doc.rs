@@ -7,8 +7,8 @@
 use utoipa::OpenApi;
 
 use crate::router::{
-    __path_assign_engineer, __path_complete_current_task, __path_get_current_task, __path_get_map,
-    __path_get_route,
+    __path_assign_engineer, __path_complete_current_task, __path_current_task_aog,
+    __path_get_current_task, __path_get_map, __path_get_route, __path_list_aog,
     auth::{
         __path_get_engineer_name_handler, __path_login_handler, __path_register_handler,
         __path_update_access_token,
@@ -20,10 +20,10 @@ use crate::router::{
 };
 use crate::types::{
     dto::{
-        AssignEngineerRequest, AssignEngineerResponse, CurrentTaskResponse, GetRouteRequest,
-        GetRouteResponse, GetUserNameResponse, LoginRequest, LoginResponse, RegisterRequest,
-        UpdateAccessRequest, UpdateAccessResponse, UpdateEngineerPositionRequest,
-        UpdateTransportPositionRequest,
+        AogListResponse, AssignEngineerRequest, AssignEngineerResponse, CurrentTaskAogRequest,
+        CurrentTaskAogResponse, CurrentTaskResponse, GetRouteRequest, GetRouteResponse,
+        GetUserNameResponse, LoginRequest, LoginResponse, RegisterRequest, UpdateAccessRequest,
+        UpdateAccessResponse, UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
     },
     enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
     map::{MapMatrix, Point, Route},
@@ -50,6 +50,8 @@ use crate::types::{
         get_route,
         assign_engineer,
         get_current_task,
+        current_task_aog,
+        list_aog,
         complete_current_task,
         login_handler,
         register_handler,
@@ -78,6 +80,9 @@ use crate::types::{
         AssignEngineerRequest,
         AssignEngineerResponse,
         CurrentTaskResponse,
+        CurrentTaskAogRequest,
+        CurrentTaskAogResponse,
+        AogListResponse,
         // --- DTOs: user lookup ---
         GetUserNameResponse,
         // --- DTOs: auth ---

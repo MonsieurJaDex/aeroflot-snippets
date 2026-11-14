@@ -1,7 +1,10 @@
 use crate::{
     database::{establish_pg_connection, establish_redis_connection},
     logging::init_logger,
-    router::{assign_engineer, complete_current_task, get_current_task, get_route},
+    router::{
+        assign_engineer, complete_current_task, current_task_aog, get_current_task, get_route,
+        list_aog,
+    },
     types::{
         config::{AppConfig, AppState, Args},
         doc::ApiDoc,
@@ -143,7 +146,9 @@ async fn main() {
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
         .route("/tasks/current", get(get_current_task))
+        .route("/tasks/current/aog", post(current_task_aog))
         .route("/tasks/current/complete", post(complete_current_task))
+        .route("/tasks/aog", get(list_aog))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&app_state),
             middleware::auth_middleware,
