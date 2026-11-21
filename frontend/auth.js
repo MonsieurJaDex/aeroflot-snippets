@@ -61,12 +61,6 @@ const AeroAuth = (() => {
     sessionStorage.removeItem(SESSION_KEY);
   }
 
-  function decodeJwtPayload(token) {
-    const part = token.split(".")[1];
-    const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
-    return JSON.parse(decodeURIComponent(escape(atob(base64))));
-  }
-
   async function tryRefresh() {
     const session = getSession();
     if (!session || !session.refreshToken) return false;
@@ -112,7 +106,9 @@ const AeroAuth = (() => {
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(text || `Ошибка запроса: ${res.status}`);
+      const error = new Error(text || `Ошибка запроса: ${res.status}`);
+      error.status = res.status;
+      throw error;
     }
 
     const contentType = res.headers.get("content-type") || "";
@@ -125,16 +121,16 @@ const AeroAuth = (() => {
       auth: false,
       body: { email, password },
     });
-    const payload = decodeJwtPayload(data.access_token);
     const session = {
       name: data.name,
       role: data.user_role,
-      userId: payload.sub,
+      userId: data.id || null,
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
     };
     saveSession(session);
-    return session;
+    await hydrateProfile();
+    return getSession();
   }
 
   async function register({ email, name, password, userRole, engineerType }) {
@@ -149,38 +145,31 @@ const AeroAuth = (() => {
         engineer_type: engineerType || null,
       },
     });
-    const payload = decodeJwtPayload(data.access_token);
     const session = {
       name: data.name,
       role: data.user_role,
-      userId: payload.sub,
+      userId: data.id || null,
       engineerType: engineerType || null,
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
     };
     saveSession(session);
-
-    if (userRole === "Engineer") {
-      await assignRandomStartingPosition(payload.sub);
-    }
-
-    return session;
+    await hydrateProfile();
+    return getSession();
   }
 
-  // Backend не задаёт позицию инженеру при регистрации, поэтому фиксируем
-  // стартовую точку через simulate endpoint — иначе assign не видит инженера в Redis.
-  async function assignRandomStartingPosition(engineerId) {
-    const x = 8 + Math.floor(Math.random() * 48);
-    const y = 8 + Math.floor(Math.random() * 48);
-    try {
-      await apiRequest("/api/simulate/update_engineer_position", {
-        method: "POST",
-        auth: false,
-        body: { id: engineerId, new_point: [x, y] },
-      });
-    } catch (error) {
-      console.warn("[auth] не удалось задать стартовую позицию инженера", error);
-    }
+  // Профиль и специализация берутся с /api/auth/me, не из локального справочника.
+  async function hydrateProfile() {
+    const me = await apiRequest("/api/auth/me");
+    const session = getSession();
+    if (!session) return null;
+    session.name = me.name;
+    session.role = me.user_role;
+    session.userId = me.id;
+    session.engineerType = me.engineer_type || null;
+    session.email = me.email;
+    saveSession(session);
+    return session;
   }
 
   function logout() {
@@ -224,9 +213,10 @@ const AeroAuth = (() => {
       radar_failure_or_false_reading: "avionics_engineer",
       comms_loss_or_distortion: "avionics_engineer",
       ins_gyro_drift: "avionics_engineer",
-      other: "not_categorized",
+      other: null,
     };
-    const type = groups[value] || "not_categorized";
+    const type = groups[value];
+    if (!type) return "сервер этот тип пока не назначает";
     return ENGINEER_TYPE_LABELS.get(type) || type;
   }
 
@@ -241,6 +231,7 @@ const AeroAuth = (() => {
     apiRequest,
     login,
     register,
+    hydrateProfile,
     logout,
     requireRole,
     issueLabel,

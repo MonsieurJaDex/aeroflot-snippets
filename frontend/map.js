@@ -32,32 +32,6 @@ const CONFIG = {
   ],
 };
 
-const STANDS = [
-  { id: "A-01", row: 10, col: 10 },
-  { id: "A-02", row: 16, col: 10 },
-  { id: "B-01", row: 10, col: 51 },
-  { id: "B-02", row: 17, col: 51 },
-  { id: "C-01", row: 44, col: 32 },
-  { id: "Техцентр", row: 51, col: 11 },
-];
-
-// Стабильные UUID — сидим флот один раз, без дублей при каждом refresh
-const DEFAULT_FLEET = [
-  { id: "a1111111-1111-4111-8111-111111111101", vehicle_type: "FuelTruck", label: "Топливозаправщик", point: [18, 24] },
-  { id: "a1111111-1111-4111-8111-111111111102", vehicle_type: "OilCart", label: "Маслораздаточная", point: [22, 28] },
-  { id: "a1111111-1111-4111-8111-111111111103", vehicle_type: "MaintenanceLift", label: "Подъёмник", point: [40, 20] },
-  { id: "a1111111-1111-4111-8111-111111111104", vehicle_type: "BorescopeCart", label: "Бороскоп-тележка", point: [36, 36] },
-  { id: "a1111111-1111-4111-8111-111111111105", vehicle_type: "AvionicsTestSet", label: "КПА авионики", point: [28, 42] },
-];
-
-// Один борт на стоянку. Координата — [col, row], как Point на бэкенде.
-const AIRCRAFT = STANDS.map((stand, index) => ({
-  id: `b1111111-1111-4111-8111-11111111110${index + 1}`,
-  vehicle_type: "Aircraft",
-  standId: stand.id,
-  point: [stand.col, stand.row],
-}));
-
 const VEHICLE_LABELS = {
   FuelTruck: "Топливозаправщик",
   OilCart: "Маслораздаточная тележка",
@@ -140,69 +114,78 @@ function issueGroups() {
   ];
 }
 
-function randomMapPoint() {
-  return [8 + Math.floor(Math.random() * 48), 8 + Math.floor(Math.random() * 48)];
-}
+const nameCache = new Map();
 
-async function ensureEngineerPosition(id) {
-  const point = randomMapPoint();
+async function engineerName(id) {
+  const key = String(id);
+  if (nameCache.has(key)) return nameCache.get(key);
   try {
-    await AeroAuth.apiRequest("/api/geo/updateEngineerPosition", {
-      method: "POST",
-      auth: false,
-      body: { id, new_point: point },
-    });
-    return point;
+    const data = await AeroAuth.apiRequest(`/api/auth/getEngineerName/${key}`, { auth: false });
+    const name = data && data.name ? data.name : `Инженер ${key.slice(0, 8)}`;
+    nameCache.set(key, name);
+    return name;
   } catch (error) {
-    console.warn("[map] не удалось задать позицию инженера", id, error);
-    return null;
+    const fallback = `Инженер ${key.slice(0, 8)}`;
+    nameCache.set(key, fallback);
+    return fallback;
   }
 }
 
+function asPoint(point) {
+  if (!Array.isArray(point) || point.length < 2) return null;
+  return [Number(point[0]), Number(point[1])];
+}
+
 async function loadStaff() {
-  // В демо-сценарии показываем только инженеров текущей команды (не всех 25).
   let engineers = [];
   try {
     engineers = await AeroAuth.apiRequest("/api/geo/getEngineersPositions");
   } catch (error) {
     console.warn("[map] не удалось загрузить список сотрудников", error);
+    return { plotted: [], missing: [] };
+  }
+  if (!Array.isArray(engineers)) return { plotted: [], missing: [] };
+
+  const plotted = [];
+  const missing = [];
+  await Promise.all(
+    engineers.map(async (entry) => {
+      const id = String(entry.id);
+      const name = await engineerName(id);
+      const point = asPoint(entry.position);
+      if (!point) {
+        missing.push({ id, name });
+        return;
+      }
+      plotted.push({ id, name, point, busy: false });
+    })
+  );
+  plotted.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  return { plotted, missing };
+}
+
+async function loadAircraft() {
+  try {
+    const data = await AeroAuth.apiRequest("/api/aircraft");
+    const list = data && Array.isArray(data.aircraft) ? data.aircraft : [];
+    return list
+      .map((item) => ({ id: String(item.id), point: asPoint(item.point) }))
+      .filter((item) => item.point);
+  } catch (error) {
+    console.warn("[map] не удалось загрузить воздушные суда", error);
     return [];
   }
+}
 
-  const scenario = typeof DemoScenarios !== "undefined" ? DemoScenarios.getActiveScenario() : null;
-  const roster = typeof DemoScenarios !== "undefined" ? DemoScenarios.getRoster() : {};
-  const allowedIds = scenario
-    ? new Set(scenario.engineers.map((item) => String(roster[item.email] || "")).filter(Boolean))
-    : null;
-
-  const agents = [];
-  for (const entry of engineers) {
-    const id = entry[0];
-    if (allowedIds && allowedIds.size > 0 && !allowedIds.has(String(id))) continue;
-
-    let point = entry[1];
-    if (!point) {
-      const preset = scenario?.engineers.find((item) => String(roster[item.email]) === String(id));
-      point = preset?.point || (await ensureEngineerPosition(id));
-    }
-    if (!point) continue;
-    agents.push({
-      id,
-      name: `Сотрудник ${String(id).slice(0, 8)}`,
-      point: [point[0], point[1]],
-      busy: false,
-    });
+async function loadAogIds() {
+  try {
+    const data = await AeroAuth.apiRequest("/api/tasks/aog");
+    const ids = data && Array.isArray(data.plane_uuids) ? data.plane_uuids : [];
+    return new Set(ids.map(String));
+  } catch (error) {
+    console.warn("[map] не удалось загрузить AOG", error);
+    return new Set();
   }
-
-  // Подписи из демо-ростера
-  if (scenario) {
-    for (const agent of agents) {
-      const match = scenario.engineers.find((item) => String(roster[item.email]) === String(agent.id));
-      if (match) agent.name = match.name;
-    }
-  }
-
-  return agents;
 }
 
 async function loadBusyEngineerIds() {
@@ -224,64 +207,19 @@ async function loadTransport() {
   try {
     const list = await AeroAuth.apiRequest("/api/geo/getTransportPositions");
     if (!Array.isArray(list)) return [];
-    return list.map((item) => ({
-      id: String(item.id),
-      vehicle_type: item.vehicle_type,
-      label: vehicleLabel(item.vehicle_type),
-      point: [item.point[0], item.point[1]],
-    }));
+    return list
+      .filter((item) => item.vehicle_type !== "Aircraft" && item.vehicle_type !== "aircraft")
+      .map((item) => ({
+        id: String(item.id),
+        vehicle_type: item.vehicle_type,
+        label: vehicleLabel(item.vehicle_type),
+        point: asPoint(item.point),
+      }))
+      .filter((item) => item.point);
   } catch (error) {
     console.warn("[map] не удалось загрузить спецтранспорт", error);
     return [];
   }
-}
-
-async function ensureAircraft() {
-  for (const aircraft of AIRCRAFT) {
-    try {
-      await AeroAuth.apiRequest("/api/geo/updateTransportPosition", {
-        method: "POST",
-        auth: false,
-        body: {
-          id: aircraft.id,
-          vehicle_type: aircraft.vehicle_type,
-          new_point: aircraft.point,
-        },
-      });
-    } catch (error) {
-      console.warn("[map] не удалось поставить самолёт", aircraft.standId, error);
-    }
-  }
-}
-
-async function ensureDefaultFleet() {
-  // Если открыт демо-сценарий — ставим его флот; иначе дефолтный набор из 5 машин.
-  const scenario = typeof DemoScenarios !== "undefined" ? DemoScenarios.getActiveScenario() : null;
-  const desired = scenario ? scenario.fleet : DEFAULT_FLEET;
-
-  for (const vehicle of desired) {
-    try {
-      await AeroAuth.apiRequest("/api/geo/updateTransportPosition", {
-        method: "POST",
-        auth: false,
-        body: {
-          id: vehicle.id,
-          vehicle_type: vehicle.vehicle_type,
-          new_point: vehicle.point,
-        },
-      });
-    } catch (error) {
-      console.warn("[map] не удалось создать единицу спецтранспорта", vehicle.vehicle_type, error);
-    }
-  }
-
-  const loaded = await loadTransport();
-  if (!scenario) return loaded.length ? loaded : desired.map((item) => ({ ...item, label: vehicleLabel(item.vehicle_type) }));
-
-  // В демо показываем только флот текущего сценария
-  const allowed = new Set(desired.map((item) => item.id));
-  const filtered = loaded.filter((item) => allowed.has(item.id));
-  return filtered.length ? filtered : desired.map((item) => ({ ...item, label: vehicleLabel(item.vehicle_type) }));
 }
 
 function findTransportOnRoute(route, fleet) {
@@ -465,6 +403,12 @@ function assignErrorMessage(err) {
   if (/no available transport/i.test(raw)) {
     return "Нет свободного спецтранспорта нужного типа для этой неисправности.";
   }
+  if (/aircraft not found/i.test(raw)) {
+    return "Самолёт не найден в Redis. Список бортов берётся из /api/aircraft.";
+  }
+  if (/not implemented|todo/i.test(raw) || /other/i.test(raw) && /500/.test(raw)) {
+    return "Тип «Другое» сервер пока не назначает.";
+  }
   if (/only dispatchers/i.test(raw)) {
     return "Назначать может только диспетчер. Перелогиньтесь под ролью Dispatcher.";
   }
@@ -476,33 +420,7 @@ async function main() {
   if (!session) return;
 
   document.getElementById("dispatcher-name").textContent = session.name;
-  const switchLink = document.getElementById("switch-role-link");
-  const inDemo = typeof DemoScenarios !== "undefined" && !!DemoScenarios.getActiveId();
-  if (switchLink) {
-    switchLink.hidden = !inDemo;
-    switchLink.addEventListener("click", (event) => {
-      event.preventDefault();
-      DemoScenarios.returnToScenarioSwitcher();
-    });
-  }
-  document.getElementById("logout-button").addEventListener("click", () => {
-    if (inDemo) {
-      DemoScenarios.returnToScenarioSwitcher();
-      return;
-    }
-    AeroAuth.logout();
-  });
-
-  if (typeof DemoScenarios !== "undefined") {
-    const scenario = DemoScenarios.getActiveScenario();
-    if (scenario) {
-      try {
-        await DemoScenarios.applyScenarioLayout(scenario);
-      } catch (error) {
-        console.warn("[map] не удалось применить демо-расстановку", error);
-      }
-    }
-  }
+  document.getElementById("logout-button").addEventListener("click", () => AeroAuth.logout());
 
   const tmj = await loadMap();
   const grid = buildTileGrid(tmj);
@@ -537,14 +455,8 @@ async function main() {
   map.fitBounds(bounds);
 
   const standSelect = document.getElementById("stand-select");
-  for (const stand of STANDS) standSelect.add(new Option(stand.id, stand.id));
-  standSelect.value = "A-01";
 
-  const standPoint = (stand) => [
-    pxHeight - (stand.row + 0.5) * tileH,
-    (stand.col + 0.5) * tileW,
-  ];
-  // Backend Point = [x, y] = [col, row] — должен совпадать со стартом маршрута
+  // Backend Point = [x, y] = [col, row]
   const agentPoint = (agent) => [
     pxHeight - (agent.point[1] + 0.5) * tileH,
     (agent.point[0] + 0.5) * tileW,
@@ -554,19 +466,51 @@ async function main() {
   const staffLayer = L.layerGroup().addTo(map);
   const transportLayer = L.layerGroup().addTo(map);
   const routeExtrasLayer = L.layerGroup().addTo(map);
-  for (const stand of STANDS) {
-    L.marker(standPoint(stand), {
-      icon: L.divIcon({ className: "route-marker", html: "", iconSize: [12, 12], iconAnchor: [6, 6] }),
-    })
-      .bindTooltip(stand.id, { permanent: true, direction: "top", className: "map-label", offset: [0, -5] })
-      .addTo(standsLayer);
+
+  let agents = [];
+  let missingEngineers = [];
+  let aircraft = [];
+  let aogIds = new Set();
+  let fleet = [];
+  let busyIds = new Set();
+
+  function fillAircraftSelect() {
+    const previous = standSelect.value;
+    standSelect.replaceChildren();
+    if (!aircraft.length) {
+      standSelect.add(new Option("Нет бортов в Redis", ""));
+      standSelect.disabled = true;
+      return;
+    }
+    standSelect.disabled = false;
+    for (const plane of aircraft) {
+      const aog = aogIds.has(plane.id) ? " · AOG" : "";
+      standSelect.add(new Option(`${plane.id.slice(0, 8)} · ${plane.point[0]}, ${plane.point[1]}${aog}`, plane.id));
+    }
+    if ([...standSelect.options].some((option) => option.value === previous)) standSelect.value = previous;
   }
 
-  let agents = await loadStaff();
-  await ensureAircraft();
-  let fleet = await ensureDefaultFleet();
-  let busyIds = await loadBusyEngineerIds();
-  let lastAssignedId = null;
+  function renderAircraftMarkers() {
+    standsLayer.clearLayers();
+    for (const plane of aircraft) {
+      const aog = aogIds.has(plane.id);
+      L.marker(agentPoint(plane), {
+        icon: L.divIcon({
+          className: aog ? "aircraft-marker aog" : "aircraft-marker",
+          html: "",
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+        }),
+      })
+        .bindTooltip(`${aog ? "AOG · " : ""}ВС ${plane.id.slice(0, 8)}`, {
+          permanent: true,
+          direction: "top",
+          className: "map-label",
+          offset: [0, -6],
+        })
+        .addTo(standsLayer);
+    }
+  }
 
   function applyBusyFlags() {
     for (const agent of agents) {
@@ -615,17 +559,26 @@ async function main() {
   }
 
   async function refreshOverlayState() {
-    agents = await loadStaff();
+    const staff = await loadStaff();
+    agents = staff.plotted;
+    missingEngineers = staff.missing;
+    aircraft = await loadAircraft();
+    aogIds = await loadAogIds();
     fleet = await loadTransport();
-    if (fleet.length === 0) fleet = await ensureDefaultFleet();
     busyIds = await loadBusyEngineerIds();
+    fillAircraftSelect();
+    renderAircraftMarkers();
     renderStaffMarkers();
     renderTransportMarkers();
+    const live = document.getElementById("live-status");
+    if (live) {
+      const gap = missingEngineers.length ? `, без координат: ${missingEngineers.length}` : "";
+      live.textContent = `Бортов: ${aircraft.length} · инженеров на карте: ${agents.length}${gap} · техники: ${fleet.length} · AOG: ${aogIds.size}`;
+    }
   }
 
-  renderStaffMarkers();
-  renderTransportMarkers();
-  window.setInterval(refreshOverlayState, 10000);
+  await refreshOverlayState();
+  window.setInterval(refreshOverlayState, 5000);
 
   let routeLayer = null;
   const faultSelect = document.getElementById("fault-select");
@@ -633,11 +586,16 @@ async function main() {
   for (const [groupLabel, issueValues] of issueGroups()) {
     const group = document.createElement("optgroup");
     group.label = groupLabel;
-    for (const value of issueValues) group.append(new Option(issueLabels.get(value), value));
+    for (const value of issueValues) {
+      if (value === "other") continue;
+      group.append(new Option(issueLabels.get(value), value));
+    }
+    if (!group.children.length) continue;
     faultSelect.append(group);
   }
   const faultHint = document.getElementById("fault-hint");
   const faultDescription = document.getElementById("fault-description");
+  let lastAutoDescription = "";
   function updateFaultHint() {
     const issue = faultSelect.value;
     const vehicleType = ISSUE_REQUIRED_VEHICLE[issue];
@@ -645,8 +603,10 @@ async function main() {
       ? `Спецтранспорт: ${vehicleLabel(vehicleType)}.`
       : "Спецтранспорт не требуется.";
     faultHint.textContent = `Нужный специалист: ${AeroAuth.engineerTypeForIssue(issue)}. ${vehicleText}`;
-    if (!faultDescription.value.trim()) {
-      faultDescription.value = `Обнаружена неисправность: ${AeroAuth.issueLabel(issue).toLowerCase()}. Требуется осмотр и устранение.`;
+    const nextAuto = `Обнаружена неисправность: ${AeroAuth.issueLabel(issue).toLowerCase()}. Требуется осмотр и устранение.`;
+    if (!faultDescription.value.trim() || faultDescription.value === lastAutoDescription) {
+      faultDescription.value = nextAuto;
+      lastAutoDescription = nextAuto;
     }
   }
   faultSelect.addEventListener("change", updateFaultHint);
@@ -670,8 +630,12 @@ async function main() {
 
   const result = document.getElementById("assignment-result");
   document.getElementById("assign-button").addEventListener("click", async () => {
-    const stand = STANDS.find((item) => item.id === standSelect.value);
-    const aircraft = AIRCRAFT.find((item) => item.standId === stand.id);
+    const plane = aircraft.find((item) => item.id === standSelect.value);
+    if (!plane) {
+      result.className = "assignment-result";
+      result.textContent = "Нет воздушного судна. Борта приходят из /api/aircraft, фронт их не создаёт.";
+      return;
+    }
     const issue = faultSelect.value;
     const description = document.getElementById("fault-description").value.trim() || AeroAuth.issueLabel(issue);
     const busyBefore = new Set(busyIds);
@@ -686,7 +650,7 @@ async function main() {
         method: "POST",
         body: {
           issue,
-          plane_uuid: aircraft.id,
+          plane_uuid: plane.id,
           description,
         },
       });
@@ -698,16 +662,19 @@ async function main() {
       return;
     }
 
-    const gridRoute = response.route.map(([x, y]) => [x, y]);
-    const distanceCells = gridRoute.length - 1;
-    const etaMinutes = Math.max(1, Math.round(response.time / 60));
-    const route = gridRoute.map(([col, row]) => [
-      pxHeight - (row + 0.5) * tileH,
-      (col + 0.5) * tileW,
-    ]);
+    const gridRoute = Array.isArray(response.route) ? response.route.map(([x, y]) => [x, y]) : [];
+    const distanceCells = Math.max(0, gridRoute.length - 1);
+    const etaMinutes = Math.max(0, Math.round(Number(response.time || 0) / 60));
     if (routeLayer) map.removeLayer(routeLayer);
-    routeLayer = L.polyline(route, { color: "#e30613", weight: 5, opacity: 0.9, dashArray: "10 8" }).addTo(map);
+    routeLayer = null;
     routeExtrasLayer.clearLayers();
+    if (gridRoute.length >= 2) {
+      const route = gridRoute.map(([col, row]) => [
+        pxHeight - (row + 0.5) * tileH,
+        (col + 0.5) * tileW,
+      ]);
+      routeLayer = L.polyline(route, { color: "#e30613", weight: 5, opacity: 0.9, dashArray: "10 8" }).addTo(map);
+    }
 
     const pickup = findTransportOnRoute(gridRoute, fleet);
     if (pickup) {
@@ -728,53 +695,32 @@ async function main() {
         .addTo(routeExtrasLayer);
     }
 
-    if (!document.getElementById("toggle-route").checked) {
+    if (routeLayer && !document.getElementById("toggle-route").checked) {
       map.removeLayer(routeLayer);
       map.removeLayer(routeExtrasLayer);
     }
 
-    const startPoint = gridRoute[0];
-    const endPoint = gridRoute[gridRoute.length - 1];
-    let agent = agents.find((item) => item.id === response.engineer_uuid);
-    if (!agent) {
-      agent = {
-        id: response.engineer_uuid,
-        name: `Сотрудник ${String(response.engineer_uuid).slice(0, 8)}`,
-        point: startPoint,
-        busy: true,
-      };
-      agents.push(agent);
-    }
-    agent.point = startPoint;
-    agent.busy = true;
-    busyIds.add(String(response.engineer_uuid));
-    renderStaffMarkers();
-
-    window.setTimeout(async () => {
-      await refreshOverlayState();
-      const updated = agents.find((item) => item.id === response.engineer_uuid);
-      if (updated) updated.point = endPoint;
-      else if (agent) agent.point = endPoint;
-      renderStaffMarkers();
-    }, 500);
+    await refreshOverlayState();
 
     const skippedBusy = [...busyBefore].filter((id) => id !== String(response.engineer_uuid));
-    const contingencyNote =
-      lastAssignedId && lastAssignedId !== response.engineer_uuid
-        ? `<br><em>Внештатная ситуация: предыдущий инженер занят — система назначила другого свободного.</em>`
-        : skippedBusy.length
-          ? `<br><em>Занятые инженеры пропущены (${skippedBusy.length}), выбран свободный.</em>`
-          : "";
+    const assignedName = await engineerName(response.engineer_uuid);
+    const onSite = gridRoute.length < 2;
+    const sla = response.time_limit_exceeded ? "<br><em>Время в пути больше 15 минут.</em>" : "";
+    const contingencyNote = skippedBusy.length
+      ? `<br><em>Занятые инженеры пропущены (${skippedBusy.length}).</em>`
+      : "";
     const transportNote = pickup
-      ? `<br>Маршрут учитывает спецтранспорт: <strong>${pickup.label}</strong> (жёлтая точка заезда).`
+      ? `<br>Маршрут заезжает за спецтранспорт: <strong>${pickup.label}</strong>.`
       : ISSUE_REQUIRED_VEHICLE[issue]
         ? `<br>Для неисправности нужен: <strong>${vehicleLabel(ISSUE_REQUIRED_VEHICLE[issue])}</strong>.`
         : "";
+    const routeNote = onSite
+      ? "Инженер уже у воздушного судна, маршрут пустой."
+      : `Маршрут: <strong>${distanceCells} клеток</strong><br>В пути: <strong>${etaMinutes} мин</strong>`;
 
-    lastAssignedId = response.engineer_uuid;
     result.className = "assignment-result success";
-    result.innerHTML = `<strong>Инженер ${response.engineer_uuid.slice(0, 8)}</strong><br>${AeroAuth.issueLabel(issue)}<br>Маршрут: <strong>${distanceCells} клеток</strong><br>ETA: <strong>${etaMinutes} мин</strong>${transportNote}${contingencyNote}<br>Задача закроется автоматически после истечения срока.`;
-    map.fitBounds(routeLayer.getBounds(), { padding: [80, 80], maxZoom: 3 });
+    result.innerHTML = `<strong>${assignedName}</strong><br>Борт ${plane.id.slice(0, 8)} · ${AeroAuth.issueLabel(issue)}<br>${routeNote}${transportNote}${contingencyNote}${sla}`;
+    if (routeLayer) map.fitBounds(routeLayer.getBounds(), { padding: [80, 80], maxZoom: 3 });
   });
 
   const legend = document.getElementById("legend");
@@ -782,7 +728,8 @@ async function main() {
     ["#159b72", "инженер свободен"],
     ["#e17d32", "инженер занят"],
     ["#d4a017", "спецтранспорт"],
-    ["#1684b8", "стоянка ВС"],
+    ["#1684b8", "воздушное судно"],
+    ["#e30613", "AOG"],
     ["#e30613", "маршрут"],
   ]
     .map(([color, label]) => `<div class="legend-row"><span class="swatch" style="background:${color}"></span>${label}</div>`)
@@ -805,7 +752,7 @@ async function main() {
       : "";
 
     if (cells.length === 0) {
-      tileInfo.textContent = `Клетка [${row}, ${col}]: пусто${roadHint}`;
+      tileInfo.textContent = `Point [${col}, ${row}]${roadHint}`;
     } else {
       const lines = cells.map(
         (c) =>
@@ -814,7 +761,7 @@ async function main() {
             ? ` (flip h:${c.flippedH} v:${c.flippedV} d:${c.flippedD})`
             : "")
       );
-      tileInfo.textContent = `Клетка [row=${row}, col=${col}]${roadHint}\n` + lines.join("\n");
+      tileInfo.textContent = `Point [${col}, ${row}]${roadHint}\n` + lines.join("\n");
     }
   });
 }

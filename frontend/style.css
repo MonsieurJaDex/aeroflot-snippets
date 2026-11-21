@@ -63,6 +63,8 @@ body { display: flex; overflow: hidden; }
 .agent-marker { width: 28px; height: 28px; border: 3px solid #f2f4f6; border-radius: 50%; box-shadow: 0 2px 9px #0009; }
 .agent-free { background: #159b72; }
 .agent-busy { background: #e17d32; }
+.aircraft-marker { width: 16px; height: 16px; background: var(--blue); border: 3px solid #f2f4f6; border-radius: 50%; box-shadow: 0 1px 6px #0009; }
+.aircraft-marker.aog { background: var(--accent); box-shadow: 0 0 0 4px rgba(227, 6, 19, .35); }
 .route-marker { width: 12px; height: 12px; background: var(--blue); border: 3px solid #f2f4f6; border-radius: 50%; box-shadow: 0 1px 6px #0009; }
 .transport-marker {
   width: 18px;
@@ -151,7 +153,11 @@ body { display: flex; overflow: hidden; }
 .task-state { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .1em; }
 .task-content { color: var(--muted); line-height: 1.65; min-height: 96px; }
 .task-content strong { color: var(--text); font-size: 16px; }
-#accept-task { width: 100%; border: 0; border-radius: 4px; padding: 11px; background: var(--accent); color: #fff; font-weight: 800; cursor: pointer; }
+.worker-actions { display: flex; gap: 8px; }
+#complete-task, #aog-task { flex: 1; border: 0; border-radius: 4px; padding: 11px; font-weight: 800; cursor: pointer; }
+#complete-task { background: var(--accent); color: #fff; }
+#aog-task { background: transparent; color: var(--text); border: 1px solid var(--border); }
+#complete-task:disabled, #aog-task:disabled { opacity: .55; cursor: default; }
 .notice-card { margin-top: 16px; color: var(--muted); }
 .worker-toast { position: fixed; right: 24px; bottom: 24px; z-index: 1000; max-width: min(360px, calc(100% - 32px)); padding: 13px 16px; border: 1px solid rgba(83,211,156,.55); border-radius: 8px; background: #10271f; color: #c8f7df; box-shadow: 0 14px 32px #0008; font-weight: 700; animation: toast-in .2s ease-out; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }

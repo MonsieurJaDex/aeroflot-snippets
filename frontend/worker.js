@@ -1,32 +1,37 @@
-const STANDS = [
-  { id: "A-01", row: 10, col: 10 },
-  { id: "A-02", row: 16, col: 10 },
-  { id: "B-01", row: 10, col: 51 },
-  { id: "B-02", row: 17, col: 51 },
-  { id: "C-01", row: 44, col: 32 },
-  { id: "Техцентр", row: 51, col: 11 },
-];
-
 const taskContent = document.getElementById("task-content");
 const taskState = document.getElementById("task-state");
-const acceptButton = document.getElementById("accept-task");
+const completeButton = document.getElementById("complete-task");
+const aogButton = document.getElementById("aog-task");
 const notice = document.getElementById("worker-notice");
 const toast = document.getElementById("worker-toast");
 const mapDistance = document.getElementById("map-distance");
 const workerMap = L.map("worker-map", { crs: L.CRS.Simple, zoomControl: false, attributionControl: false, minZoom: -1, maxZoom: 3 });
-const mapBounds = [[0, 0], [64 * 16, 64 * 16]];
+
+let mapWidth = 64;
+let mapHeight = 64;
+let tileSize = 16;
 let workerRouteLayer = null;
 let workerMarkers = null;
 let workerMapOverlay = null;
 let previousTaskId = null;
-let previousTaskAccepted = null;
 let toastTimer = null;
+let aogOn = false;
+let currentTask = null;
 
 L.control.zoom({ position: "bottomright" }).addTo(workerMap);
-workerMap.fitBounds(mapBounds);
+
+function mapBounds() {
+  return [[0, 0], [mapHeight * tileSize, mapWidth * tileSize]];
+}
+
+workerMap.fitBounds(mapBounds());
+
+function gridToLatLng(point) {
+  const [x, y] = point;
+  return [mapHeight * tileSize - (y + 0.5) * tileSize, (x + 0.5) * tileSize];
+}
 
 async function loadWorkerMapBackground() {
-  // ИИ: упрощённый рендер real_map для мини-карты инженера (те же firstgid, что у диспетчера).
   try {
     const res = await fetch("./real_map.tmj");
     if (!res.ok) return;
@@ -45,11 +50,13 @@ async function loadWorkerMapBackground() {
       res.json(),
     ]);
 
-    const tileW = tmj.tilewidth || 16;
-    const tileH = tmj.tileheight || 16;
+    mapWidth = tmj.width;
+    mapHeight = tmj.height;
+    tileSize = tmj.tilewidth || 16;
+
     const canvas = document.createElement("canvas");
-    canvas.width = tmj.width * tileW;
-    canvas.height = tmj.height * tileH;
+    canvas.width = tmj.width * tileSize;
+    canvas.height = tmj.height * tileSize;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#1b252d";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -75,14 +82,12 @@ async function loadWorkerMapBackground() {
       const row = Math.floor(i / layer.width);
       const sx = (localId % sheet.columns) * 16;
       const sy = Math.floor(localId / sheet.columns) * 16;
-      ctx.drawImage(sheet.image, sx, sy, 16, 16, col * tileW, row * tileH, tileW, tileH);
+      ctx.drawImage(sheet.image, sx, sy, 16, 16, col * tileSize, row * tileSize, tileSize, tileSize);
     }
 
     if (workerMapOverlay) workerMap.removeLayer(workerMapOverlay);
-    workerMapOverlay = L.imageOverlay(canvas.toDataURL("image/png"), [
-      [0, 0],
-      [canvas.height, canvas.width],
-    ]).addTo(workerMap);
+    workerMapOverlay = L.imageOverlay(canvas.toDataURL("image/png"), mapBounds()).addTo(workerMap);
+    if (!currentTask) workerMap.fitBounds(mapBounds());
   } catch (error) {
     console.warn("[worker] фон карты не загружен", error);
   }
@@ -110,37 +115,42 @@ function updateProfile(task) {
   document.getElementById("worker-status").className = `worker-status ${task ? "busy" : "free"}`;
 }
 
-function standLabel(planePoint) {
-  const stand = STANDS.find((item) => item.col === planePoint[0] && item.row === planePoint[1]);
-  return stand ? stand.id : `${planePoint[0]}, ${planePoint[1]}`;
+function planeLabel(task) {
+  const point = Array.isArray(task.plane_point) ? `${task.plane_point[0]}, ${task.plane_point[1]}` : "—";
+  const id = task.plane_uuid ? task.plane_uuid.slice(0, 8) : "без uuid";
+  return `${id} · ${point}`;
 }
 
 function renderTask(task) {
-  const taskChanged = task && task.id !== previousTaskId;
-  const taskClosed = !task && previousTaskId;
-  const taskAccepted = task && task.is_accepted && previousTaskAccepted === false;
-  if (taskChanged) showToast("Новое назначение получено");
-  if (taskAccepted) showToast("Задание принято и переведено в работу");
-  if (taskClosed) showToast("Задача закрыта диспетчером");
+  if (task && task.id !== previousTaskId) {
+    showToast("Новое назначение получено");
+    aogOn = false;
+  }
+  if (!task && previousTaskId) showToast("Задача закрыта");
   previousTaskId = task ? task.id : null;
-  previousTaskAccepted = task ? task.is_accepted : null;
+  currentTask = task;
 
   updateProfile(task);
   if (!task) {
     taskContent.textContent = "Новых заявок нет.";
     taskState.textContent = "ОЖИДАНИЕ";
-    acceptButton.hidden = true;
-    notice.textContent = "Ожидание назначения от диспетчера.";
+    completeButton.hidden = true;
+    aogButton.hidden = true;
+    notice.textContent = "Ожидание назначения от диспетчера. Клик по карте отправляет вашу позицию.";
     renderRouteMap(null);
     return;
   }
 
   const issueLabel = AeroAuth.issueLabel(task.issue);
-  const distanceCells = Math.max(0, task.route.length - 1);
-  taskContent.innerHTML = `<strong>ВС: ${standLabel(task.plane_point)}</strong><br>${issueLabel}<br>${task.description}<br>${routeInstruction(task.route)}<br>Маршрут: ${distanceCells} клеток`;
-  taskState.textContent = task.is_accepted ? "В РАБОТЕ" : "НОВОЕ";
-  acceptButton.hidden = task.is_accepted;
-  notice.textContent = task.is_accepted ? "Задание принято. Следуйте к месту стоянки." : "Диспетчер назначил вас на заявку.";
+  const route = Array.isArray(task.route) ? task.route : [];
+  const distanceCells = Math.max(0, route.length - 1);
+  const routeText = route.length < 2 ? "Вы уже у воздушного судна." : `Маршрут: ${distanceCells} клеток`;
+  taskContent.innerHTML = `<strong>ВС ${planeLabel(task)}</strong><br>${issueLabel}<br>${task.description || ""}<br>${routeText}`;
+  taskState.textContent = aogOn ? "AOG" : "В РАБОТЕ";
+  completeButton.hidden = false;
+  aogButton.hidden = !task.plane_uuid;
+  aogButton.textContent = aogOn ? "Снять AOG" : "Поставить AOG";
+  notice.textContent = "Задача активна. Завершите её, когда работы закончены.";
   renderRouteMap(task);
 }
 
@@ -156,22 +166,19 @@ function showToast(message) {
 function renderRouteMap(task) {
   if (workerRouteLayer) workerMap.removeLayer(workerRouteLayer);
   if (workerMarkers) workerMap.removeLayer(workerMarkers);
-  if (!task) {
-    mapDistance.textContent = "НЕТ МАРШРУТА";
-    workerMap.fitBounds(mapBounds);
+  workerRouteLayer = null;
+  workerMarkers = null;
+  if (!task || !Array.isArray(task.route) || task.route.length < 2) {
+    mapDistance.textContent = task ? "УЖЕ НА МЕСТЕ" : "НЕТ МАРШРУТА";
+    if (!task) workerMap.fitBounds(mapBounds());
     return;
   }
 
-  const tileSize = 16;
-  const mapHeight = 64 * tileSize;
-  const points = task.route.map(([x, y]) => [
-    mapHeight - (y + 0.5) * tileSize,
-    (x + 0.5) * tileSize,
-  ]);
+  const points = task.route.map((point) => gridToLatLng(point));
   workerRouteLayer = L.polyline(points, { color: "#e30613", weight: 5, opacity: 0.95, lineJoin: "round" }).addTo(workerMap);
   workerMarkers = L.layerGroup([
-    L.marker(points[0], { icon: mapIcon("worker-map-engineer") }).bindTooltip("Вы", { permanent: true, direction: "top", className: "map-label" }),
-    L.marker(points.at(-1), { icon: mapIcon("worker-map-stand") }).bindTooltip(`ВС: ${standLabel(task.plane_point)}`, { permanent: true, direction: "top", className: "map-label" }),
+    L.marker(points[0], { icon: mapIcon("worker-map-engineer") }).bindTooltip("Старт", { permanent: true, direction: "top", className: "map-label" }),
+    L.marker(points.at(-1), { icon: mapIcon("worker-map-stand") }).bindTooltip(`ВС ${planeLabel(task)}`, { permanent: true, direction: "top", className: "map-label" }),
   ]).addTo(workerMap);
   mapDistance.textContent = `${Math.max(0, task.route.length - 1)} КЛЕТОК`;
   workerMap.fitBounds(workerRouteLayer.getBounds(), { padding: [36, 36], maxZoom: 2 });
@@ -181,65 +188,83 @@ function mapIcon(className) {
   return L.divIcon({ className, html: "", iconSize: [18, 18], iconAnchor: [9, 9] });
 }
 
-function routeInstruction(route) {
-  const [startX, startY] = route[0];
-  const [endX, endY] = route.at(-1);
-  const vertical = endY - startY;
-  const horizontal = endX - startX;
-  const steps = [];
-  if (vertical) steps.push(`${Math.abs(vertical)} клеток ${vertical < 0 ? "вверх" : "вниз"}`);
-  if (horizontal) steps.push(`${Math.abs(horizontal)} клеток ${horizontal < 0 ? "влево" : "вправо"}`);
-  return steps.length ? `Двигайтесь: ${steps.join(", затем ")}.` : "Вы уже на месте.";
-}
-
 async function loadCurrentTask() {
   try {
     const task = await AeroAuth.apiRequest("/api/tasks/current");
-    renderTask(task);
+    renderTask(task && task.id ? task : null);
   } catch (error) {
+    if (error.status === 404) {
+      renderTask(null);
+      return;
+    }
     notice.textContent = `Не удалось получить назначение: ${error.message}`;
   }
 }
 
-acceptButton.addEventListener("click", async () => {
-  // Инженер подтверждает задачу: POST /api/tasks/current/accept
-  acceptButton.disabled = true;
+completeButton.addEventListener("click", async () => {
+  completeButton.disabled = true;
   try {
-    // Ручка используется: POST /api/tasks/current/accept
-    await AeroAuth.apiRequest("/api/tasks/current/accept", { method: "POST" });
+    await AeroAuth.apiRequest("/api/tasks/current/complete", { method: "POST" });
+    showToast("Задача завершена");
     await loadCurrentTask();
   } catch (error) {
-    const raw = String(error.message || "");
-    if (/no active task/i.test(raw)) {
-      notice.textContent = "Активного задания нет — обновите список или дождитесь нового назначения.";
-    } else {
-      notice.textContent = `Не удалось принять задание: ${raw}`;
-    }
-    await loadCurrentTask();
+    notice.textContent = `Не удалось завершить задачу: ${error.message}`;
   } finally {
-    acceptButton.disabled = false;
+    completeButton.disabled = false;
   }
 });
 
-document.getElementById("logout-button").addEventListener("click", () => {
-  if (typeof DemoScenarios !== "undefined" && DemoScenarios.getActiveId()) {
-    DemoScenarios.returnToScenarioSwitcher();
-    return;
+aogButton.addEventListener("click", async () => {
+  aogButton.disabled = true;
+  try {
+    const data = await AeroAuth.apiRequest("/api/tasks/current/aog", {
+      method: "POST",
+      body: { toggle: !aogOn },
+    });
+    aogOn = Boolean(data && data.aog);
+    if (currentTask) renderTask(currentTask);
+    showToast(aogOn ? "Самолёт отмечен как AOG" : "AOG снят");
+  } catch (error) {
+    notice.textContent = `Не удалось обновить AOG: ${error.message}`;
+  } finally {
+    aogButton.disabled = false;
   }
-  AeroAuth.logout();
 });
 
-const switchLink = document.getElementById("switch-role-link");
-const inDemo = typeof DemoScenarios !== "undefined" && !!DemoScenarios.getActiveId();
-if (switchLink) {
-  switchLink.hidden = !inDemo;
-  switchLink.addEventListener("click", (event) => {
-    event.preventDefault();
-    DemoScenarios.returnToScenarioSwitcher();
-  });
-}
+workerMap.on("click", async (event) => {
+  if (!session || !session.userId) return;
+  const x = Math.floor(event.latlng.lng / tileSize);
+  const y = mapHeight - 1 - Math.floor(event.latlng.lat / tileSize);
+  if (x < 0 || y < 0 || x >= mapWidth || y >= mapHeight) return;
+  try {
+    await AeroAuth.apiRequest("/api/geo/updateEngineerPosition", {
+      method: "POST",
+      auth: false,
+      body: {
+        id: session.userId,
+        batch: [[[x, y], Math.floor(Date.now() / 1000)]],
+      },
+    });
+    notice.textContent = `Позиция отправлена: ${x}, ${y}`;
+  } catch (error) {
+    notice.textContent = `Не удалось отправить позицию: ${error.message}`;
+  }
+});
+
+document.getElementById("logout-button").addEventListener("click", () => AeroAuth.logout());
 
 if (session) {
-  loadCurrentTask();
-  window.setInterval(loadCurrentTask, 10000);
+  AeroAuth.hydrateProfile()
+    .catch((error) => console.warn("[worker] профиль", error))
+    .finally(() => {
+      const fresh = AeroAuth.getSession();
+      if (fresh) {
+        session.name = fresh.name;
+        session.engineerType = fresh.engineerType;
+        session.userId = fresh.userId;
+      }
+      updateProfile(null);
+      loadCurrentTask();
+      window.setInterval(loadCurrentTask, 5000);
+    });
 }
