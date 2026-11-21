@@ -103,6 +103,8 @@ impl ProblemClassifier {
             .and_then(|index| probs.get(index).copied())
             .unwrap_or(0.0);
 
+        dbg!(&tokens, &engineer_type, &confidence);
+
         Ok(Classification {
             engineer_type,
             confidence,

@@ -34,7 +34,6 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::AircraftIssue;
 
     tasks (id) {
         id -> Uuid,
@@ -43,7 +42,7 @@ diesel::table! {
         ends_at -> Timestamptz,
         created_by -> Uuid,
         assigned_engineer -> Uuid,
-        issue_type -> AircraftIssue,
+        issue_type -> Text,
         plane_x -> Int8,
         plane_y -> Int8,
         plane_id -> Nullable<Uuid>,

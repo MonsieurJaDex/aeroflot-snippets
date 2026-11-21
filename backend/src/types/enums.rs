@@ -20,6 +20,33 @@ pub enum EngineerType {
     AviationTechnician, // диагностика, дефектация, регулировка, ремонт
 }
 
+impl EngineerType {
+    /// Default work duration when the fault is free text rather than a known issue variant.
+    pub fn default_resolution_time(self) -> Duration {
+        match self {
+            EngineerType::IntegrityInspector => Duration::from_mins(45),
+            EngineerType::CrewRemarksHandler => Duration::from_mins(15),
+            EngineerType::FuelingCrew => Duration::from_mins(45),
+            EngineerType::EngineTechnician => Duration::from_mins(240),
+            EngineerType::AvionicsEngineer => Duration::from_mins(120),
+            EngineerType::AviationTechnician => Duration::from_mins(25),
+        }
+    }
+
+    /// Vehicle that this specialization always used for its known issue variants.
+    /// Mixed specializations return `None`: the text does not say which cart to send.
+    pub fn typical_vehicle(self) -> Option<VehicleType> {
+        match self {
+            EngineerType::EngineTechnician => Some(VehicleType::BorescopeCart),
+            EngineerType::AvionicsEngineer => Some(VehicleType::AvionicsTestSet),
+            EngineerType::AviationTechnician => Some(VehicleType::MaintenanceLift),
+            EngineerType::IntegrityInspector
+            | EngineerType::CrewRemarksHandler
+            | EngineerType::FuelingCrew => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 pub enum VehicleType {
     // Воздушное судно

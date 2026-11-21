@@ -8,7 +8,7 @@
 use std::fmt;
 
 use crate::types::{
-    enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
+    enums::{EngineerType, UserRole, VehicleType},
     map::{Point, Route},
 };
 use serde::{Deserialize, Serialize};
@@ -44,8 +44,9 @@ pub struct GetRouteRequest {
 /// Request payload for the `assign_engineer` endpoint.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AssignEngineerRequest {
-    /// Type of the reported aircraft issue.
-    pub issue: AircraftIssue,
+    /// Free-form problem description. The classifier turns it into an engineer specialization.
+    #[schema(example = "подтекание топлива из дренажных колпачков")]
+    pub issue: String,
     /// UUID of the aircraft stored in Redis (`position:aircraft:{uuid}`).
     #[schema(example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
     pub plane_uuid: String,
@@ -88,8 +89,8 @@ pub struct CurrentTaskResponse {
     pub id: String,
     /// Human-readable task description.
     pub description: String,
-    /// Reported aircraft issue.
-    pub issue: AircraftIssue,
+    /// Problem description stored with the task.
+    pub issue: String,
     /// Location of the aircraft on the map at the time of assignment.
     pub plane_point: Point,
     /// UUID of the aircraft attached to this task.

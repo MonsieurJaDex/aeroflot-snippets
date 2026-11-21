@@ -492,7 +492,7 @@ pub async fn train_classifier(
 #[utoipa::path(
     post,
     path = "/api/assign",
-    description = "Find the nearest suitable engineer, optionally pick up a special vehicle, and assign to an aircraft",
+    description = "Classify the problem text, then find the nearest suitable engineer and optionally pick up a special vehicle",
     request_body = AssignEngineerRequest,
     responses(
         (status = 200, description = "Task created, engineer assigned", body = AssignEngineerResponse),
@@ -530,13 +530,24 @@ pub async fn assign_engineer(
         return Err(bad_request("aircraft position is outside of map bounds"));
     }
 
-    // 1. Suitable engineers (of the right specialization, not already busy with
-    //    the same issue type).
+    // 1. Suitable engineers: specialization comes from the Bayes classifier,
+    //    not from the AircraftIssue mapping. Busy engineers are skipped.
+    let engineer_type = {
+        let model = app_state.classifier.read().map_err(|e| {
+            tracing::error!(error = %e, "classifier lock poisoned");
+            internal_error()
+        })?;
+        model
+            .classify(&payload.issue)
+            .map_err(|e| bad_request(e.to_string()))?
+            .engineer_type
+    };
+
     use self::tasks::dsl::*;
     let busy_engineers = tasks.filter(is_active.eq(true)).select(assigned_engineer);
 
     let suitable_engineers: Vec<Uuid> = engineers::table
-        .filter(engineers::engineer_type.eq(payload.issue.responsible_engineer()))
+        .filter(engineers::engineer_type.eq(engineer_type))
         .filter(engineers::id.ne_all(busy_engineers))
         .select(engineers::id)
         .load(&mut pg_conn)
@@ -551,8 +562,8 @@ pub async fn assign_engineer(
         return Err(not_found("no suitable engineer available"));
     }
 
-    // 3. Special vehicles, if the issue requires one.
-    let transport_map = match payload.issue.required_vehicle() {
+    // 3. Special vehicle, when this specialization always uses one.
+    let transport_map = match engineer_type.typical_vehicle() {
         Some(vehicle_type) => load_transport_positions(&mut redis_conn, vehicle_type)?,
         None => HashMap::new(),
     };
@@ -612,7 +623,8 @@ pub async fn assign_engineer(
     // 5. Task timing.
     let travel_secs = total_cells as f32 / ENGINEER_SPEED_CELLS_PER_SEC;
     let now = Utc::now();
-    let task_ends_at = now + payload.issue.resolution_time() + Duration::from_secs_f32(travel_secs);
+    let task_ends_at =
+        now + engineer_type.default_resolution_time() + Duration::from_secs_f32(travel_secs);
 
     // 6. Persist task.
     let new_task = Task {

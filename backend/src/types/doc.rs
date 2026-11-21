@@ -43,7 +43,7 @@ use crate::types::{
                        the airport map.\n\n\
                        Features:\n\
                        - Route computation between any two map points.\n\
-                       - Automatic engineer assignment based on the aircraft issue type.\n\
+                       - Automatic engineer assignment from a free-text problem description.\n\
                        - Task acceptance / progress tracking.\n\
                        - Geo endpoints for engineers, aircraft and special transport vehicles.\n\
                        - JWT-based authentication (access + refresh tokens).",
