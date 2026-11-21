@@ -99,7 +99,7 @@ impl TryFrom<&str> for VehicleType {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq, Hash, Serialize, Deserialize, DbEnum, ToSchema)]
+#[derive(Debug, PartialEq, Clone, Copy, Eq, Hash, Serialize, Deserialize, DbEnum, ToSchema, Default)]
 #[serde(rename_all = "snake_case")]
 #[ExistingTypePath = "crate::database::schema::sql_types::AircraftIssue"]
 #[DbValueStyle = "snake_case"]
@@ -136,6 +136,7 @@ pub enum AircraftIssue {
     InsGyroDrift,               // уход гироплатформы ИНС
 
     // Дополнительно
+    #[default]
     Other, // другое
 }
 
@@ -288,6 +289,20 @@ impl AuthenticatedUser {
         match self {
             AuthenticatedUser::Engineer(_) => UserRole::Engineer,
             AuthenticatedUser::Dispatcher(_) => UserRole::Dispatcher,
+        }
+    }
+
+    pub fn email(&self) -> &str {
+        match self {
+            AuthenticatedUser::Engineer(engineer) => &engineer.email,
+            AuthenticatedUser::Dispatcher(dispatcher) => &dispatcher.email,
+        }
+    }
+
+    pub fn engineer_type(&self) -> Option<EngineerType> {
+        match self {
+            AuthenticatedUser::Engineer(engineer) => Some(engineer.engineer_type),
+            AuthenticatedUser::Dispatcher(_) => None,
         }
     }
 }

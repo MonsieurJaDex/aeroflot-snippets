@@ -3,6 +3,7 @@ use crate::{
     logging::init_logger,
     router::{
         assign_engineer, classify_problem, complete_current_task, current_task_aog,
+        current_task_aog_post,
         get_current_task, get_route, list_aircraft, list_aog, train_classifier,
     },
     types::{
@@ -135,6 +136,7 @@ async fn main() {
     let app_state = Arc::new(AppState {
         road_points: roads,
         map,
+        map_loaded_at: chrono::Utc::now(),
         db_pool,
         redis_pool,
         jwt_secret: app_config.jwt_secret.clone(),
@@ -166,7 +168,10 @@ async fn main() {
         .route("/assign", post(assign_engineer))
         .route("/aircraft", get(list_aircraft))
         .route("/tasks/current", get(get_current_task))
-        .route("/tasks/current/aog", post(current_task_aog))
+        .route(
+            "/tasks/current/aog",
+            post(current_task_aog_post).put(current_task_aog),
+        )
         .route("/tasks/current/complete", post(complete_current_task))
         .route("/tasks/aog", get(list_aog))
         .route("/classify", post(classify_problem))
@@ -194,7 +199,11 @@ async fn main() {
             "/getTransportPositions",
             get(router::geo::get_transport_positions),
         )
-        .route("/activeEngineers", get(router::geo::active_engineers));
+        .route("/activeEngineers", get(router::geo::active_engineers))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&app_state),
+            middleware::auth_middleware,
+        ));
 
     // global API router
     let api_routes = Router::new()

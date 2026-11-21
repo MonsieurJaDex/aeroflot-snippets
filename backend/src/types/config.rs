@@ -14,6 +14,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use diesel::{
     PgConnection,
     r2d2::{ConnectionManager, Pool},
@@ -100,6 +101,8 @@ pub struct AppState {
     pub road_points: HashSet<i64>,
     /// The airport map matrix.
     pub map: MapMatrix,
+    /// When the map file was loaded into this process.
+    pub map_loaded_at: DateTime<Utc>,
     /// PostgreSQL connection pool.
     pub db_pool: Pool<ConnectionManager<PgConnection>>,
     /// Redis connection pool.

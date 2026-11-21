@@ -8,16 +8,27 @@
 use std::fmt;
 
 use crate::types::{
-    enums::{EngineerType, UserRole, VehicleType},
+    enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
     map::{Point, Route},
 };
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 // ---------------------------------------------------------------------------
 // Route handling
 // ---------------------------------------------------------------------------
+
+/// Current airport map and the time it was loaded.
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(description = "Airport map served to authenticated clients.")]
+pub struct MapResponse {
+    /// Grid of walkable cells and obstacles.
+    pub matrix: crate::types::map::MapMatrix,
+    /// When this process loaded the map file.
+    #[schema(format = "date-time")]
+    pub updated_at: String,
+}
 
 /// Response payload for the `get_route` endpoint.
 #[derive(Debug, Serialize, ToSchema)]
@@ -28,8 +39,38 @@ pub struct GetRouteResponse {
     pub distance: usize,
 }
 
+/// Query window for collection endpoints.
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct PageQuery {
+    /// Maximum number of items to return.
+    #[param(minimum = 1, maximum = 1000, default = 100)]
+    pub limit: Option<i64>,
+    /// Number of items to skip.
+    #[param(minimum = 0, default = 0)]
+    pub offset: Option<i64>,
+}
+
+/// Uniform JSON error body.
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(description = "Error returned by every non-2xx response.")]
+pub struct ErrorResponse {
+    /// Stable machine-readable code, for example `VALIDATION_ERROR`.
+    #[schema(example = "VALIDATION_ERROR")]
+    pub code: String,
+    /// Human-readable explanation.
+    pub message: String,
+    /// Optional structured context. Keys are not fixed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Request id assigned by the server, when the caller sent or received one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
 /// Request payload for the `get_route` endpoint.
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct GetRouteRequest {
     /// Starting point of the route.
     pub start_point: Point,
@@ -43,15 +84,23 @@ pub struct GetRouteRequest {
 
 /// Request payload for the `assign_engineer` endpoint.
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AssignEngineerRequest {
-    /// Free-form problem description. The classifier turns it into an engineer specialization.
+    /// Known issue category. Defaults to `other` when omitted.
+    #[serde(default)]
+    pub issue: AircraftIssue,
+    /// Free-form text passed to the Bayes classifier.
     #[schema(example = "подтекание топлива из дренажных колпачков")]
-    pub issue: String,
-    /// UUID of the aircraft stored in Redis (`position:aircraft:{uuid}`).
-    #[schema(example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
+    pub classifier_text: String,
+    /// Human-readable note stored on the task.
+    #[schema(example = "Обнаружены следы подтекания топлива")]
+    pub note: Option<String>,
+    /// Previous name of `note`. Accepted for one release.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// UUID of the aircraft.
+    #[schema(format = "uuid", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
     pub plane_uuid: String,
-    /// Free-form problem description supplied by the dispatcher.
-    pub description: String,
 }
 
 /// One aircraft currently stored in Redis.
@@ -67,6 +116,8 @@ pub struct AircraftEntry {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AircraftListResponse {
     pub aircraft: Vec<AircraftEntry>,
+    /// Number of aircraft before `limit` and `offset` are applied.
+    pub total: u64,
 }
 
 /// Response payload for the `assign_engineer` endpoint.
@@ -74,9 +125,19 @@ pub struct AircraftListResponse {
 pub struct AssignEngineerResponse {
     /// UUID of the engineer chosen for this task.
     pub engineer_uuid: String,
-    /// Estimated resolution time in seconds.
-    pub time: u64,
+    /// Estimated travel time in seconds.
+    #[schema(minimum = 0)]
+    pub eta_seconds: u64,
     /// Whether the assignment exceeds the allowed SLA.
+    pub sla_exceeded: bool,
+    /// Route length in map cells.
+    #[schema(minimum = 0)]
+    pub distance: u64,
+    /// Previous name of `eta_seconds`. Kept for one release.
+    #[schema(deprecated)]
+    pub time: u64,
+    /// Previous name of `sla_exceeded`. Kept for one release.
+    #[schema(deprecated)]
     pub time_limit_exceeded: bool,
     /// Route the engineer must follow to reach the aircraft.
     pub route: Route,
@@ -117,10 +178,16 @@ pub struct ClassifyResponse {
 pub struct TrainClassifierResponse {
     /// Number of documents the model was trained on.
     pub documents: usize,
+    /// When this training run finished.
+    #[schema(format = "date-time", example = "2026-11-22T00:00:00Z")]
+    pub trained_at: String,
+    /// Held-out accuracy, when the trainer computed one.
+    pub accuracy: Option<f64>,
 }
 
 /// Request payload for classifying a free-form problem description.
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ClassifyRequest {
     /// Problem description in natural language.
     #[schema(example = "уход гироплатформы ИНС, курс смещается")]
@@ -130,7 +197,9 @@ pub struct ClassifyRequest {
 /// Profile of the authenticated user. Never includes the password hash.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MeResponse {
+    #[schema(format = "uuid")]
     pub id: String,
+    #[schema(format = "email")]
     pub email: String,
     pub name: String,
     pub user_role: UserRole,
@@ -152,10 +221,11 @@ pub struct GetUserNameResponse {
 
 /// Request payload for the `register` endpoint.
 #[derive(Deserialize, ToSchema, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterRequest {
     /// User's email address (validated as an RFC 5322 email).
     #[validate(email)]
-    #[schema(example = "engineer@aeroflot.example")]
+    #[schema(format = "email", example = "engineer@aeroflot.example")]
     pub email: String,
 
     /// Display name shown in the UI.
@@ -187,10 +257,11 @@ impl fmt::Debug for RegisterRequest {
 
 /// Request payload for the `login` endpoint.
 #[derive(Deserialize, ToSchema, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct LoginRequest {
     /// User's email address.
     #[validate(email)]
-    #[schema(example = "engineer@aeroflot.example")]
+    #[schema(format = "email", example = "engineer@aeroflot.example")]
     pub email: String,
 
     /// Plaintext password.
@@ -207,26 +278,48 @@ impl fmt::Debug for LoginRequest {
     }
 }
 
+/// OAuth token type. The API only issues bearer tokens.
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+pub enum OAuthTokenType {
+    Bearer,
+}
+
 /// Response payload for the `login` endpoint.
 #[derive(Serialize, ToSchema)]
 pub struct LoginResponse {
-    /// User UUID
+    /// User UUID.
+    #[schema(format = "uuid")]
     pub id: String,
+    /// Email of the authenticated user.
+    #[schema(format = "email")]
+    pub email: String,
     /// Display name of the authenticated user.
     pub name: String,
     /// Role of the authenticated user.
     pub user_role: UserRole,
+    /// Engineer specialization. `null` unless `user_role` is `Engineer`.
+    pub engineer_type: Option<EngineerType>,
     /// Short-lived access token.
     pub access_token: String,
     /// Long-lived refresh token.
     pub refresh_token: String,
+    /// Always `Bearer`.
+    pub token_type: OAuthTokenType,
+    /// Access-token lifetime in seconds.
+    #[schema(minimum = 0)]
+    pub expires_in: i64,
 }
 
 impl fmt::Debug for LoginResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LoginResponse")
+            .field("id", &self.id)
+            .field("email", &self.email)
             .field("name", &self.name)
             .field("user_role", &self.user_role)
+            .field("engineer_type", &self.engineer_type)
+            .field("token_type", &self.token_type)
+            .field("expires_in", &self.expires_in)
             .field("access_token", &"<redacted>")
             .field("refresh_token", &"<redacted>")
             .finish()
@@ -235,6 +328,7 @@ impl fmt::Debug for LoginResponse {
 
 /// Request payload for the `update_access_token` endpoint.
 #[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateAccessRequest {
     /// Valid refresh token.
     #[schema(write_only)]
@@ -254,21 +348,35 @@ impl fmt::Debug for UpdateAccessRequest {
 pub struct UpdateAccessResponse {
     /// Fresh access token.
     pub access_token: String,
+    /// Rotated refresh token. The presented refresh token is no longer valid.
+    pub refresh_token: String,
+    /// Always `Bearer`.
+    pub token_type: OAuthTokenType,
+    /// Access-token lifetime in seconds.
+    #[schema(minimum = 0)]
+    pub expires_in: i64,
 }
 
 impl fmt::Debug for UpdateAccessResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UpdateAccessResponse")
+            .field("token_type", &self.token_type)
+            .field("expires_in", &self.expires_in)
             .field("access_token", &"<redacted>")
+            .field("refresh_token", &"<redacted>")
             .finish()
     }
 }
 
 /// Request payload for setting or clearing AOG on the engineer's current task.
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CurrentTaskAogRequest {
     /// `true` marks the task's aircraft as AOG, `false` clears the status.
-    pub toggle: bool,
+    pub aog: Option<bool>,
+    /// Previous name of `aog`. Accepted for one release.
+    #[serde(default)]
+    pub toggle: Option<bool>,
 }
 
 /// Response payload for the current-task AOG endpoint.
@@ -283,7 +391,12 @@ pub struct CurrentTaskAogResponse {
 /// Aircraft that currently have an AOG status in Redis.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AogListResponse {
-    /// UUIDs of aircraft marked AOG.
+    /// Aircraft marked AOG, with the position known to the server.
+    pub aircraft: Vec<AircraftEntry>,
+    /// Number of AOG aircraft before `limit` and `offset` are applied.
+    pub total: u64,
+    /// Previous payload: UUIDs only. Kept for one release.
+    #[schema(deprecated)]
     pub plane_uuids: Vec<String>,
 }
 
@@ -300,6 +413,7 @@ pub struct EngineerPositionSample(pub Point, pub i64);
 
 /// Request payload for flushing a buffered batch of engineer positions.
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateEngineerPositionRequest {
     /// UUID of the engineer.
     pub id: String,
@@ -312,6 +426,7 @@ pub struct UpdateEngineerPositionRequest {
 
 /// Request payload for updating a special vehicle's position in the simulator.
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateTransportPositionRequest {
     /// UUID of the special vehicle.
     pub id: String,
