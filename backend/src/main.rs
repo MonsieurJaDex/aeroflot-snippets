@@ -2,8 +2,8 @@ use crate::{
     database::{establish_pg_connection, establish_redis_connection},
     logging::init_logger,
     router::{
-        assign_engineer, complete_current_task, current_task_aog, get_current_task, get_route,
-        list_aircraft, list_aog,
+        assign_engineer, classify_problem, complete_current_task, current_task_aog,
+        get_current_task, get_route, list_aircraft, list_aog, train_classifier,
     },
     types::{
         config::{AppConfig, AppState, Args},
@@ -121,6 +121,16 @@ async fn main() {
 
     // application API layer
 
+    let classifier = match crate::types::classifier::ProblemClassifier::train_from_dataset(
+        &args.dataset_path,
+    ) {
+        Ok(model) => std::sync::Arc::new(std::sync::RwLock::new(model)),
+        Err(e) => {
+            tracing::error!("failed to train problem classifier: {e:#}");
+            process::exit(1);
+        }
+    };
+
     // global application state
     let app_state = Arc::new(AppState {
         road_points: roads,
@@ -128,6 +138,8 @@ async fn main() {
         db_pool,
         redis_pool,
         jwt_secret: app_config.jwt_secret.clone(),
+        dataset_path: std::path::PathBuf::from(&args.dataset_path),
+        classifier,
     });
 
     // authentication and authorization router
@@ -157,6 +169,8 @@ async fn main() {
         .route("/tasks/current/aog", post(current_task_aog))
         .route("/tasks/current/complete", post(complete_current_task))
         .route("/tasks/aog", get(list_aog))
+        .route("/classify", post(classify_problem))
+        .route("/classify/train", post(train_classifier))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&app_state),
             middleware::auth_middleware,

@@ -7,8 +7,9 @@
 use utoipa::OpenApi;
 
 use crate::router::{
-    __path_assign_engineer, __path_complete_current_task, __path_current_task_aog,
-    __path_get_current_task, __path_get_map, __path_get_route, __path_list_aircraft, __path_list_aog,
+    __path_assign_engineer, __path_classify_problem, __path_complete_current_task,
+    __path_current_task_aog, __path_get_current_task, __path_get_map, __path_get_route,
+    __path_list_aircraft, __path_list_aog, __path_train_classifier,
     auth::{
         __path_get_engineer_name_handler, __path_login_handler, __path_me_handler,
         __path_register_handler, __path_update_access_token,
@@ -23,8 +24,9 @@ use crate::types::{
     dto::{
         AircraftEntry, AircraftListResponse, AogListResponse, AssignEngineerRequest,
         AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse,
-        GetRouteRequest, GetRouteResponse, GetUserNameResponse, LoginRequest, LoginResponse,
-        MeResponse, RegisterRequest, UpdateAccessRequest, UpdateAccessResponse,
+        ClassifyRequest, ClassifyResponse, GetRouteRequest, GetRouteResponse, GetUserNameResponse,
+        LoginRequest, LoginResponse, MeResponse, RegisterRequest, TrainClassifierResponse,
+        UpdateAccessRequest, UpdateAccessResponse,
         UpdateEngineerPositionRequest, UpdateTransportPositionRequest, EngineerPositionSample,
     },
     enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
@@ -51,6 +53,8 @@ use crate::types::{
         get_map,
         get_route,
         assign_engineer,
+        classify_problem,
+        train_classifier,
         list_aircraft,
         get_current_task,
         current_task_aog,
@@ -83,6 +87,9 @@ use crate::types::{
         // --- DTOs: assignment ---
         AssignEngineerRequest,
         AssignEngineerResponse,
+        ClassifyRequest,
+        ClassifyResponse,
+        TrainClassifierResponse,
         AircraftEntry,
         AircraftListResponse,
         CurrentTaskResponse,

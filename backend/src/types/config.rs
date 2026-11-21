@@ -4,7 +4,14 @@
 //! `.env` file support via [`dotenvy`]) and combined with a parsed JSON map
 //! into an [`AppState`] that is cloned into every HTTP handler.
 
-use std::{collections::HashSet, env, net::Ipv4Addr, path, str::FromStr};
+use std::{
+    collections::HashSet,
+    env,
+    net::Ipv4Addr,
+    path::{self, PathBuf},
+    str::FromStr,
+    sync::{Arc, RwLock},
+};
 
 use anyhow::{Context, Result};
 use diesel::{
@@ -15,7 +22,7 @@ use diesel::{
 use clap::Parser;
 use redis::Client;
 
-use crate::types::map::MapMatrix;
+use crate::types::{classifier::ProblemClassifier, map::MapMatrix};
 
 /// Command line arguments for the backend binary.
 #[derive(Debug, Parser)]
@@ -27,6 +34,10 @@ pub struct Args {
     /// Filesystem path to the airport map (JSON file).
     #[arg(short = 'p', long)]
     pub map_path: String,
+
+    /// TSV dataset (`text<TAB>engineer_type`) used to train the problem classifier.
+    #[arg(long, default_value = "assets/problem_classification_dataset.tsv")]
+    pub dataset_path: String,
 }
 
 impl Args {
@@ -95,4 +106,8 @@ pub struct AppState {
     pub redis_pool: Pool<Client>,
     /// JWT signing secret.
     pub jwt_secret: String,
+    /// Path of the TSV file the classifier was trained from.
+    pub dataset_path: PathBuf,
+    /// TF-IDF Naive Bayes model. Replaced as a whole when retrained.
+    pub classifier: Arc<RwLock<ProblemClassifier>>,
 }

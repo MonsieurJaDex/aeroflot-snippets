@@ -102,7 +102,29 @@ pub struct CurrentTaskResponse {
 // User lookup
 // ---------------------------------------------------------------------------
 
-/// Request payload for the `get_engineer_name` endpoint.
+/// Predicted engineer role for a free-form problem description.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ClassifyResponse {
+    /// Engineer specialization chosen by the TF-IDF Naive Bayes model.
+    pub engineer_type: EngineerType,
+    /// Probability of the chosen class.
+    pub confidence: f64,
+}
+
+/// Result of retraining the problem classifier from the dataset on disk.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TrainClassifierResponse {
+    /// Number of documents the model was trained on.
+    pub documents: usize,
+}
+
+/// Request payload for classifying a free-form problem description.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ClassifyRequest {
+    /// Problem description in natural language.
+    #[schema(example = "уход гироплатформы ИНС, курс смещается")]
+    pub text: String,
+}
 
 /// Profile of the authenticated user. Never includes the password hash.
 #[derive(Debug, Serialize, ToSchema)]

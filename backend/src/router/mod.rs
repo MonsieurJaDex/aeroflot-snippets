@@ -28,7 +28,8 @@ use crate::{
         dto::{
             AircraftEntry, AircraftListResponse, AogListResponse, AssignEngineerRequest,
             AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse,
-            CurrentTaskResponse, GetRouteRequest,
+            ClassifyRequest, ClassifyResponse, CurrentTaskResponse, GetRouteRequest,
+            TrainClassifierResponse,
         },
         enums::{UserRole, VehicleType},
         map::{MapMatrix, Point, Route},
@@ -404,6 +405,83 @@ pub async fn complete_current_task(
         })?;
 
     Ok(StatusCode::OK.into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Problem classification
+// ---------------------------------------------------------------------------
+
+/// Classifies a free-form problem description into an engineer specialization.
+#[utoipa::path(
+    post,
+    path = "/api/classify",
+    description = "Classify a problem description with TF-IDF weighted Naive Bayes",
+    request_body = ClassifyRequest,
+    responses(
+        (status = 200, description = "Predicted engineer role", body = ClassifyResponse),
+        (status = 400, description = "Description has no words", body = String),
+        (status = 500, description = "Server-side error", body = String),
+    ),
+    params(
+        ("Authorization" = String, Header, description = "Bearer access token"),
+    ),
+)]
+pub async fn classify_problem(
+    State(app_state): State<Arc<AppState>>,
+    Json(payload): Json<ClassifyRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    let model = app_state.classifier.read().map_err(|e| {
+        tracing::error!(error = %e, "classifier lock poisoned");
+        internal_error()
+    })?;
+    let classification = model
+        .classify(&payload.text)
+        .map_err(|e| bad_request(e.to_string()))?;
+
+    Ok(Json(ClassifyResponse {
+        engineer_type: classification.engineer_type,
+        confidence: classification.confidence,
+    })
+    .into_response())
+}
+
+/// Retrains the problem classifier from the TSV dataset configured at startup.
+#[utoipa::path(
+    post,
+    path = "/api/classify/train",
+    description = "Retrain the problem classifier from the dataset file",
+    responses(
+        (status = 200, description = "Classifier retrained", body = TrainClassifierResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = String),
+        (status = 500, description = "Dataset could not be loaded", body = String),
+    ),
+    params(
+        ("Authorization" = String, Header, description = "Bearer access token"),
+    ),
+)]
+pub async fn train_classifier(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can retrain the classifier"));
+    }
+
+    let trained =
+        crate::types::classifier::ProblemClassifier::train_from_dataset(&app_state.dataset_path)
+            .map_err(|e| {
+                tracing::error!(error = %e, "failed to retrain problem classifier");
+                internal_error()
+            })?;
+    let documents = trained.learned();
+
+    let mut model = app_state.classifier.write().map_err(|e| {
+        tracing::error!(error = %e, "classifier lock poisoned");
+        internal_error()
+    })?;
+    *model = trained;
+
+    Ok(Json(TrainClassifierResponse { documents }).into_response())
 }
 
 // ---------------------------------------------------------------------------
