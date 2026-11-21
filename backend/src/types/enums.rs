@@ -20,6 +20,33 @@ pub enum EngineerType {
     AviationTechnician, // диагностика, дефектация, регулировка, ремонт
 }
 
+impl EngineerType {
+    /// Default work duration when the fault is free text rather than a known issue variant.
+    pub fn default_resolution_time(self) -> Duration {
+        match self {
+            EngineerType::IntegrityInspector => Duration::from_mins(45),
+            EngineerType::CrewRemarksHandler => Duration::from_mins(15),
+            EngineerType::FuelingCrew => Duration::from_mins(45),
+            EngineerType::EngineTechnician => Duration::from_mins(240),
+            EngineerType::AvionicsEngineer => Duration::from_mins(120),
+            EngineerType::AviationTechnician => Duration::from_mins(25),
+        }
+    }
+
+    /// Vehicle that this specialization always used for its known issue variants.
+    /// Mixed specializations return `None`: the text does not say which cart to send.
+    pub fn typical_vehicle(self) -> Option<VehicleType> {
+        match self {
+            EngineerType::EngineTechnician => Some(VehicleType::BorescopeCart),
+            EngineerType::AvionicsEngineer => Some(VehicleType::AvionicsTestSet),
+            EngineerType::AviationTechnician => Some(VehicleType::MaintenanceLift),
+            EngineerType::IntegrityInspector
+            | EngineerType::CrewRemarksHandler
+            | EngineerType::FuelingCrew => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 pub enum VehicleType {
     // Воздушное судно
@@ -72,7 +99,7 @@ impl TryFrom<&str> for VehicleType {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq, Hash, Serialize, Deserialize, DbEnum, ToSchema)]
+#[derive(Debug, PartialEq, Clone, Copy, Eq, Hash, Serialize, Deserialize, DbEnum, ToSchema, Default)]
 #[serde(rename_all = "snake_case")]
 #[ExistingTypePath = "crate::database::schema::sql_types::AircraftIssue"]
 #[DbValueStyle = "snake_case"]
@@ -109,6 +136,7 @@ pub enum AircraftIssue {
     InsGyroDrift,               // уход гироплатформы ИНС
 
     // Дополнительно
+    #[default]
     Other, // другое
 }
 
@@ -261,6 +289,20 @@ impl AuthenticatedUser {
         match self {
             AuthenticatedUser::Engineer(_) => UserRole::Engineer,
             AuthenticatedUser::Dispatcher(_) => UserRole::Dispatcher,
+        }
+    }
+
+    pub fn email(&self) -> &str {
+        match self {
+            AuthenticatedUser::Engineer(engineer) => &engineer.email,
+            AuthenticatedUser::Dispatcher(dispatcher) => &dispatcher.email,
+        }
+    }
+
+    pub fn engineer_type(&self) -> Option<EngineerType> {
+        match self {
+            AuthenticatedUser::Engineer(engineer) => Some(engineer.engineer_type),
+            AuthenticatedUser::Dispatcher(_) => None,
         }
     }
 }

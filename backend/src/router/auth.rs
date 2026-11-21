@@ -14,7 +14,7 @@ use redis::TypedCommands;
 use uuid::Uuid;
 use validator::Validate;
 
-use super::{bad_request, internal_error, not_found, unauthorized};
+use super::{ApiJson, bad_request, internal_error, not_found, unauthorized, unprocessable};
 use crate::{
     database::schema,
     middleware::AuthUser,
@@ -22,15 +22,12 @@ use crate::{
     types::{
         config::AppState,
         dto::{
-            GetUserNameResponse, LoginRequest, LoginResponse, MeResponse, RegisterRequest,
-            UpdateAccessRequest, UpdateAccessResponse,
+            ErrorResponse, GetUserNameResponse, LoginRequest, LoginResponse, MeResponse,
+            RegisterRequest, UpdateAccessRequest, UpdateAccessResponse,
         },
         enums::{AuthenticatedUser, UserRole},
     },
-    utils::{
-        create_token_pair, hash_password, revoke_and_store_access_token, revoke_and_store_tokens,
-        verify_password,
-    },
+    utils::{ACCESS_TTL_SECS, create_token_pair, hash_password, revoke_and_store_tokens, verify_password},
 };
 
 // ---------------------------------------------------------------------------
@@ -41,19 +38,25 @@ use crate::{
 #[utoipa::path(
     post,
     path = "/api/auth/register",
+    tag = "Auth",
+    operation_id = "register",
+    security(()),
     description = "Register a new user profile and obtain access + refresh tokens",
     request_body = RegisterRequest,
     responses(
         (status = 200, description = "Successful registration", body = LoginResponse),
-        (status = 400, description = "Validation failure or duplicate email", body = String),
-        (status = 500, description = "Server-side error", body = String),
+        (status = 400, description = "Duplicate email", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn register_handler(
     State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<RegisterRequest>,
+    ApiJson(payload): ApiJson<RegisterRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
-    payload.validate().map_err(|e| bad_request(e.to_string()))?;
+    payload
+        .validate()
+        .map_err(|e| unprocessable(e.to_string()))?;
 
     let mut pg_conn = app_state.db_pool.get().map_err(|e| {
         tracing::error!(error = %e, "failed to acquire postgres connection");
@@ -87,7 +90,7 @@ pub async fn register_handler(
         }
         UserRole::Engineer => {
             let engineer_type = payload.engineer_type.ok_or_else(|| {
-                bad_request("user_role = engineer requires engineer_type to be set")
+                unprocessable("user_role = Engineer requires engineer_type")
             })?;
 
             let new_engineer = Engineer {
@@ -125,10 +128,14 @@ pub async fn register_handler(
 
     Ok(Json(LoginResponse {
         id: new_id.to_string(),
+        email: payload.email,
         name: payload.name,
-        user_role: payload.user_role,
+        user_role: payload.user_role.clone(),
+        engineer_type: payload.engineer_type,
         access_token: access,
         refresh_token: refresh,
+        token_type: crate::types::dto::OAuthTokenType::Bearer,
+        expires_in: ACCESS_TTL_SECS,
     })
     .into_response())
 }
@@ -207,20 +214,25 @@ fn insert_engineer(
 #[utoipa::path(
     post,
     path = "/api/auth/login",
+    tag = "Auth",
+    operation_id = "login",
+    security(()),
     description = "Login and obtain access + refresh tokens",
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Successful login", body = LoginResponse),
-        (status = 400, description = "Validation failure", body = String),
-        (status = 401, description = "Invalid credentials", body = String),
-        (status = 500, description = "Server-side error", body = String),
+        (status = 401, description = "Invalid credentials", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn login_handler(
     State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<LoginRequest>,
+    ApiJson(payload): ApiJson<LoginRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
-    payload.validate().map_err(|e| bad_request(e.to_string()))?;
+    payload
+        .validate()
+        .map_err(|e| unprocessable(e.to_string()))?;
 
     let mut pg_conn = app_state.db_pool.get().map_err(|e| {
         tracing::error!(error = %e, "failed to acquire postgres connection");
@@ -280,10 +292,14 @@ pub async fn login_handler(
 
     Ok(Json(LoginResponse {
         id: user.id().to_string(),
+        email: user.email().to_owned(),
         name: user.name().to_owned(),
         access_token: access,
         refresh_token: refresh,
-        user_role: role,
+        user_role: role.clone(),
+        engineer_type: user.engineer_type(),
+        token_type: crate::types::dto::OAuthTokenType::Bearer,
+        expires_in: ACCESS_TTL_SECS,
     })
     .into_response())
 }
@@ -296,12 +312,16 @@ pub async fn login_handler(
 #[utoipa::path(
     get,
     path = "/api/auth/getEngineerName/{engineer_uuid}",
+    tag = "Auth",
+    operation_id = "getEngineerName",
+    security(()),
     description = "Fetch the display name of an engineer by UUID",
+    params(("engineer_uuid" = String, Path, description = "Engineer UUID")),
     responses(
         (status = 200, description = "Engineer found", body = GetUserNameResponse),
-        (status = 400, description = "Malformed UUID", body = String),
-        (status = 404, description = "Engineer not found", body = String),
-        (status = 500, description = "Server-side error", body = String),
+        (status = 400, description = "Malformed UUID", body = ErrorResponse),
+        (status = 404, description = "Engineer not found", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn get_engineer_name_handler(
@@ -333,14 +353,14 @@ pub async fn get_engineer_name_handler(
 #[utoipa::path(
     get,
     path = "/api/auth/me",
+    tag = "Auth",
+    operation_id = "me",
+    security(("bearerAuth" = [])),
     responses(
         (status = 200, description = "Current user profile", body = MeResponse),
-        (status = 401, description = "Missing or invalid access token", body = String),
-        (status = 404, description = "User no longer exists", body = String),
-        (status = 500, description = "Server-side error", body = String),
-    ),
-    params(
-        ("Authorization" = String, Header, description = "Bearer access token"),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 404, description = "User no longer exists", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn me_handler(
@@ -401,17 +421,21 @@ pub async fn me_handler(
 #[utoipa::path(
     post,
     path = "/api/auth/update_access",
-    description = "Obtain a new access token using a valid refresh token",
+    tag = "Auth",
+    operation_id = "updateAccess",
+    security(()),
+    description = "Rotate the refresh token and obtain a new access token",
     request_body = UpdateAccessRequest,
     responses(
-        (status = 200, description = "New access token", body = UpdateAccessResponse),
-        (status = 401, description = "Refresh token is invalid or expired", body = String),
-        (status = 500, description = "Server-side error", body = String),
+        (status = 200, description = "New access token and rotated refresh token", body = UpdateAccessResponse),
+        (status = 401, description = "Refresh token is invalid or expired", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn update_access_token(
     State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<UpdateAccessRequest>,
+    ApiJson(payload): ApiJson<UpdateAccessRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
     let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
         tracing::error!(error = %e, "failed to acquire redis connection");
@@ -447,21 +471,22 @@ pub async fn update_access_token(
         internal_error()
     })?;
 
-    // NOTE: `create_token_pair` also generates a refresh token we throw away.
-    // A dedicated `create_access_token` helper would avoid the extra work.
-    let (access, _) =
-        create_token_pair(user_id, role, app_state.jwt_secret.as_bytes()).map_err(|e| {
+    let (access, refresh) =
+        create_token_pair(user_id, role.clone(), app_state.jwt_secret.as_bytes()).map_err(|e| {
             tracing::error!(uuid = %user_id, error = %e, "failed to create access token");
             internal_error()
         })?;
 
-    revoke_and_store_access_token(&mut redis_conn, user_id, &access).map_err(|e| {
-        tracing::error!(error = %e, "failed to store new access token");
+    revoke_and_store_tokens(&mut redis_conn, user_id, &access, &refresh, &role).map_err(|e| {
+        tracing::error!(error = %e, "failed to store rotated tokens");
         internal_error()
     })?;
 
     Ok(Json(UpdateAccessResponse {
         access_token: access,
+        refresh_token: refresh,
+        token_type: crate::types::dto::OAuthTokenType::Bearer,
+        expires_in: ACCESS_TTL_SECS,
     })
     .into_response())
 }

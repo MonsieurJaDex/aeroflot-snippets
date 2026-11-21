@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
+    Json,
     extract::{Request, State},
     http::{StatusCode, header},
     middleware::Next,
@@ -9,8 +10,22 @@ use axum::{
 use redis::TypedCommands;
 use uuid::Uuid;
 
-use crate::types::{auth::AccessClaims, config::AppState, enums::UserRole};
+use crate::types::dto::ErrorResponse;
 use crate::types::enums::TokenType;
+use crate::types::{auth::AccessClaims, config::AppState, enums::UserRole};
+
+fn auth_error(status: StatusCode, code: &str, message: &str) -> Response {
+    (
+        status,
+        Json(ErrorResponse {
+            code: code.to_owned(),
+            message: message.to_owned(),
+            details: None,
+            request_id: None,
+        }),
+    )
+        .into_response()
+}
 
 #[derive(Clone)]
 pub struct AuthUser {
@@ -30,14 +45,24 @@ pub async fn auth_middleware(
         .and_then(|value| value.strip_prefix("Bearer "))
     {
         Some(token) if !token.is_empty() => token,
-        _ => return (StatusCode::UNAUTHORIZED, "missing bearer access token").into_response(),
+        _ => {
+            return auth_error(
+                StatusCode::UNAUTHORIZED,
+                "UNAUTHORIZED",
+                "Missing or invalid access token",
+            );
+        }
     };
 
     let claims = match decode_access_token(token, app_state.jwt_secret.as_bytes()) {
         Ok(c) => c,
         Err(e) => {
             tracing::debug!(error = %e, "access token failed jwt validation");
-            return (StatusCode::UNAUTHORIZED, "invalid or expired access token").into_response();
+            return auth_error(
+                StatusCode::UNAUTHORIZED,
+                "UNAUTHORIZED",
+                "Missing or invalid access token",
+            );
         }
     };
 
@@ -53,19 +78,27 @@ pub async fn auth_middleware(
     let stored_user_id = match lookup {
         Ok(Ok(Some(id))) => id,
         Ok(Ok(None)) => {
-            return (
+            return auth_error(
                 StatusCode::UNAUTHORIZED,
-                "access token was revoked, please login again",
-            )
-                .into_response();
+                "UNAUTHORIZED",
+                "Missing or invalid access token",
+            );
         }
         Ok(Err(e)) => {
             tracing::error!(error = %e, "error checking access token in redis");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            return auth_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "internal server error",
+            );
         }
         Err(e) => {
             tracing::error!(error = %e, "redis lookup task failed");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            return auth_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "internal server error",
+            );
         }
     };
 
@@ -73,11 +106,19 @@ pub async fn auth_middleware(
         Ok(id) if id == claims.sub => {}
         Ok(_) => {
             tracing::warn!(token_sub = %claims.sub, "redis user id mismatch with jwt sub");
-            return (StatusCode::UNAUTHORIZED, "invalid access token").into_response();
+            return auth_error(
+                StatusCode::UNAUTHORIZED,
+                "UNAUTHORIZED",
+                "Missing or invalid access token",
+            );
         }
         Err(e) => {
             tracing::error!(error = %e, "corrupted user id stored in redis for access token");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            return auth_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "internal server error",
+            );
         }
     }
 
