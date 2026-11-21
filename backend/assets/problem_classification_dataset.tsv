@@ -1,0 +1,400 @@
+подтекание топлива из дренажных колпачков	integrity_inspector
+топливо капает из-под дренажного колпачка	integrity_inspector
+масляные пятна в районе редуктора	integrity_inspector
+масло гонит у редуктора, под ним капля	integrity_inspector
+следы гидравлики на штоках амортизаторов	integrity_inspector
+гидравлика подтекает со стойки шасси	integrity_inspector
+запотевание соединения трубки гидросистемы	integrity_inspector
+из дренажной трубки сочится горючее	integrity_inspector
+сальник редуктора запотел, ниже масляная дорожка	integrity_inspector
+мокрая зона вокруг уплотнения гидроцилиндра	integrity_inspector
+после заправки под крылом снова мокро	integrity_inspector
+маслянистая плёнка на обшивке у бака	integrity_inspector
+капля на стыке трубопровода и агрегата	integrity_inspector
+уплотнительное кольцо пропускает, фитинг влажный	integrity_inspector
+следы рабочей жидкости на разъёме датчика давления	integrity_inspector
+течь по прокладке корпуса гидроагрегата	integrity_inspector
+топливный сливник не держит уплотнение, капает	integrity_inspector
+маслянистая полоса начинается у гидроагрегата	integrity_inspector
+липкий масляный налёт на нижней части редуктора	integrity_inspector
+жидкость в отсеке шасси похожа на гидравлику	integrity_inspector
+пятно под фюзеляжем в районе редуктора	integrity_inspector
+нарушение герметичности гидролинии при проверке	integrity_inspector
+рабочая жидкость выступает у штуцера под нагрузкой	integrity_inspector
+топливный след тянется с нижней панели крыла	integrity_inspector
+влажный след по шву топливного отсека	integrity_inspector
+керосин проступает вокруг сливного узла	integrity_inspector
+масляные разводы под капотом агрегата	integrity_inspector
+регулярное капание из сливника, не струя	integrity_inspector
+свежее потемнение от масла вокруг штуцера	integrity_inspector
+след масла на бетоне после ночной стоянки	integrity_inspector
+свежие капли керосина под дренажным колпачком, крыло влажное	integrity_inspector
+лужа топлива под крылом, запах керосина у дренажа	integrity_inspector
+масляная дорожка от сальника, капля и налёт	integrity_inspector
+запотевание фитинга на стойке, жидкость у штуцера	integrity_inspector
+после заправки мокро под крылом, капли у слива	integrity_inspector
+следы жидкости на разъёме датчика, капля у штуцера	integrity_inspector
+жидкость в отсеке шасси, возможна течь гидроцилиндра	integrity_inspector
+капли жидкости и масляная плёнка у бака	integrity_inspector
+периодический топливный след с нижней панели крыла	integrity_inspector
+запах керосина, влажное пятно у дренажной трубки	integrity_inspector
+потёки гидравлики на стойке шасси	integrity_inspector
+мокро у контрольного отверстия редуктора, масляная дорожка	integrity_inspector
+течь по прокладке гидроагрегата под давлением	integrity_inspector
+капание из топливного сливника, влажный след	integrity_inspector
+след масла под редуктором, герметичность нарушена	integrity_inspector
+жидкость у штуцера под нагрузкой, кольцо пропускает	integrity_inspector
+маслянистая полоса от гидроагрегата к нижней панели	integrity_inspector
+эмульсия в масле, мокро у контрольного отверстия редуктора	integrity_inspector
+порез шины до корда, давление ниже нормы	integrity_inspector
+левое колесо подспущено, давление ниже допустимого	integrity_inspector
+облысение протектора до индикатора износа	integrity_inspector
+нет чехла ППД, приёмник открыт	integrity_inspector
+слетел защитный колпачок ПВД	integrity_inspector
+клапан подкачки травит, давление падает	integrity_inspector
+трещина по ободу диска, шина потеряла форму	integrity_inspector
+лысый участок и неравномерный износ шины	integrity_inspector
+колесо визуально спущено, индикатор показывает норму	integrity_inspector
+уровень гидробака падает, возможна внутренняя течь	integrity_inspector
+капли жидкости, запотевание трубки гидросистемы	integrity_inspector
+топливо сочится из дренажной трубки, герметичность нарушена	integrity_inspector
+опрессовка гидромагистралей после замены трубопровода	integrity_inspector
+проверка герметичности топливной и гидросистем под давлением	integrity_inspector
+масляное пятно под левой мотогондолой, двигатель работал штатно	integrity_inspector
+опрессовка гидромагистралей под давлением после ремонта	integrity_inspector
+мокро у заправочной горловины, капает керосин	integrity_inspector
+капли жидкости на штуцере гидросистемы, давление держится	integrity_inspector
+колесо основной стойки спущено, порез до корда	integrity_inspector
+скол на обтекателе	aviation_technician
+царапина на фонаре кабины после протирки	aviation_technician
+отслоение краски в зонах клёпки	aviation_technician
+краска облупилась у заклёпок, виден грунт	aviation_technician
+повреждение наружного слоя на антенне	aviation_technician
+обтекатель поцарапан при наземной обработке	aviation_technician
+сколы на законцовке крыла	aviation_technician
+повреждение лакокрасочного покрытия у заклёпок	aviation_technician
+длинная царапина на фонаре в зоне обзора	aviation_technician
+обтекатель с трещиной по кромке и сколом	aviation_technician
+скол на обшивке возле технического люка	aviation_technician
+скол пластикового колпака на антенне	aviation_technician
+обшивка поцарапана при контакте с трапом	aviation_technician
+скол краски на капоте двигателя	aviation_technician
+отслаивается краска на клёпках вдоль шва	aviation_technician
+скол на фонаре, металл не оголён	aviation_technician
+вмятина на капоте без следов подтекания	aviation_technician
+свежие задиры от льда на обтекателе	aviation_technician
+мелкие вмятины на поверхности крыла от града	aviation_technician
+потёртости от веток на законцовке	aviation_technician
+покрытие воздухозаборника содрано до грунта	aviation_technician
+глубокая царапина на створке люка	aviation_technician
+рыжие точки коррозии возле клёпок	aviation_technician
+краска вспучилась вокруг головок крепежа	aviation_technician
+лакокрасочное покрытие сходит пластами	aviation_technician
+пятна коррозии вдоль стыка обшивки	aviation_technician
+покрытие вокруг креплений шелушится	aviation_technician
+облезло покрытие до грунта на законцовке	aviation_technician
+фонарь кабины затёрт, обзорность мутная	aviation_technician
+незначительный пролом наружного слоя обтекателя	aviation_technician
+царапина на фонаре в зоне обзора	aviation_technician
+задиры и скол на обтекателе	aviation_technician
+краска растрескалась у клёпок, виден грунт	aviation_technician
+матовое пятно и вмятины от града	aviation_technician
+скол на обшивке у техлюка, ЛКП нарушено	aviation_technician
+облез лак на створке ниши шасси	aviation_technician
+скол эмали у крепёжной планки	aviation_technician
+трещина по кромке антенного обтекателя	aviation_technician
+потёртости и облезшее покрытие на законцовке	aviation_technician
+истирание покрытия и царапина на створке люка	aviation_technician
+коррозия у клёпок, краска вспучилась	aviation_technician
+пятна коррозии вдоль стыка, шелушение покрытия	aviation_technician
+царапина до металла от наземного оборудования	aviation_technician
+глубокая царапина и вмятина на створке люка	aviation_technician
+длинная царапина на фонаре, мутная зона	aviation_technician
+покрытие воздухозаборника содрано до грунта	aviation_technician
+задиры от льда и пролом наружного слоя	aviation_technician
+повреждён защитный колпак антенны РЛС	aviation_technician
+повреждена краска на лючке топливной панели	aviation_technician
+потёртость на фюзеляже, ЛКП сходит	aviation_technician
+сколы и вмятины на крыле после града	aviation_technician
+краска вспучилась у крепежа, скол на обшивке	aviation_technician
+царапина на фонаре после протирки	aviation_technician
+повреждён лак на створке шасси	aviation_technician
+вмятина и скол краски на обшивке	aviation_technician
+матовое пятно и потёртости на крыле	aviation_technician
+трещина и скол на антенном обтекателе	aviation_technician
+скол краски и истирание на капоте	aviation_technician
+трещины краски у шва, потёртость фюзеляжа	aviation_technician
+отслоение покрытия на обтекателе у заклёпок	aviation_technician
+вмятина и царапина на крыле у бака, течи нет	aviation_technician
+царапина на капоте до грунта, течи нет	aviation_technician
+скол на обтекателе РЛС, РЛС исправна	aviation_technician
+вмятина у заливной горловины, бак герметичен	aviation_technician
+царапина на створке гидроотсека, течи нет	aviation_technician
+падение тяги двигателя на взлётном режиме	engine_technician
+обороты плавают, режим не держится	engine_technician
+температура газов выше нормы на рабочем режиме	engine_technician
+повышенная вибрация двигателя по фюзеляжу	engine_technician
+дисбаланс ротора на определённых оборотах	engine_technician
+стружка в маслофильтре двигателя	engine_technician
+металлическая стружка на магнитной пробке	engine_technician
+при увеличении режима резко растёт ТГТ	engine_technician
+двигатель не выходит на заданную тягу	engine_technician
+металлическая пыль в масляном фильтре	engine_technician
+обороты нестабильны, стрелка гуляет	engine_technician
+тряска двигателя при выходе на повышенный режим	engine_technician
+температура перед турбиной выше предела	engine_technician
+вибрация ротора усилилась после выхода на режим	engine_technician
+на малом газе обороты периодически падают	engine_technician
+двигатель набирает обороты с задержкой	engine_technician
+параметры двигателя просели одновременно	engine_technician
+температура выхлопа растёт быстрее обычного	engine_technician
+двигатель работает с биением корпуса	engine_technician
+на прогретом двигателе ТГТ ползёт вверх	engine_technician
+сильная дрожь передаётся по корпусу двигателя	engine_technician
+при наборе режима теряются обороты	engine_technician
+нехарактерная тряска мотора на слух	engine_technician
+металлическая примесь в масле силовой установки	engine_technician
+показания ТГТ вышли за допустимый диапазон	engine_technician
+периодическая вибрация при раскрутке	engine_technician
+на промежуточных оборотах трясёт сильнее	engine_technician
+пневматический запуск не выходит на устойчивый режим	engine_technician
+датчик оборотов двигателя даёт нестабильный сигнал	engine_technician
+индикатор ТГТ показывает превышение, нужна проверка	engine_technician
+падение тяги на взлёте, обороты плавают	engine_technician
+ТГТ выше нормы при наборе	engine_technician
+повышенная вибрация двигателя, превышение датчика	engine_technician
+стружка в маслофильтре и на магнитной пробке	engine_technician
+рост ТГТ и скачки газогенератора	engine_technician
+тряска и вибрация ротора на режиме	engine_technician
+падение оборотов и задержка набора	engine_technician
+ТГТ выше предела, проверить термопары	engine_technician
+сильная дрожь, вибрация вне допуска	engine_technician
+металлическая примесь и стружка в масле	engine_technician
+нестабильные обороты, потеря режима	engine_technician
+периодическая вибрация при раскрутке	engine_technician
+запуск не выходит на устойчивый режим	engine_technician
+нестабильный сигнал датчика оборотов	engine_technician
+превышение ТГТ, проверить датчики	engine_technician
+окислены контакты датчика ТГТ, скачки	engine_technician
+колебания давления масла, металлическая пыль	engine_technician
+провал тяги и оборотов при смене режима	engine_technician
+ТГТ зашкаливает на максимале	engine_technician
+следы жидкости у штуцера, параметры нестабильны	engine_technician
+металлическая крошка в масле, рост вибрации	engine_technician
+потеря оборотов, просели параметры	engine_technician
+рост ТГТ при увеличении режима	engine_technician
+вибрация и биение корпуса после режима	engine_technician
+падение оборотов на малом газе	engine_technician
+металлическая примесь и пыль в масле	engine_technician
+провал тяги, плавающие обороты, рост ТГТ	engine_technician
+превышение вибрации второй ступени	engine_technician
+окислы датчика ТГТ, превышение	engine_technician
+скачки газогенератора, падение тяги	engine_technician
+вибрация ротора и рост ТГТ, течей нет	engine_technician
+падение тяги левого двигателя, обороты плавают	engine_technician
+стружка в маслофильтре, уровень масла в норме	engine_technician
+превышение ТГТ при запуске, повреждений нет	engine_technician
+нестабильные обороты на малом газе, датчик скачет	engine_technician
+отказ РЛС, обзор не формируется	avionics_engineer
+ложные показания радиолокатора, цели-фантомы	avionics_engineer
+потеря связи на основной частоте	avionics_engineer
+связь с искажением сигнала, голос не разобрать	avionics_engineer
+уход гироплатформы ИНС, курс смещается	avionics_engineer
+гироплатформа дрейфует, ИНС врёт	avionics_engineer
+РЛС не работает после включения	avionics_engineer
+радиолокатор показывает ложные цели	avionics_engineer
+связь пропала во время полёта	avionics_engineer
+сигнал с искажением, передача с треском	avionics_engineer
+ИНС уходит, гироплатформа плывёт по курсу	avionics_engineer
+отказ радиолокационной станции при наборе высоты	avionics_engineer
+потеря радиосвязи на резервной частоте	avionics_engineer
+помехи в канале связи, эфир забит	avionics_engineer
+гироплатформа дрейфует, ориентация скачет	avionics_engineer
+связь односторонняя: принимаем, но не передаём	avionics_engineer
+искажения сигнала в радиостанции при передаче	avionics_engineer
+ИНС не держит курс, ошибка накапливается	avionics_engineer
+локатор не показывает цели в контрольном секторе	avionics_engineer
+радиостанция молчит, канал не открывается	avionics_engineer
+РЛС периодически отказывает, изображение пропадает	avionics_engineer
+гироскопы поплыли, курс меняется сам	avionics_engineer
+сигнал радио искажается на удалении	avionics_engineer
+навигация по ИНС сбоит, координаты со сдвигом	avionics_engineer
+индикатор РЛС показывает ложные цели	avionics_engineer
+индикатор частоты на пульте связи не горит	avionics_engineer
+разъём антенны РЛС окислился, приём слабеет	avionics_engineer
+разъём навигационного блока ослаб, ИНС теряет данные	avionics_engineer
+лампа подсветки частоты на пульте радиостанции перегорела	avionics_engineer
+индикатор готовности РЛС не загорается	avionics_engineer
+РЛС не формирует обзор, экран пуст	avionics_engineer
+ложные цели на РЛС в контрольной зоне	avionics_engineer
+потеря связи на основной и резервной частоте	avionics_engineer
+искажение и треск в канале связи	avionics_engineer
+уход гироплатформы, накопление ошибки курса	avionics_engineer
+отказ РЛС на наборе, изображение пропало	avionics_engineer
+потеря радиосвязи, нестабильные приём и передача	avionics_engineer
+хаотичные засветки на РЛС, цели теряются	avionics_engineer
+дрейф гироплатформы, скачки ориентации	avionics_engineer
+односторонняя связь, передатчик не выходит на мощность	avionics_engineer
+навигационный блок не проходит выставку	avionics_engineer
+при смене частоты связь пропадает	avionics_engineer
+антенна РЛС вращается, обзор пустой	avionics_engineer
+ошибка синхронизации развёртки РЛС	avionics_engineer
+сбой ИНС, координаты со сдвигом	avionics_engineer
+фон и шипение, радиоканал рвётся	avionics_engineer
+приёмник молчит, индикатор частоты не горит	avionics_engineer
+пропадает контакт разъёма ИНС	avionics_engineer
+индикатор готовности РЛС не горит, обзора нет	avionics_engineer
+ложные цели РЛС, окислен разъём антенны	avionics_engineer
+искажение передачи радио, помехи на удалении	avionics_engineer
+дрейф ИНС, блок не проходит выставку	avionics_engineer
+сбой МФД, навигация не отображается	avionics_engineer
+окислены контакты антенны РЛС, приём слабеет	avionics_engineer
+радиостанция не выходит на мощность, канал молчит	avionics_engineer
+ИНС не держит курс, координаты со сдвигом	avionics_engineer
+засветки и ошибка развёртки РЛС	avionics_engineer
+ложные цели и нестабильный обзор РЛС	avionics_engineer
+при смене частоты связь пропадает, приёмник не держит	avionics_engineer
+отказ навигационного дисплея, ИНС теряет данные	avionics_engineer
+сбой МФД и связи с датчиками	avionics_engineer
+перезагрузка дисплея пилота, потеря данных датчиков	avionics_engineer
+радиовысотомер выдаёт неверную высоту	avionics_engineer
+отказ автопилота и вычислителя самолётовождения	avionics_engineer
+сбой шины данных вычислителя и МФД	avionics_engineer
+неисправен ответчик, диспетчер не видит борт	avionics_engineer
+пропала индикация авиагоризонта на дисплее	avionics_engineer
+зависание экрана электронной индикации	avionics_engineer
+перезагрузка МФД и ошибка связи с датчиками	avionics_engineer
+радиовысотомер теряет сигнал и выдаёт неверную высоту	avionics_engineer
+пропал авиагоризонт, сбой шины данных	avionics_engineer
+отказ автопилота и навигационного вычислителя	avionics_engineer
+отказ ответчика и потеря данных высоты	avionics_engineer
+сбой индикации на приборной панели	crew_remarks_handler
+перегорела лампа индикации на левом блоке	crew_remarks_handler
+ослабленный разъём в колодке	crew_remarks_handler
+разъём плохо держится, контакт пропадает	crew_remarks_handler
+регулировка привязных ремней требуется экипажу	crew_remarks_handler
+ремень не застёгивается, замок не фиксирует	crew_remarks_handler
+перегоревшая светосигнальная лампа в кабине	crew_remarks_handler
+на панели лампа не горит после теста	crew_remarks_handler
+индикатор моргает без стабильного показания	crew_remarks_handler
+разъём ослаб, штекер выходит из гнезда	crew_remarks_handler
+привязной ремень требует регулировки под пилота	crew_remarks_handler
+сигнальная лампа перегорела, требуется замена	crew_remarks_handler
+на приборной доске индикатор не работает	crew_remarks_handler
+разъём не фиксируется, держится слабо	crew_remarks_handler
+ремни надо отрегулировать по длине	crew_remarks_handler
+лампа светосигнальная перегорела во время полёта	crew_remarks_handler
+сбоит индикатор на панели, показания скачут	crew_remarks_handler
+ослаб коннектор в разъёме на панели	crew_remarks_handler
+ремни не застёгиваются, замок клинит	crew_remarks_handler
+индикатор отказал, на тест не реагирует	crew_remarks_handler
+на панели лампа перегорела, не светится	crew_remarks_handler
+разъём отошёл от гнезда при вибрации	crew_remarks_handler
+привязные ремни не держат натяг	crew_remarks_handler
+индикатор в кабине неисправен, сегменты не светятся	crew_remarks_handler
+пряжка ремня не перемещается по ленте	crew_remarks_handler
+замок ремня не защёлкивается с первого раза	crew_remarks_handler
+на пульте разъём выведен из фиксации	crew_remarks_handler
+световой элемент табло не работает при проверке	crew_remarks_handler
+контрольная лампа перегорела, требуется замена	crew_remarks_handler
+фиксатор привязного ремня заедает при застёгивании	crew_remarks_handler
+индикатор на панели тёмный, лампа не горит	crew_remarks_handler
+ремень не застёгивается, замок не фиксирует	crew_remarks_handler
+перегорела лампа на левом блоке	crew_remarks_handler
+разъём отошёл, контакт пропадает	crew_remarks_handler
+ремни не держат натяг, пряжка проскальзывает	crew_remarks_handler
+перегорела светосигнальная лампа в кабине	crew_remarks_handler
+замок ремня клинит, не фиксирует	crew_remarks_handler
+разъём на пульте не фиксируется	crew_remarks_handler
+индикатор моргает, сегменты не светятся	crew_remarks_handler
+ослабленный разъём в колодке	crew_remarks_handler
+ремень перекручивается, нужна регулировка	crew_remarks_handler
+индикатор на приборной доске не работает	crew_remarks_handler
+разъём гарнитуры ослаб, пропадает звук	crew_remarks_handler
+перегорела лампа подсветки на пульте	crew_remarks_handler
+фиксатор ремня заедает, замок не ловит	crew_remarks_handler
+плавает индикация, огонёк гаснет	crew_remarks_handler
+разъём отошёл при вибрации, контакт нестабилен	crew_remarks_handler
+контролька погасла, лампа перегорела	crew_remarks_handler
+ремни не застёгиваются, пряжка заедает	crew_remarks_handler
+индикатор на левом блоке перегорел	crew_remarks_handler
+разъём на пульте связи ослаб	crew_remarks_handler
+привязная лямка свободная, нужна подгонка	crew_remarks_handler
+не работает световой элемент табло	crew_remarks_handler
+разъём болтается, контакт пропадает	crew_remarks_handler
+индикатор завис, на тест не реагирует	crew_remarks_handler
+ослабленный коннектор на приборной панели	crew_remarks_handler
+ремень не застёгивается, фиксатор заедает	crew_remarks_handler
+лампа на панели перегорела	crew_remarks_handler
+защёлка разъёма не фиксирует соединение	crew_remarks_handler
+отказ лампы, индикатор моргает	crew_remarks_handler
+заедает замок ремня, перегорела лампа подсветки	crew_remarks_handler
+ослаб штекер гарнитуры, связь исправна	crew_remarks_handler
+перегорела сигнальная лампа, системы исправны	crew_remarks_handler
+не фиксируется пряжка ремня, туго регулировка кресла	crew_remarks_handler
+моргает лампа на боковом щитке, тест не проходит	crew_remarks_handler
+требуется дозаправка авиакеросином перед вылетом	fueling_crew
+долить масло в маслобак двигателя	fueling_crew
+заправка гидросистемы рабочей жидкостью	fueling_crew
+зарядка бортового баллона кислородом	fueling_crew
+зарядка бортового баллона азотом	fueling_crew
+контроль уровня топлива перед вылетом	fueling_crew
+слить отстой топлива из сливников	fueling_crew
+дозаправить топливо до полной заправки	fueling_crew
+проверить уровень масла в маслобаке	fueling_crew
+долив масла в двигатель по уровню	fueling_crew
+заправить гидробак до нормы	fueling_crew
+проверить давление в баллоне кислорода	fueling_crew
+зарядка кислородного баллона перед полётом	fueling_crew
+дозаправка керосина в основные баки	fueling_crew
+слить отстой из топливной системы	fueling_crew
+контроль заправки перед вылетом	fueling_crew
+требуется заправка гидросистемы жидкостью	fueling_crew
+долить рабочую жидкость в гидробак	fueling_crew
+проверить уровень гидрожидкости	fueling_crew
+заправка баллона азотом для шасси	fueling_crew
+дозаправка топлива после полёта	fueling_crew
+слить отстой топлива перед заправкой	fueling_crew
+проверить количество масла в системе	fueling_crew
+требуется доливка масла в двигатель	fueling_crew
+заправить кислородом бортовой баллон	fueling_crew
+контроль уровня топлива после заправки	fueling_crew
+дозаправка гидросистемы до нормы	fueling_crew
+зарядка баллона сжатым азотом	fueling_crew
+слить топливный отстой из баков	fueling_crew
+проверить заправку ГСМ перед вылетом	fueling_crew
+дозаправка авиакеросином до нормы перед вылетом	fueling_crew
+долить масло в маслобак, уровень ниже нормы	fueling_crew
+заправка гидробака рабочей жидкостью	fueling_crew
+зарядка кислородного баллона, давление ниже нормы	fueling_crew
+зарядка баллона азотом для шасси	fueling_crew
+контроль топлива и дозаправка до полной	fueling_crew
+слить отстой топлива и проверить пробу	fueling_crew
+долить масло в двигатель по уровню	fueling_crew
+заправить гидросистему до нормы	fueling_crew
+проверить кислородный баллон, при необходимости зарядить	fueling_crew
+дозаправка керосина в основные баки	fueling_crew
+долить рабочую жидкость в гидробак	fueling_crew
+заправка гидробака после замены агрегата	fueling_crew
+зарядка баллона сжатым азотом	fueling_crew
+дозаправка авиакеросином, контроль уровня	fueling_crew
+доливка масла, уровень ниже допустимого	fueling_crew
+заправка гидросистемы и контроль уровня	fueling_crew
+слить отстой топлива и дозаправить до нормы	fueling_crew
+зарядка кислородного баллона перед полётом	fueling_crew
+дозаправка топлива в основные баки	fueling_crew
+долить масло в маслобак, уровень ниже нормы	fueling_crew
+заправить гидробак до нормы	fueling_crew
+проверить заправку ГСМ перед вылетом	fueling_crew
+зарядка баллона азотом, давление ниже нормы	fueling_crew
+слить отстой и дозаправить керосином	fueling_crew
+долить рабочую жидкость в гидробак	fueling_crew
+проверить масло, при необходимости долить	fueling_crew
+зарядка кислородного баллона, проверить давление	fueling_crew
+дозаправка керосином и слив отстоя	fueling_crew
+заправка гидробака, контроль уровня и давления	fueling_crew
+дозаправка топлива и зарядка кислородом, течей нет	fueling_crew
+долить масло в маслобак, стружки и вибрации нет	fueling_crew
+заправка гидробака, герметичность в норме	fueling_crew
+зарядка баллона азотом для шасси, шины без дефектов	fueling_crew
+слить отстой керосина, подтёков нет	fueling_crew

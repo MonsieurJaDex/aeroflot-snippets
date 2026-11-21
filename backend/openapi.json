@@ -1,1 +1,2547 @@
-{"openapi":"3.1.0","info":{"title":"aeroflot-snippets","description":"","license":{"name":""},"version":"0.1.0"},"paths":{"/api/assign":{"post":{"tags":[],"description":"Find nearest suitable engineer and assign to an aircraft","operationId":"assign_engineer","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AssignEngineerRequest"}}},"required":true},"responses":{"200":{"description":"Successful path finding, returning a point sequence as route","content":{"application/json":{"schema":{"$ref":"#/components/schemas/AssignEngineerResponse"}}}},"400":{"description":"Some error happened during task processing","content":{"text/plain":{"schema":{"type":"string"}}}},"404":{"description":"Suitable engineer was not found","content":{"text/plain":{"schema":{"type":"string"}}}},"422":{"description":"Provided JSON request has an error and cannot be parsed","content":{"text/plain":{"schema":{"type":"string"}}}},"500":{"description":"Server-side error","content":{"text/plain":{"schema":{"type":"string"}}}}}}},"/api/auth/login":{"post":{"tags":[],"description":"Login into existing user profile and get refresh and access tokens","operationId":"login_handler","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/LoginRequest"}}},"required":true},"responses":{"200":{"description":"Successful login","content":{"application/json":{"schema":{"$ref":"#/components/schemas/LoginResponse"}}}},"401":{"description":"Login failed because of credentials","content":{"text/plain":{"schema":{"type":"string"}}}},"500":{"description":"Server-side error happened","content":{"text/plain":{"schema":{"type":"string"}}}}}}},"/api/auth/register":{"post":{"tags":[],"description":"Register new user profile","operationId":"register_handler","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/RegisterRequest"}}},"required":true},"responses":{"200":{"description":"Successful registration","content":{"application/json":{"schema":{"$ref":"#/components/schemas/LoginResponse"}}}},"401":{"description":"Register failed because of reques","content":{"text/plain":{"schema":{"type":"string"}}}},"500":{"description":"Server-side error happened","content":{"text/plain":{"schema":{"type":"string"}}}}}}},"/api/getRoute":{"post":{"tags":[],"description":"Classic Point-to-Point BFS","operationId":"get_route","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/GetRouteRequest"}}},"required":true},"responses":{"200":{"description":"Successful path finding, returning a point sequence as route","content":{"application/json":{"schema":{"$ref":"#/components/schemas/GetRouteResponse"}}}},"400":{"description":"Error caused by incorrect input data","content":{"text/plain":{"schema":{"type":"string"}}}}}}},"/api/map":{"get":{"tags":[],"operationId":"get_map","responses":{"200":{"description":"Return actual map","content":{"application/json":{"schema":{"$ref":"#/components/schemas/MapMatrix"}}}}}}}},"components":{"schemas":{"AircraftIssue":{"type":"string","enum":["fuel_leak_from_drain_cap","oil_stain_near_gearbox","hydraulic_leak_on_strut","fairing_chip_or_scratch","paint_peeling_at_rivets","missing_pitot_cover","uneven_tread_wear","tire_cut_to_cord","low_tire_pressure","indication_fault","loose_connector","seatbelt_adjustment","burned_out_signal_lamp","thrust_or_parameter_drop","excessive_vibration","metal_debris_in_oil_filter","radar_failure_or_false_reading","comms_loss_or_distortion","ins_gyro_drift","other"]},"AssignEngineerRequest":{"type":"object","required":["dispatcher_uuid","issue","plane_point","description"],"properties":{"description":{"type":"string"},"dispatcher_uuid":{"type":"string"},"issue":{"$ref":"#/components/schemas/AircraftIssue"},"plane_point":{"$ref":"#/components/schemas/Point"}}},"AssignEngineerResponse":{"type":"object","required":["engineer_uuid","time","time_limit_exceeded","route"],"properties":{"engineer_uuid":{"type":"string"},"route":{"$ref":"#/components/schemas/Route"},"time":{"type":"number","format":"float"},"time_limit_exceeded":{"type":"boolean"}}},"EngineerType":{"type":"string","enum":["integrity_inspector","crew_remarks_handler","fueling_crew","engine_technician","avionics_engineer","aviation_technician","not_cagegorized"]},"GetRouteRequest":{"type":"object","required":["start_point","end_point"],"properties":{"end_point":{"$ref":"#/components/schemas/Point"},"start_point":{"$ref":"#/components/schemas/Point"}}},"GetRouteResponse":{"type":"object","required":["route","distance"],"properties":{"distance":{"type":"integer","minimum":0},"route":{"$ref":"#/components/schemas/Route"}}},"LoginRequest":{"type":"object","required":["email","password"],"properties":{"email":{"type":"string"},"password":{"type":"string"}}},"LoginResponse":{"type":"object","required":["name","user_role","access_token","refresh_token"],"properties":{"access_token":{"type":"string"},"name":{"type":"string"},"refresh_token":{"type":"string"},"user_role":{"$ref":"#/components/schemas/UserRole"}}},"MapMatrix":{"type":"array","items":{"type":"array","items":{"type":"integer","format":"int64"}}},"Point":{"type":"array","items":{"type":"integer","format":"int64"},"maxItems":2,"minItems":2},"RegisterRequest":{"type":"object","required":["email","name","password","user_role"],"properties":{"email":{"type":"string"},"engineer_type":{"oneOf":[{"type":"null"},{"$ref":"#/components/schemas/EngineerType"}]},"name":{"type":"string"},"password":{"type":"string"},"user_role":{"$ref":"#/components/schemas/UserRole"}}},"Route":{"type":"array","items":{"$ref":"#/components/schemas/Point"}},"UserRole":{"type":"string","enum":["Dispatcher","Engineer"]}}},"tags":[{"name":"Aeroflot","description":"Aeroflot dispatcher management API"}]}
+{
+  "components": {
+    "schemas": {
+      "ActiveEngineersResponse": {
+        "description": "Response payload for [`active_engineers`].",
+        "properties": {
+          "active_engineers": {
+            "description": "UUIDs of engineers currently assigned to an active task.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "active_engineers"
+        ],
+        "type": "object"
+      },
+      "AircraftEntry": {
+        "description": "One aircraft currently stored in Redis.",
+        "properties": {
+          "id": {
+            "description": "Aircraft UUID.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/Point",
+            "description": "Current position on the map."
+          }
+        },
+        "required": [
+          "id",
+          "point"
+        ],
+        "type": "object"
+      },
+      "AircraftIssue": {
+        "enum": [
+          "fuel_leak_from_drain_cap",
+          "oil_stain_near_gearbox",
+          "hydraulic_leak_on_strut",
+          "fairing_chip_or_scratch",
+          "paint_peeling_at_rivets",
+          "missing_pitot_cover",
+          "uneven_tread_wear",
+          "tire_cut_to_cord",
+          "low_tire_pressure",
+          "indication_fault",
+          "loose_connector",
+          "seatbelt_adjustment",
+          "burned_out_signal_lamp",
+          "thrust_or_parameter_drop",
+          "excessive_vibration",
+          "metal_debris_in_oil_filter",
+          "radar_failure_or_false_reading",
+          "comms_loss_or_distortion",
+          "ins_gyro_drift",
+          "other"
+        ],
+        "type": "string"
+      },
+      "AircraftListResponse": {
+        "description": "Aircraft positions visible to a dispatcher.",
+        "properties": {
+          "aircraft": {
+            "items": {
+              "$ref": "#/components/schemas/AircraftEntry"
+            },
+            "type": "array"
+          },
+          "total": {
+            "description": "Number of aircraft before `limit` and `offset` are applied.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "aircraft",
+          "total"
+        ],
+        "type": "object"
+      },
+      "AogListResponse": {
+        "description": "Aircraft that currently have an AOG status in Redis.",
+        "properties": {
+          "aircraft": {
+            "description": "Aircraft marked AOG, with the position known to the server.",
+            "items": {
+              "$ref": "#/components/schemas/AircraftEntry"
+            },
+            "type": "array"
+          },
+          "plane_uuids": {
+            "deprecated": true,
+            "description": "Previous payload: UUIDs only. Kept for one release.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "total": {
+            "description": "Number of AOG aircraft before `limit` and `offset` are applied.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "aircraft",
+          "total",
+          "plane_uuids"
+        ],
+        "type": "object"
+      },
+      "AssignEngineerRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for the `assign_engineer` endpoint.",
+        "properties": {
+          "classifier_text": {
+            "description": "Free-form text passed to the Bayes classifier.",
+            "example": "подтекание топлива из дренажных колпачков",
+            "type": "string"
+          },
+          "description": {
+            "deprecated": true,
+            "description": "Previous name of `note`. Accepted for one release.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issue": {
+            "$ref": "#/components/schemas/AircraftIssue",
+            "description": "Known issue category. Defaults to `other` when omitted."
+          },
+          "note": {
+            "description": "Human-readable note stored on the task.",
+            "example": "Обнаружены следы подтекания топлива",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plane_uuid": {
+            "description": "UUID of the aircraft.",
+            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "classifier_text",
+          "plane_uuid",
+          "note"
+        ],
+        "type": "object"
+      },
+      "AssignEngineerResponse": {
+        "description": "Response payload for the `assign_engineer` endpoint.",
+        "properties": {
+          "distance": {
+            "description": "Route length in map cells.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "engineer_uuid": {
+            "description": "UUID of the engineer chosen for this task.",
+            "type": "string"
+          },
+          "eta_seconds": {
+            "description": "Estimated travel time in seconds.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "route": {
+            "$ref": "#/components/schemas/Route",
+            "description": "Route the engineer must follow to reach the aircraft."
+          },
+          "sla_exceeded": {
+            "description": "Whether the assignment exceeds the allowed SLA.",
+            "type": "boolean"
+          },
+          "time": {
+            "deprecated": true,
+            "description": "Previous name of `eta_seconds`. Kept for one release.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "time_limit_exceeded": {
+            "deprecated": true,
+            "description": "Previous name of `sla_exceeded`. Kept for one release.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "engineer_uuid",
+          "eta_seconds",
+          "sla_exceeded",
+          "distance",
+          "time",
+          "time_limit_exceeded",
+          "route"
+        ],
+        "type": "object"
+      },
+      "ClassifyRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for classifying a free-form problem description.",
+        "properties": {
+          "text": {
+            "description": "Problem description in natural language.",
+            "example": "уход гироплатформы ИНС, курс смещается",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "ClassifyResponse": {
+        "description": "Predicted engineer role for a free-form problem description.",
+        "properties": {
+          "confidence": {
+            "description": "Probability of the chosen class.",
+            "format": "double",
+            "type": "number"
+          },
+          "engineer_type": {
+            "$ref": "#/components/schemas/EngineerType",
+            "description": "Engineer specialization chosen by the TF-IDF Naive Bayes model."
+          }
+        },
+        "required": [
+          "engineer_type",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "CurrentTaskAogRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for setting or clearing AOG on the engineer's current task.",
+        "properties": {
+          "aog": {
+            "description": "`true` marks the task's aircraft as AOG, `false` clears the status.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "toggle": {
+            "deprecated": true,
+            "description": "Previous name of `aog`. Accepted for one release.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "aog"
+        ],
+        "type": "object"
+      },
+      "CurrentTaskAogResponse": {
+        "description": "Response payload for the current-task AOG endpoint.",
+        "properties": {
+          "aog": {
+            "description": "Whether the aircraft is currently marked AOG.",
+            "type": "boolean"
+          },
+          "plane_uuid": {
+            "description": "UUID of the aircraft whose status was updated.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plane_uuid",
+          "aog"
+        ],
+        "type": "object"
+      },
+      "CurrentTaskResponse": {
+        "description": "Response payload describing the engineer's current task.",
+        "properties": {
+          "description": {
+            "description": "Human-readable task description.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique task identifier.",
+            "type": "string"
+          },
+          "issue": {
+            "description": "Problem description stored with the task.",
+            "type": "string"
+          },
+          "plane_point": {
+            "$ref": "#/components/schemas/Point",
+            "description": "Location of the aircraft on the map at the time of assignment."
+          },
+          "plane_uuid": {
+            "description": "UUID of the aircraft attached to this task.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "route": {
+            "$ref": "#/components/schemas/Route",
+            "description": "Route from the engineer to the aircraft."
+          }
+        },
+        "required": [
+          "id",
+          "description",
+          "issue",
+          "plane_point",
+          "route"
+        ],
+        "type": "object"
+      },
+      "EngineerPositionEntry": {
+        "description": "Response entry for [`get_engineers_positions`].",
+        "properties": {
+          "id": {
+            "description": "Engineer UUID.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "position": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Point",
+                "description": "Current position, if known."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "EngineerPositionSample": {
+        "description": "[point, unix_timestamp_seconds]",
+        "items": false,
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "$ref": "#/components/schemas/Point"
+          },
+          {
+            "format": "int64",
+            "type": "integer"
+          }
+        ],
+        "type": "array"
+      },
+      "EngineerType": {
+        "enum": [
+          "integrity_inspector",
+          "crew_remarks_handler",
+          "fueling_crew",
+          "engine_technician",
+          "avionics_engineer",
+          "aviation_technician"
+        ],
+        "type": "string"
+      },
+      "EngineersPositionsResponse": {
+        "description": "Page of engineer positions.",
+        "properties": {
+          "engineers": {
+            "items": {
+              "$ref": "#/components/schemas/EngineerPositionEntry"
+            },
+            "type": "array"
+          },
+          "total": {
+            "description": "Number of engineers before `limit` and `offset` are applied.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "engineers",
+          "total"
+        ],
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "Error returned by every non-2xx response.",
+        "properties": {
+          "code": {
+            "description": "Stable machine-readable code, for example `VALIDATION_ERROR`.",
+            "example": "VALIDATION_ERROR",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "description": "Optional structured context. Keys are not fixed.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "message": {
+            "description": "Human-readable explanation.",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "Request id assigned by the server, when the caller sent or received one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "GetRouteRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for the `get_route` endpoint.",
+        "properties": {
+          "end_point": {
+            "$ref": "#/components/schemas/Point",
+            "description": "Destination point of the route."
+          },
+          "start_point": {
+            "$ref": "#/components/schemas/Point",
+            "description": "Starting point of the route."
+          }
+        },
+        "required": [
+          "start_point",
+          "end_point"
+        ],
+        "type": "object"
+      },
+      "GetRouteResponse": {
+        "description": "Response payload for the `get_route` endpoint.",
+        "properties": {
+          "distance": {
+            "description": "Total path length in map cells.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "route": {
+            "$ref": "#/components/schemas/Route",
+            "description": "Ordered sequence of points that form the shortest path."
+          }
+        },
+        "required": [
+          "route",
+          "distance"
+        ],
+        "type": "object"
+      },
+      "GetUserNameResponse": {
+        "description": "Response payload for the `get_engineer_name` endpoint.",
+        "properties": {
+          "name": {
+            "description": "Display name of the engineer.",
+            "example": "Ivan Ivanov",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "LoginRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for the `login` endpoint.",
+        "properties": {
+          "email": {
+            "description": "User's email address.",
+            "example": "engineer@aeroflot.example",
+            "format": "email",
+            "type": "string"
+          },
+          "password": {
+            "description": "Plaintext password.",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "type": "object"
+      },
+      "LoginResponse": {
+        "description": "Response payload for the `login` endpoint.",
+        "properties": {
+          "access_token": {
+            "description": "Short-lived access token.",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email of the authenticated user.",
+            "format": "email",
+            "type": "string"
+          },
+          "engineer_type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EngineerType",
+                "description": "Engineer specialization. `null` unless `user_role` is `Engineer`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_in": {
+            "description": "Access-token lifetime in seconds.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "description": "User UUID.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the authenticated user.",
+            "type": "string"
+          },
+          "refresh_token": {
+            "description": "Long-lived refresh token.",
+            "type": "string"
+          },
+          "token_type": {
+            "$ref": "#/components/schemas/OAuthTokenType",
+            "description": "Always `Bearer`."
+          },
+          "user_role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Role of the authenticated user."
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "user_role",
+          "access_token",
+          "refresh_token",
+          "token_type",
+          "expires_in"
+        ],
+        "type": "object"
+      },
+      "MapMatrix": {
+        "description": "Rectangular airport grid. 0 — проходимо, любое другое значение — препятствие.",
+        "example": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0
+          ]
+        ],
+        "items": {
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "type": "array"
+      },
+      "MapResponse": {
+        "description": "Airport map served to authenticated clients.",
+        "properties": {
+          "matrix": {
+            "$ref": "#/components/schemas/MapMatrix",
+            "description": "Grid of walkable cells and obstacles."
+          },
+          "updated_at": {
+            "description": "When this process loaded the map file.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "matrix",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "MeResponse": {
+        "description": "Profile of the authenticated user. Never includes the password hash.",
+        "properties": {
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "engineer_type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EngineerType",
+                "description": "Set only when the caller is an engineer."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "user_role": {
+            "$ref": "#/components/schemas/UserRole"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "user_role"
+        ],
+        "type": "object"
+      },
+      "OAuthTokenType": {
+        "description": "OAuth token type. The API only issues bearer tokens.",
+        "enum": [
+          "Bearer"
+        ],
+        "type": "string"
+      },
+      "Point": {
+        "description": "A coordinate on the airport map.\n\nSerialised as a JSON array `[x, y]`.",
+        "items": {
+          "description": "A coordinate on the airport map.\n\nSerialised as a JSON array `[x, y]`.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "type": "array"
+      },
+      "RegisterDispatcher": {
+        "additionalProperties": false,
+        "description": "Register a Dispatcher",
+        "properties": {
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "user_role": {
+            "enum": [
+              "Dispatcher"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "password",
+          "user_role"
+        ],
+        "type": "object"
+      },
+      "RegisterEngineer": {
+        "additionalProperties": false,
+        "description": "Register a Engineer",
+        "properties": {
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "engineer_type": {
+            "$ref": "#/components/schemas/EngineerType"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "user_role": {
+            "enum": [
+              "Engineer"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "password",
+          "user_role",
+          "engineer_type"
+        ],
+        "type": "object"
+      },
+      "RegisterRequest": {
+        "description": "Registration body. engineer_type is required only for Engineer.",
+        "discriminator": {
+          "mapping": {
+            "Dispatcher": "#/components/schemas/RegisterDispatcher",
+            "Engineer": "#/components/schemas/RegisterEngineer"
+          },
+          "propertyName": "user_role"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RegisterEngineer"
+          },
+          {
+            "$ref": "#/components/schemas/RegisterDispatcher"
+          }
+        ]
+      },
+      "Route": {
+        "description": "An ordered sequence of points forming a path on the map.",
+        "items": {
+          "$ref": "#/components/schemas/Point"
+        },
+        "type": "array"
+      },
+      "TrainClassifierResponse": {
+        "description": "Result of retraining the problem classifier from the dataset on disk.",
+        "properties": {
+          "accuracy": {
+            "description": "Held-out accuracy, when the trainer computed one.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "documents": {
+            "description": "Number of documents the model was trained on.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "trained_at": {
+            "description": "When this training run finished.",
+            "example": "2026-11-22T00:00:00Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "documents",
+          "trained_at",
+          "accuracy"
+        ],
+        "type": "object"
+      },
+      "TransportPositionEntry": {
+        "description": "Response entry for [`get_transport_positions`].",
+        "properties": {
+          "id": {
+            "description": "Vehicle UUID.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/Point",
+            "description": "Current position."
+          },
+          "vehicle_type": {
+            "$ref": "#/components/schemas/VehicleType",
+            "description": "Vehicle type."
+          }
+        },
+        "required": [
+          "id",
+          "vehicle_type",
+          "point"
+        ],
+        "type": "object"
+      },
+      "TransportPositionsResponse": {
+        "description": "Page of special-vehicle positions.",
+        "properties": {
+          "total": {
+            "description": "Number of vehicles before `limit` and `offset` are applied.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "transport": {
+            "items": {
+              "$ref": "#/components/schemas/TransportPositionEntry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "transport",
+          "total"
+        ],
+        "type": "object"
+      },
+      "UpdateAccessRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for the `update_access_token` endpoint.",
+        "properties": {
+          "refresh_token": {
+            "description": "Valid refresh token.",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "refresh_token"
+        ],
+        "type": "object"
+      },
+      "UpdateAccessResponse": {
+        "description": "Response payload for the `update_access_token` endpoint.",
+        "properties": {
+          "access_token": {
+            "description": "Fresh access token.",
+            "type": "string"
+          },
+          "expires_in": {
+            "description": "Access-token lifetime in seconds.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "refresh_token": {
+            "description": "Rotated refresh token. The presented refresh token is no longer valid.",
+            "type": "string"
+          },
+          "token_type": {
+            "$ref": "#/components/schemas/OAuthTokenType",
+            "description": "Always `Bearer`."
+          }
+        },
+        "required": [
+          "access_token",
+          "refresh_token",
+          "token_type",
+          "expires_in"
+        ],
+        "type": "object"
+      },
+      "UpdateEngineerPositionRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for flushing a buffered batch of engineer positions.",
+        "properties": {
+          "batch": {
+            "description": "Fixes the device buffered before it could send them.\n\nEach item is `[point, unix_timestamp]`. The handler keeps the fix with\nthe greatest timestamp.",
+            "items": {
+              "$ref": "#/components/schemas/EngineerPositionSample"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "UUID of the engineer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "batch"
+        ],
+        "type": "object"
+      },
+      "UpdateTransportPositionRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for updating a special vehicle's position in the simulator.",
+        "properties": {
+          "id": {
+            "description": "UUID of the special vehicle.",
+            "type": "string"
+          },
+          "new_point": {
+            "$ref": "#/components/schemas/Point",
+            "description": "New position on the map."
+          },
+          "vehicle_type": {
+            "$ref": "#/components/schemas/VehicleType",
+            "description": "Type of the special vehicle."
+          }
+        },
+        "required": [
+          "id",
+          "vehicle_type",
+          "new_point"
+        ],
+        "type": "object"
+      },
+      "UserRole": {
+        "enum": [
+          "Dispatcher",
+          "Engineer"
+        ],
+        "type": "string"
+      },
+      "VehicleType": {
+        "enum": [
+          "Aircraft",
+          "FuelTruck",
+          "OilCart",
+          "MaintenanceLift",
+          "BorescopeCart",
+          "AvionicsTestSet"
+        ],
+        "type": "string"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "name": "Aeroflot Backend Team"
+    },
+    "description": "Backend API for dispatching aircraft maintenance engineers across the airport map.\n\nFeatures:\n- Route computation between any two map points.\n- Automatic engineer assignment from a free-text problem description.\n- Task acceptance / progress tracking.\n- Geo endpoints for engineers, aircraft and special transport vehicles.\n- JWT-based authentication (access + refresh tokens).",
+    "license": {
+      "name": ""
+    },
+    "title": "Aeroflot Dispatcher API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/aircraft": {
+      "get": {
+        "operationId": "listAircraft",
+        "parameters": [
+          {
+            "description": "Maximum number of items to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "format": "int64",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AircraftListResponse"
+                }
+              }
+            },
+            "description": "Current aircraft"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not a dispatcher"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Query parameters do not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Lists every aircraft currently stored in Redis.",
+        "tags": [
+          "Aircraft"
+        ]
+      }
+    },
+    "/api/assign": {
+      "post": {
+        "description": "Classify the problem text, then find the nearest suitable engineer and optionally pick up a special vehicle",
+        "operationId": "assignEngineer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignEngineerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignEngineerResponse"
+                }
+              }
+            },
+            "description": "Task created, engineer assigned"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid input or route error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not a dispatcher"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No suitable engineer or transport found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Creates a new task and assigns the most suitable engineer.",
+        "tags": [
+          "Assign"
+        ]
+      }
+    },
+    "/api/auth/getEngineerName/{engineer_uuid}": {
+      "get": {
+        "description": "Fetch the display name of an engineer by UUID",
+        "operationId": "getEngineerName",
+        "parameters": [
+          {
+            "description": "Engineer UUID",
+            "in": "path",
+            "name": "engineer_uuid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetUserNameResponse"
+                }
+              }
+            },
+            "description": "Engineer found"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed UUID"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Engineer not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Returns the display name of an engineer by UUID.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "description": "Login and obtain access + refresh tokens",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Successful login"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid credentials"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Authenticates an existing user and returns a fresh JWT pair.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "description": "Current user profile"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "User no longer exists"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Returns the authenticated user's profile. The password hash is never included.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "description": "Register a new user profile and obtain access + refresh tokens",
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Successful registration"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Duplicate email"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Registers a new user (dispatcher or engineer) and issues a token pair.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/update_access": {
+      "post": {
+        "description": "Rotate the refresh token and obtain a new access token",
+        "operationId": "updateAccess",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateAccessResponse"
+                }
+              }
+            },
+            "description": "New access token and rotated refresh token"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Refresh token is invalid or expired"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Issues a new access token given a valid refresh token.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/classify": {
+      "post": {
+        "description": "Classify a problem description with TF-IDF weighted Naive Bayes",
+        "operationId": "classifyProblem",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassifyResponse"
+                }
+              }
+            },
+            "description": "Predicted engineer role"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Description has no words"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Classifies a free-form problem description into an engineer specialization.",
+        "tags": [
+          "Classifier"
+        ]
+      }
+    },
+    "/api/classify/train": {
+      "post": {
+        "description": "Retrain the problem classifier from the dataset file",
+        "operationId": "trainClassifier",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainClassifierResponse"
+                }
+              }
+            },
+            "description": "Classifier retrained"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not a dispatcher"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Dataset could not be loaded"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Retrains the problem classifier from the TSV dataset configured at startup.",
+        "tags": [
+          "Classifier"
+        ]
+      }
+    },
+    "/api/geo/activeEngineers": {
+      "get": {
+        "description": "List engineers who currently have an active task",
+        "operationId": "getActiveEngineers",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveEngineersResponse"
+                }
+              }
+            },
+            "description": "List of engineer UUIDs"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Returns the list of engineers with at least one active task.",
+        "tags": [
+          "Geo"
+        ]
+      }
+    },
+    "/api/geo/getEngineersPositions": {
+      "get": {
+        "description": "List engineers and their positions",
+        "operationId": "getEngineersPositions",
+        "parameters": [
+          {
+            "description": "Maximum number of items to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "format": "int64",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineersPositionsResponse"
+                }
+              }
+            },
+            "description": "Engineer positions"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Query parameters do not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Returns every engineer together with their current position.",
+        "tags": [
+          "Geo"
+        ]
+      }
+    },
+    "/api/geo/getTransportPositions": {
+      "get": {
+        "description": "List special vehicles with type, UUID and position",
+        "operationId": "getTransportPositions",
+        "parameters": [
+          {
+            "description": "Maximum number of items to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "format": "int64",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransportPositionsResponse"
+                }
+              }
+            },
+            "description": "Transport positions"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Query parameters do not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Returns every special vehicle with its type and current position.",
+        "tags": [
+          "Geo"
+        ]
+      }
+    },
+    "/api/geo/updateEngineerPosition": {
+      "post": {
+        "description": "Flush a buffered batch of engineer positions. Each sample is [point, unix_timestamp]; the newest timestamp wins.",
+        "operationId": "updateEngineerPosition",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEngineerPositionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Batch applied, or ignored because a newer position is already stored"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid UUID, empty batch, or out-of-bounds coordinate"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not an engineer"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Applies a buffered batch of engineer positions.",
+        "tags": [
+          "Geo"
+        ]
+      }
+    },
+    "/api/geo/updateTransportPosition": {
+      "post": {
+        "description": "Manually update a special-vehicle position (creates the vehicle if it does not exist)",
+        "operationId": "updateTransportPosition",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTransportPositionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Position updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid UUID or out-of-bounds coordinate"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not a dispatcher"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Manually updates a special vehicle's position.",
+        "tags": [
+          "Geo"
+        ]
+      }
+    },
+    "/api/getRoute": {
+      "post": {
+        "description": "Classic point-to-point BFS route",
+        "operationId": "getRoute",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetRouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetRouteResponse"
+                }
+              }
+            },
+            "description": "Successfully found a route"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid input data"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Computes the shortest path between two points on the map.",
+        "tags": [
+          "Route"
+        ]
+      }
+    },
+    "/api/map": {
+      "get": {
+        "operationId": "getMap",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapResponse"
+                }
+              }
+            },
+            "description": "Current map matrix"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Returns the current airport map matrix.",
+        "tags": [
+          "Map"
+        ]
+      }
+    },
+    "/api/tasks/aog": {
+      "get": {
+        "operationId": "listAog",
+        "parameters": [
+          {
+            "description": "Maximum number of items to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "format": "int64",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AogListResponse"
+                }
+              }
+            },
+            "description": "Aircraft currently marked AOG"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not a dispatcher"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Query parameters do not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Lists aircraft UUIDs that currently have an AOG status.",
+        "tags": [
+          "Aircraft"
+        ]
+      }
+    },
+    "/api/tasks/current": {
+      "get": {
+        "description": "Returns the engineer's active task. Returns null if no active task.",
+        "operationId": "getCurrentTask",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CurrentTaskResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Current active task, or null if the engineer has none"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not an engineer"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Fetches the currently active task for the authenticated engineer.",
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/tasks/current/aog": {
+      "post": {
+        "deprecated": true,
+        "description": "Deprecated alias of PUT /api/tasks/current/aog. Always returns 200.",
+        "operationId": "setCurrentTaskAogLegacy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CurrentTaskAogRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentTaskAogResponse"
+                }
+              }
+            },
+            "description": "AOG status updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Current task has no aircraft"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not an engineer"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Engineer has no active task"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Previous POST form of [`current_task_aog`]. Same handler, kept so existing clients keep working.",
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "put": {
+        "description": "Sets or clears AOG on the aircraft of the engineer's current task. Always returns 200.",
+        "operationId": "setCurrentTaskAog",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CurrentTaskAogRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentTaskAogResponse"
+                }
+              }
+            },
+            "description": "AOG status updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Current task has no aircraft"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not an engineer"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Engineer has no active task"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Sets or clears the AOG status of an aircraft for the engineer's current task.",
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/tasks/current/complete": {
+      "post": {
+        "description": "Marks the current active task of the authenticated engineer as completed",
+        "operationId": "completeCurrentTask",
+        "responses": {
+          "200": {
+            "description": "Task marked as completed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not an engineer"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Engineer has no active task"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Completes the current active task of the authenticated engineer",
+        "tags": [
+          "Tasks"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "description": "Registration, login and the current profile",
+      "name": "Auth"
+    },
+    {
+      "description": "Aircraft positions and AOG list",
+      "name": "Aircraft"
+    },
+    {
+      "description": "Assign an engineer to an aircraft",
+      "name": "Assign"
+    },
+    {
+      "description": "Problem-text classification",
+      "name": "Classifier"
+    },
+    {
+      "description": "Live positions of engineers and vehicles",
+      "name": "Geo"
+    },
+    {
+      "description": "Point-to-point routes",
+      "name": "Route"
+    },
+    {
+      "description": "Airport map",
+      "name": "Map"
+    },
+    {
+      "description": "The authenticated engineer's current task",
+      "name": "Tasks"
+    }
+  ]
+}
