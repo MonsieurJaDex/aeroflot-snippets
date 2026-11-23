@@ -693,6 +693,7 @@ export default function DispatcherPage() {
     setJournalNote("");
     try {
       await downloadJournalCsv();
+      softBeep(520, 120);
       setJournalNote("Файл journal.csv сохранён.");
     } catch (error) {
       setJournalNote(assignErrorMessage(error));
@@ -1130,6 +1131,7 @@ export default function DispatcherPage() {
           >
             Копировать UUID борта
           </button>
+          {planeId && aogIds.has(planeId) ? <p className="fault-hint stale-live">Выбранный борт в AOG.</p> : null}
           <p className="fault-hint">{live}</p>
           <label>Тип неисправности
             <select value={issue} onChange={(event) => setIssue(event.target.value)}>

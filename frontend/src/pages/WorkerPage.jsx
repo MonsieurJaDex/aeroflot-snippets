@@ -607,8 +607,10 @@ export default function WorkerPage() {
       await apiRequest("/api/tasks/current/tools", { method: "POST" });
       setTask((prev) => (prev ? { ...prev, tools_picked: true } : prev));
       flash("Инструмент получен");
+      softBeep(640, 100);
     } catch (error) {
       setNotice(`Не удалось отметить инструмент: ${error.message}`);
+      flash("Ошибка инструмента", "err");
     } finally {
       setBusyAction("");
     }
