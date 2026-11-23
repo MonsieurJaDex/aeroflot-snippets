@@ -35,6 +35,7 @@ import {
   updateTransportPosition,
 } from "../lib/live.js";
 import { classifyRemark } from "../lib/mccApi.js";
+import { copyText } from "../lib/copyText.js";
 import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
@@ -994,6 +995,17 @@ export default function DispatcherPage() {
               )) : <option value="">Нет бортов в Redis</option>}
             </select>
           </label>
+          <button
+            type="button"
+            className="shift-button"
+            disabled={!planeId}
+            onClick={async () => {
+              const ok = await copyText(planeId);
+              setLive(ok ? `Скопирован UUID: ${planeId}` : live);
+            }}
+          >
+            Копировать UUID борта
+          </button>
           <p className="fault-hint">{live}</p>
           <label>Тип неисправности
             <select value={issue} onChange={(event) => setIssue(event.target.value)}>

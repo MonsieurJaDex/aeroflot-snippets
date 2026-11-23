@@ -202,6 +202,7 @@ export default function WorkerPage() {
       setAogOn(false);
       setStatusStep("не назначен");
       setDeferUntil("");
+      try { navigator.vibrate?.(140); } catch { /* телефон */ }
     }
     seenTask.current = id;
   }, [task?.id]);
