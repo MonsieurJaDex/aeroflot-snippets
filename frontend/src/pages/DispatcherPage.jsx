@@ -1205,7 +1205,13 @@ export default function DispatcherPage() {
                             ? "—"
                             : `${Math.max(0, Math.round(Number(row.etaSeconds) / 60))} мин`;
                           return (
-                            <tr key={row.engineerId} className={chosen ? "candidate-chosen" : undefined}>
+                            <tr
+                              key={row.engineerId}
+                              className={[
+                                chosen ? "candidate-chosen" : "",
+                                row.eligible ? "" : "candidate-skip",
+                              ].filter(Boolean).join(" ") || undefined}
+                            >
                               <td>
                                 <strong>{row.name}</strong>
                                 <span className="candidate-id">{row.engineerId.slice(0, 8)}</span>

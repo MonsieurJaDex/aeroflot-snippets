@@ -69,8 +69,17 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    const error = new Error(text || `Ошибка запроса: ${res.status}`);
+    let message = text || `Ошибка запроса: ${res.status}`;
+    try {
+      const body = JSON.parse(text);
+      if (body?.message) message = String(body.message);
+      else if (body?.error) message = String(body.error);
+    } catch {
+      // текст не JSON
+    }
+    const error = new Error(message);
     error.status = res.status;
+    error.raw = text;
     throw error;
   }
 
