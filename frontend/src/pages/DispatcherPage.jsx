@@ -1138,7 +1138,16 @@ export default function DispatcherPage() {
             {routePending ? "Считаем…" : "Проба маршрута getRoute"}
           </button>
           {routeNote ? <p className="fault-hint">{routeNote}</p> : null}
-          <button id="assign-button" type="button" disabled={pending} onClick={() => actions.current.assign?.()}>
+          <button
+            id="assign-button"
+            type="button"
+            disabled={pending}
+            aria-busy={pending}
+            onClick={() => {
+              if (pending) return;
+              actions.current.assign?.();
+            }}
+          >
             {pending ? "Назначение…" : "Назначить инженера · Ctrl+Enter"}
           </button>
           <p className="fault-hint">Esc — снять выбор заявки ЦПУ. Ctrl+Enter — назначить.</p>

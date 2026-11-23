@@ -224,6 +224,13 @@ export default function WorkerPage() {
       setDeferUntil("");
       softBeep(740, 220);
       try { navigator.vibrate?.(140); } catch { /* телефон */ }
+      try {
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("ОТО · новое назначение", { body: "Примите или отклоните задачу.", tag: "oto-task" });
+        } else if (typeof Notification !== "undefined" && Notification.permission === "default") {
+          Notification.requestPermission().catch(() => {});
+        }
+      } catch { /* desktop notify */ }
     }
     seenTask.current = id;
   }, [task?.id]);

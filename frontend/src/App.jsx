@@ -1,17 +1,32 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import LoginPage from "./pages/LoginPage.jsx";
-import MccPage from "./pages/MccPage.jsx";
-import DispatcherPage from "./pages/DispatcherPage.jsx";
-import WorkerPage from "./pages/WorkerPage.jsx";
+
+const MccPage = lazy(() => import("./pages/MccPage.jsx"));
+const DispatcherPage = lazy(() => import("./pages/DispatcherPage.jsx"));
+const WorkerPage = lazy(() => import("./pages/WorkerPage.jsx"));
+
+function ScreenFallback() {
+  return (
+    <main className="role-page">
+      <div className="role-shell">
+        <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
+        <h1>Загрузка…</h1>
+      </div>
+    </main>
+  );
+}
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<LoginPage />} />
-      <Route path="/mcc" element={<MccPage />} />
-      <Route path="/dispatcher" element={<DispatcherPage />} />
-      <Route path="/worker" element={<WorkerPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <Suspense fallback={<ScreenFallback />}>
+      <Routes>
+        <Route path="/" element={<LoginPage />} />
+        <Route path="/mcc" element={<MccPage />} />
+        <Route path="/dispatcher" element={<DispatcherPage />} />
+        <Route path="/worker" element={<WorkerPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }

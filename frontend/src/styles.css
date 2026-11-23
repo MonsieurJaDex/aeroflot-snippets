@@ -275,7 +275,12 @@ button.mcc-item.selected::after { content: none; }
 .role-page .status-chain { width: min(500px, 100%); margin: 0 auto 14px; }
 .worker-shell .status-chain { margin-bottom: 16px; }
 .status-chain-step.done { color: var(--text); }
-.status-chain-step.current { color: var(--blue); font-weight: 700; }
+.status-chain-step.current {
+  color: var(--blue);
+  font-weight: 700;
+  border-bottom: 2px solid var(--orange);
+  padding-bottom: 1px;
+}
 .status-chain-sep { color: var(--border); }
 .auth-form textarea { display: block; width: 100%; margin-top: 5px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field); color: var(--text); font: inherit; resize: vertical; }
 .api-config { width: min(760px, 100%); margin: 0 auto 22px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
