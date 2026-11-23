@@ -1165,9 +1165,17 @@ export default function DispatcherPage() {
                 type="button"
                 key={row.id}
                 className="mcc-item"
-                onClick={() => setPlaneId(row.id)}
+                title="Подставить борт в заявку"
+                onClick={() => {
+                  setPlaneId(row.id);
+                  softBeep(420, 100);
+                  setLive(`AOG выбран: ${row.id.slice(0, 8)}`);
+                  window.queueMicrotask?.(() => {
+                    document.getElementById("assign-button")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                  });
+                }}
               >
-                <strong>{row.id.slice(0, 8)}</strong>
+                <strong>{row.id.slice(0, 8)} · AOG</strong>
                 <span>{row.point ? `${row.point[0]}, ${row.point[1]}` : "без точки"}</span>
               </button>
             )) : <p className="mcc-empty">Нет AOG.</p>}
