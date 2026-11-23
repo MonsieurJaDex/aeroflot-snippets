@@ -284,7 +284,7 @@ export default function MccPage() {
             {trainPending ? "Обучение…" : "Переобучить классификатор"}
           </button>
           {hint ? <p className="mcc-hint">{hint}</p> : null}
-          <button type="submit" disabled={pending || !draftText.trim()}>
+          <button type="submit" disabled={pending || !draftText.trim()} aria-busy={pending}>
             {pending ? "Запись…" : "Передать начальнику смены"}
           </button>
           {error ? <div className="auth-error">{error}</div> : null}
