@@ -364,6 +364,16 @@ export default function WorkerPage() {
           document.getElementById("aog-task")?.click();
         }
       }
+      if (event.key === "f" || event.key === "F" || event.key === "а" || event.key === "А") {
+        event.preventDefault();
+        document.getElementById("refresh-task")?.click();
+      }
+      if (event.key === "u" || event.key === "U" || event.key === "г" || event.key === "Г") {
+        if (taskRef.current) {
+          event.preventDefault();
+          document.getElementById("refresh-route")?.click();
+        }
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -878,6 +888,8 @@ export default function WorkerPage() {
             <li><kbd>G</kbd> — отправить гео</li>
             <li><kbd>M</kbd> — сохранить MEL</li>
             <li><kbd>O</kbd> — AOG</li>
+            <li><kbd>F</kbd> — обновить задачу</li>
+            <li><kbd>U</kbd> — обновить маршрут</li>
             <li><kbd>Esc</kbd> — закрыть тост</li>
           </ul>
         </details>
@@ -994,14 +1006,15 @@ export default function WorkerPage() {
         <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog} title="O">
           {busyAction === "aog" ? "…" : aogOn ? "Снять AOG · O" : "Поставить AOG · O"}
         </button>
-        <button id="refresh-route" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "route"} onClick={refreshRouteFromServer}>
-          {busyAction === "route" ? "…" : "Обновить маршрут"}
+        <button id="refresh-route" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "route"} onClick={refreshRouteFromServer} title="U">
+          {busyAction === "route" ? "…" : "Обновить маршрут · U"}
         </button>
         <button
           id="refresh-task"
           className="worker-action worker-action-secondary"
           type="button"
           disabled={busyAction === "refresh"}
+          title="F"
           onClick={async () => {
             setBusyAction("refresh");
             try {
@@ -1017,7 +1030,7 @@ export default function WorkerPage() {
             }
           }}
         >
-          {busyAction === "refresh" ? "…" : "Обновить задачу"}
+          {busyAction === "refresh" ? "…" : "Обновить задачу · F"}
         </button>
         <button id="push-geo" className="worker-action worker-action-secondary" type="button" disabled={busyAction === "geo"} onClick={pushSelfPosition} title="G">
           {busyAction === "geo" ? "…" : outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео · G"}
