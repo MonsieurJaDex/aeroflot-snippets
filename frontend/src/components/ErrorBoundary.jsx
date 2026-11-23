@@ -1,0 +1,36 @@
+import { Component } from "react";
+
+export default class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { message: "" };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { message: error?.message || "Ошибка интерфейса" };
+  }
+
+  componentDidCatch(error) {
+    console.error("[ui]", error);
+  }
+
+  render() {
+    if (this.state.message) {
+      return (
+        <main className="role-page">
+          <div className="role-shell">
+            <div className="role-hero">
+              <p className="eyebrow">СБОЙ ЭКРАНА</p>
+              <h1>Аэрофлот</h1>
+              <p className="role-copy">{this.state.message}</p>
+            </div>
+            <button type="button" className="role-link" onClick={() => window.location.assign("/")}>
+              На вход
+            </button>
+          </div>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
+}

@@ -176,12 +176,31 @@ export default function DispatcherPage() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
+  const [clock, setClock] = useState(() => new Date().toLocaleTimeString("ru-RU"));
+
   useEffect(() => {
     if (!allowed) return undefined;
     const timer = window.setInterval(() => {
       hydrateProfile().catch(() => {});
     }, 60000);
     return () => clearInterval(timer);
+  }, [allowed]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date().toLocaleTimeString("ru-RU")), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!allowed) return undefined;
+    function onKey(event) {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        actions.current.assign?.();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [allowed]);
 
   useEffect(() => {
@@ -852,7 +871,7 @@ export default function DispatcherPage() {
           </div>
           <button type="button" className="role-link" onClick={logout}>Выйти</button>
         </div>
-        <div className="account-strip"><span>{session.name}</span></div>
+        <div className="account-strip"><span>{session.name}</span><span className="live-label">{clock}</span></div>
         <StatusChain current={dispatcherStatusStep(result, inbox, activeMcc)} />
         <section className="request-panel">
           <div className="section-heading"><h2>Карта локации</h2></div>
@@ -1009,7 +1028,7 @@ export default function DispatcherPage() {
             {routePending ? "Считаем…" : "Проба маршрута getRoute"}
           </button>
           {routeNote ? <p className="fault-hint">{routeNote}</p> : null}
-          <button id="assign-button" type="button" disabled={pending} onClick={() => actions.current.assign?.()}>Назначить инженера</button>
+          <button id="assign-button" type="button" disabled={pending} onClick={() => actions.current.assign?.()}>Назначить инженера · Ctrl+Enter</button>
           <div className={result.type === "ok" ? "assignment-result success" : "assignment-result"}>
             {result.type === "ok" ? (
               <>
