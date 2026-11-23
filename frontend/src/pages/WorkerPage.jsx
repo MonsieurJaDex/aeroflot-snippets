@@ -575,10 +575,12 @@ export default function WorkerPage() {
       await apiRequest("/api/tasks/current/accept", { method: "POST" });
       await refreshTask();
       flash("Задача принята");
+      softBeep(720, 120);
       try { navigator.vibrate?.(80); } catch { /* телефон */ }
     } catch (error) {
       setNotice(`Не удалось принять задачу: ${error.message}`);
       flash("Ошибка принятия", "err");
+      softBeep(320, 200);
     } finally {
       setBusyAction("");
     }
@@ -593,9 +595,11 @@ export default function WorkerPage() {
       setStatusStep("не назначен");
       setNotice("Задача отклонена. Ожидание нового назначения.");
       flash("Задача отклонена", "err");
+      softBeep(380, 180);
     } catch (error) {
       setNotice(`Не удалось отклонить задачу: ${error.message}`);
       flash("Ошибка отклонения", "err");
+      softBeep(320, 200);
     } finally {
       setBusyAction("");
     }
@@ -611,6 +615,7 @@ export default function WorkerPage() {
     } catch (error) {
       setNotice(`Не удалось отметить инструмент: ${error.message}`);
       flash("Ошибка инструмента", "err");
+      softBeep(320, 200);
     } finally {
       setBusyAction("");
     }
@@ -625,8 +630,11 @@ export default function WorkerPage() {
       setStatusStep("не назначен");
       setNotice("Ожидание запчасти. Задача возвращена в очередь назначения.");
       flash("Ожидание запчасти");
+      softBeep(480, 140);
     } catch (error) {
       setNotice(`Не удалось отметить ожидание запчасти: ${error.message}`);
+      flash("Ошибка ожидания", "err");
+      softBeep(320, 200);
     } finally {
       setBusyAction("");
     }
@@ -642,8 +650,11 @@ export default function WorkerPage() {
       });
       setTask((prev) => (prev ? { ...prev, mel_category: category } : prev));
       flash(`MEL ${category} сохранён`);
+      softBeep(660, 100);
     } catch (error) {
       setNotice(`Не удалось сохранить MEL: ${error.message}`);
+      flash("Ошибка MEL", "err");
+      softBeep(320, 200);
     } finally {
       setBusyAction("");
     }
@@ -661,6 +672,8 @@ export default function WorkerPage() {
       setTask(null);
     } catch (error) {
       setNotice(`Не удалось завершить задачу: ${error.message}`);
+      flash("Ошибка завершения", "err");
+      softBeep(320, 200);
     } finally {
       setBusyAction("");
     }
@@ -677,9 +690,12 @@ export default function WorkerPage() {
       });
       setAogOn(Boolean(data?.aog));
       flash(data?.aog ? "Самолёт отмечен как AOG" : "AOG снят", data?.aog ? "err" : "ok");
+      softBeep(data?.aog ? 420 : 700, 140);
       try { navigator.vibrate?.(data?.aog ? [80, 40, 80] : 40); } catch { /* телефон */ }
     } catch (error) {
       setNotice(`Не удалось обновить AOG: ${error.message}`);
+      flash("Ошибка AOG", "err");
+      softBeep(320, 200);
     } finally {
       setBusyAction("");
     }
