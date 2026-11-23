@@ -314,6 +314,7 @@ export default function WorkerPage() {
           const end = [nextTask.plane_point[0] + 0.5, nextTask.plane_point[1] + 0.5];
           walk = {
             taskId: nextTask.id,
+            routeSig: JSON.stringify(route),
             centers: [end],
             startedAt: performance.now(),
             done: true,
@@ -337,7 +338,9 @@ export default function WorkerPage() {
         focus();
         return;
       }
-      if (walk && walk.taskId === nextTask.id) {
+      const routeSig = JSON.stringify(route);
+      // Тот же task id, но новый route с сервера — пересобираем линию.
+      if (walk && walk.taskId === nextTask.id && walk.routeSig === routeSig) {
         if (walk.line && !bag.map.hasLayer(walk.line)) walk.line.addTo(bag.map);
         if (walk.dest && !bag.map.hasLayer(walk.dest)) walk.dest.addTo(bag.map);
         if (selfMarker && !bag.map.hasLayer(selfMarker)) selfMarker.addTo(bag.map);
@@ -347,6 +350,7 @@ export default function WorkerPage() {
       const centers = route.map(([x, y]) => [x + 0.5, y + 0.5]);
       walk = {
         taskId: nextTask.id,
+        routeSig,
         centers,
         startedAt: performance.now(),
         done: false,
@@ -541,6 +545,20 @@ export default function WorkerPage() {
     }
   }
 
+  async function refreshRouteFromServer() {
+    if (!task?.id) return;
+    setBusyAction("route");
+    try {
+      await apiRequest(`/api/tasks/${encodeURIComponent(task.id)}/route`, { method: "POST" });
+      await refreshTask();
+      setToast("Маршрут пересчитан на сервере");
+    } catch (error) {
+      setNotice(`Не удалось обновить маршрут: ${error.message}`);
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   async function pushSelfPosition() {
     const current = getSession();
     const point = lastSelfRef.current;
@@ -646,6 +664,7 @@ export default function WorkerPage() {
         <button id="waiting-part" className="worker-action worker-action-warning" type="button" hidden={!task} disabled={busyAction === "waiting"} onClick={waitForPart}>Ожидание запчасти</button>
         <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask}>Завершить задачу</button>
         <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog}>{aogOn ? "Снять AOG" : "Поставить AOG"}</button>
+        <button id="refresh-route" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "route"} onClick={refreshRouteFromServer}>Обновить маршрут</button>
         <button id="push-geo" className="worker-action worker-action-secondary" type="button" disabled={busyAction === "geo"} onClick={pushSelfPosition}>
           {outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео"}
         </button>
