@@ -1410,7 +1410,12 @@ export default function DispatcherPage() {
             </button>
           ) : null}
           <label>Воздушное судно
-            <select value={planeId} disabled={!aircraft.length} onChange={(event) => setPlaneId(event.target.value)}>
+            <select
+              value={planeId}
+              disabled={!aircraft.length}
+              className={deferredPlaneFilter !== planeFilter ? "plane-select-pending" : undefined}
+              onChange={(event) => setPlaneId(event.target.value)}
+            >
               {(() => {
                 const q = deferredPlaneFilter.trim().toLowerCase();
                 const filtered = q

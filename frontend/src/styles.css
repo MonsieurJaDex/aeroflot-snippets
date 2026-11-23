@@ -195,6 +195,7 @@ body::before {
 .request-panel textarea { display: block; width: 100%; min-height: 76px; margin-top: 5px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--field); color: var(--text); font: inherit; font-size: 12px; line-height: 1.45; resize: vertical; }
 .request-panel textarea::placeholder { color: #8a97a6; }
 .request-panel textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0,82,155,.16); }
+.plane-select-pending { opacity: .72; }
 #assign-button, .shift-button { width: 100%; margin-top: 13px; padding: 11px; border: 0; border-radius: var(--radius); background: var(--accent); color: white; font-weight: 700; cursor: pointer; font-family: inherit; letter-spacing: .02em; text-transform: uppercase; font-size: 12px; }
 #assign-button:hover, .shift-button:hover { background: var(--accent-hover); }
 #assign-button:disabled, .shift-button:disabled { opacity: .55; cursor: default; }
