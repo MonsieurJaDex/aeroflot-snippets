@@ -11,3 +11,13 @@ export function shortId(value, size = 8) {
   const text = String(value || "");
   return text ? text.slice(0, size) : "—";
 }
+
+export function relativeRu(iso, now = Date.now()) {
+  const at = new Date(iso).getTime();
+  if (!Number.isFinite(at)) return "";
+  const sec = Math.round((now - at) / 1000);
+  if (sec < 45) return "только что";
+  if (sec < 3600) return `${Math.floor(sec / 60)} мин назад`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)} ч назад`;
+  return `${Math.floor(sec / 86400)} дн назад`;
+}

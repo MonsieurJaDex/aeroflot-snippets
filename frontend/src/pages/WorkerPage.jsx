@@ -235,10 +235,10 @@ export default function WorkerPage() {
 
   useEffect(() => {
     document.title = task
-      ? `ОТО · задача · ETA ${etaClock || "…"}`
+      ? `ОТО · задача · ETA ${formatEta(etaLeft) || "…"}`
       : "ОТО · инженер свободен";
     return () => { document.title = "Аэрофлот ОТО"; };
-  }, [task, etaClock]);
+  }, [task, etaLeft]);
 
   useEffect(() => {
     if (!task || task.eta_seconds == null) {

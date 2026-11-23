@@ -45,4 +45,8 @@ export function isMccAssigned(item) {
   return item?.status === "assigned";
 }
 
+export function clearAssignedMcc() {
+  save(listMcc().filter((item) => item.status !== "assigned"));
+}
+
 export const MCC_QUEUE_KEY = KEY;

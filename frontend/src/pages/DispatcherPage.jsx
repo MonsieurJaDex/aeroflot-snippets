@@ -37,6 +37,7 @@ import {
 import { classifyRemark } from "../lib/mccApi.js";
 import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
+import { relativeRu } from "../lib/format.js";
 import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
@@ -89,10 +90,24 @@ export default function DispatcherPage() {
   const mapNode = useRef(null);
   const actions = useRef({});
   const formRef = useRef({});
-  const layersRef = useRef({ staff: true, transport: true, stands: true, route: true });
+  const layersRef = useRef((() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("oto-map-layers") || "null");
+      if (saved && typeof saved === "object") {
+        return {
+          staff: saved.staff !== false,
+          transport: saved.transport !== false,
+          stands: saved.stands !== false,
+          route: saved.route !== false,
+        };
+      }
+    } catch { /* дефолт */ }
+    return { staff: true, transport: true, stands: true, route: true };
+  })());
   const lastAuto = useRef("");
   const skipAuto = useRef(false);
   const alertCountRef = useRef(0);
+  const inboxCountRef = useRef(0);
 
   const [aircraft, setAircraft] = useState([]);
   const [aogIds, setAogIds] = useState(() => new Set());
@@ -154,6 +169,15 @@ export default function DispatcherPage() {
   layersRef.current = layersOn;
 
   useEffect(() => {
+    localStorage.setItem("oto-map-layers", JSON.stringify(layersOn));
+  }, [layersOn]);
+
+  useEffect(() => {
+    if (inbox.length > inboxCountRef.current) softBeep(660, 160);
+    inboxCountRef.current = inbox.length;
+  }, [inbox.length]);
+
+  useEffect(() => {
     const vehicleType = ISSUE_REQUIRED_VEHICLE[issue];
     const vehicleText = vehicleType ? `Спецтранспорт: ${vehicleLabel(vehicleType)}.` : "Спецтранспорт не требуется.";
     setHint(`Нужный специалист: ${engineerTypeForIssue(issue)}. ${vehicleText}`);
@@ -195,11 +219,13 @@ export default function DispatcherPage() {
   }, []);
 
   useEffect(() => {
-    document.title = alerts.length
-      ? `ОТО · риски ${alerts.length}`
-      : "ОТО · начальник смены";
+    const bits = ["ОТО · смена"];
+    if (inbox.length) bits.push(`очередь ${inbox.length}`);
+    if (alerts.length) bits.push(`риски ${alerts.length}`);
+    if (aogList.length) bits.push(`AOG ${aogList.length}`);
+    document.title = bits.join(" · ");
     return () => { document.title = "Аэрофлот ОТО"; };
-  }, [alerts.length]);
+  }, [alerts.length, inbox.length, aogList.length]);
 
   useEffect(() => {
     if (!allowed) return undefined;
@@ -207,6 +233,9 @@ export default function DispatcherPage() {
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault();
         actions.current.assign?.();
+      }
+      if (event.key === "Escape") {
+        setActiveMcc(null);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -934,7 +963,7 @@ export default function DispatcherPage() {
               <div key={item.id} className={item.id === activeMcc ? "mcc-item selected" : "mcc-item"}>
                 <button type="button" className="mcc-item-pick" onClick={() => chooseMcc(item)}>
                   <strong>{issueLabel(item.issue)}</strong>
-                  <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status || "не назначена"}</span>
+                  <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status || "не назначена"} · {relativeRu(item.createdAt)}</span>
                   <span>{item.description}</span>
                 </button>
                 {item.serverId ? (

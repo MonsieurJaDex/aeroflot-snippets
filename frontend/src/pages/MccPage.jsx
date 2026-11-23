@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { AIRCRAFT_ISSUES, engineerTypeLabel, issueLabel } from "../lib/catalog.js";
 import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
+import { relativeRu } from "../lib/format.js";
 import { classifyRemark, createRemark, trainClassifier } from "../lib/mccApi.js";
-import { addMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
+import { addMcc, clearAssignedMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { clearSession, getSession, login } from "../lib/session.js";
 
 const ISSUES = AIRCRAFT_ISSUES.filter(([value]) => value !== "other");
@@ -236,7 +237,22 @@ export default function MccPage() {
           <div className="auth-status">{status}</div>
         </form>
         <section className="auth-panel mcc-filed">
-          <p className="section-label">Переданные замечания</p>
+          <div className="section-heading">
+            <p className="section-label">Переданные замечания</p>
+            {items.some(isMccAssigned) ? (
+              <button
+                type="button"
+                className="ghost-copy"
+                onClick={() => {
+                  clearAssignedMcc();
+                  setItems(freshList());
+                  setStatus("Назначенные убраны из локального списка.");
+                }}
+              >
+                Убрать назначенные
+              </button>
+            ) : null}
+          </div>
           <div className="mcc-inbox">
             {items.length ? items.map((item) => (
               <div className="mcc-item" key={item.id}>
@@ -244,6 +260,7 @@ export default function MccPage() {
                 <span>
                   {String(item.planeUuid || "").slice(0, 8)} · {isMccAssigned(item) ? "назначена" : "не назначена"}
                   {item.serverId ? ` · сервер ${item.status}` : " · локально"}
+                  {item.createdAt ? ` · ${relativeRu(item.createdAt)}` : ""}
                 </span>
               </div>
             )) : <p className="mcc-empty">Пока ничего не передано.</p>}
