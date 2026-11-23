@@ -263,7 +263,8 @@ body::before {
 }
 .role-link { color: var(--text); font-size: 11px; font-weight: 700; text-decoration: none; border: 1px solid var(--border); border-radius: 4px; padding: 7px 8px; white-space: nowrap; background: none; cursor: pointer; font-family: inherit; }
 .role-link:hover { border-color: var(--blue); color: var(--blue); }
-.account-strip { display: flex; justify-content: space-between; align-items: center; margin: 0 0 16px; padding: 10px 0 12px; border-bottom: 1px solid var(--border); color: var(--text); font-size: 13px; font-weight: 700; }
+.account-strip { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 16px; padding: 10px 0 12px; border-bottom: 1px solid var(--border); color: var(--text); font-size: 13px; font-weight: 700; }
+.account-strip .ghost-copy { font-size: 11px; padding: 2px 6px; vertical-align: middle; }
 .api-config { margin: 4px 0 24px; color: var(--muted); font-size: 12px; }
 .api-config summary { cursor: pointer; color: var(--blue); font-weight: 700; }
 .api-config-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; max-width: 560px; }
