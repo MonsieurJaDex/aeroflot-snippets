@@ -993,9 +993,11 @@ export default function DispatcherPage() {
       }
       const data = await getRoute(free.point, plane.point);
       const cells = Number(data?.distance);
+      softBeep(560, 100);
       setRouteNote(`Проба: ${free.name || "инженер"} → борт · ${Number.isFinite(cells) ? cells : "?"} клеток`);
     } catch (error) {
       setRouteNote(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setRoutePending(false);
     }
