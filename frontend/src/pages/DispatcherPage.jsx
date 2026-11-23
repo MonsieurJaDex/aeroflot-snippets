@@ -1,0 +1,716 @@
+import { useEffect, useRef, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
+import L from "leaflet";
+import {
+  ISSUE_REQUIRED_VEHICLE,
+  engineerTypeForIssue,
+  issueGroups,
+  issueLabel,
+  vehicleLabel,
+} from "../lib/catalog.js";
+import {
+  assignErrorMessage,
+  engineerName,
+  findTransportOnRoute,
+  loadAircraft,
+  loadAogIds,
+  loadBusyEngineerIds,
+  downloadJournalCsv,
+  loadAlerts,
+  loadStaff,
+  loadTransport,
+  reassignRequest,
+} from "../lib/live.js";
+import StatusChain from "../components/StatusChain.jsx";
+import { listMcc, markMccAssigned, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
+import { apiRequest, clearSession, getSession } from "../lib/session.js";
+import { pointAt, WALK_MPS } from "../lib/walk.js";
+import {
+  buildTileGrid,
+  cellToLatLng,
+  centerToLatLng,
+  clickToCell,
+  loadApronMap,
+  loadTilesetImages,
+  renderCanvas,
+  roadHint,
+} from "../lib/apronMap.js";
+
+const GROUPS = issueGroups();
+const FIRST_ISSUE = GROUPS[0][1][0];
+const ISSUE_LABELS = new Map(GROUPS.flatMap(([, values]) => values).map((value) => [value, issueLabel(value)]));
+const LEGEND = [
+  ["#0c7a56", "инженер свободен"],
+  ["#f47920", "инженер занят"],
+  ["#f47920", "спецтранспорт"],
+  ["#00529b", "воздушное судно"],
+  ["#c5161c", "AOG"],
+  ["#c5161c", "маршрут"],
+];
+
+function freshInbox() {
+  // В очереди только ещё не назначенные; assigned — только после успешного /api/assign.
+  return listMcc().filter((item) => item.status !== "assigned");
+}
+
+function marginMinutes(seconds) {
+  if (seconds == null || Number.isNaN(Number(seconds))) return null;
+  return Math.round(Number(seconds) / 60);
+}
+
+function dispatcherStatusStep(result, inbox, activeMcc) {
+  if (result?.type === "ok") return "назначен";
+  if (inbox.length || activeMcc) return "не назначен";
+  return "замечание";
+}
+
+export default function DispatcherPage() {
+  const navigate = useNavigate();
+  const session = getSession();
+  const allowed = session?.role === "Dispatcher";
+  const mapNode = useRef(null);
+  const actions = useRef({});
+  const formRef = useRef({});
+  const layersRef = useRef({ staff: true, transport: true, stands: true, route: true });
+  const lastAuto = useRef("");
+  const skipAuto = useRef(false);
+
+  const [aircraft, setAircraft] = useState([]);
+  const [aogIds, setAogIds] = useState(() => new Set());
+  const [planeId, setPlaneId] = useState("");
+  const [issue, setIssue] = useState(FIRST_ISSUE);
+  const [description, setDescription] = useState("");
+  const [hint, setHint] = useState("");
+  const [live, setLive] = useState("Загрузка бортов, инженеров и техники…");
+  const [result, setResult] = useState({ type: "info", text: "Выберите борт из списка и тип неисправности." });
+  const [inbox, setInbox] = useState(freshInbox);
+  const [activeMcc, setActiveMcc] = useState(null);
+  const [tileInfo, setTileInfo] = useState("Кликни по карте, чтобы выбрать клетку.");
+  const [pending, setPending] = useState(false);
+  const [alerts, setAlerts] = useState([]);
+  const [alertsNote, setAlertsNote] = useState("");
+  const [journalNote, setJournalNote] = useState("");
+  const [journalPending, setJournalPending] = useState(false);
+  const [reassignId, setReassignId] = useState("");
+  const [reassignEngineer, setReassignEngineer] = useState("");
+  const [reassignReason, setReassignReason] = useState("");
+  const [reassignNote, setReassignNote] = useState("");
+  const [reassignPending, setReassignPending] = useState(false);
+  const [layersOn, setLayersOn] = useState(layersRef.current);
+
+  formRef.current = { issue, description, planeId, activeMcc };
+  layersRef.current = layersOn;
+
+  useEffect(() => {
+    const vehicleType = ISSUE_REQUIRED_VEHICLE[issue];
+    const vehicleText = vehicleType ? `Спецтранспорт: ${vehicleLabel(vehicleType)}.` : "Спецтранспорт не требуется.";
+    setHint(`Нужный специалист: ${engineerTypeForIssue(issue)}. ${vehicleText}`);
+    if (skipAuto.current) {
+      skipAuto.current = false;
+      return;
+    }
+    const nextAuto = `Обнаружена неисправность: ${issueLabel(issue).toLowerCase()}. Требуется осмотр и устранение.`;
+    setDescription((current) => {
+      if (!current.trim() || current === lastAuto.current) {
+        lastAuto.current = nextAuto;
+        return nextAuto;
+      }
+      return current;
+    });
+  }, [issue]);
+
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key === MCC_QUEUE_KEY) setInbox(freshInbox());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  useEffect(() => {
+    if (!allowed) return undefined;
+    let cancelled = false;
+    // Риск норматива, пока диспетчер на экране.
+    async function pullAlerts() {
+      try {
+        const list = await loadAlerts();
+        if (cancelled) return;
+        setAlerts(list);
+        setAlertsNote("");
+      } catch (error) {
+        console.warn("[alerts]", error);
+        if (!cancelled) setAlertsNote("Список рисков недоступен.");
+      }
+    }
+    pullAlerts();
+    const timer = window.setInterval(pullAlerts, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [allowed]);
+
+  useEffect(() => {
+    if (!allowed) return undefined;
+    let cancelled = false;
+    const walks = new Map();
+    const bag = { map: null, frame: 0, timer: 0, cleanupResize: null };
+    let fleet = [];
+    let aircraftNow = [];
+    let agents = [];
+    let busyIds = new Set();
+    let showRoute = layersRef.current.route;
+
+    (async () => {
+      const tmj = await loadApronMap();
+      if (cancelled || !mapNode.current) return;
+      const grid = buildTileGrid(tmj);
+      const tilesets = await loadTilesetImages();
+      if (cancelled || !mapNode.current) return;
+
+      const bounds = [[0, 0], [tmj.height * tmj.tileheight, tmj.width * tmj.tilewidth]];
+      const map = L.map(mapNode.current, {
+        crs: L.CRS.Simple,
+        minZoom: -2,
+        maxZoom: 6,
+        zoomSnap: 0.25,
+        attributionControl: false,
+      });
+      bag.map = map;
+      L.imageOverlay(renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
+      map.fitBounds(bounds);
+
+      const standsLayer = L.layerGroup().addTo(map);
+      const staffLayer = L.layerGroup().addTo(map);
+      const transportLayer = L.layerGroup().addTo(map);
+      const routeExtrasLayer = L.layerGroup().addTo(map);
+      const layerOf = { staff: staffLayer, transport: transportLayer, stands: standsLayer, route: routeExtrasLayer };
+      for (const [name, layer] of Object.entries(layerOf)) {
+        if (!layersRef.current[name]) map.removeLayer(layer);
+      }
+
+      const onResize = () => map.invalidateSize();
+      window.addEventListener("resize", onResize);
+      bag.cleanupResize = () => window.removeEventListener("resize", onResize);
+
+      function staffMarker(latlng, busy, label) {
+        return L.marker(latlng, {
+          icon: L.divIcon({
+            className: `agent-marker ${busy ? "agent-busy" : "agent-free"}`,
+            html: "",
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+          }),
+        }).bindTooltip(label, { direction: "top" }).addTo(staffLayer);
+      }
+
+      function stopWalk(id) {
+        const walk = walks.get(id);
+        if (!walk) return;
+        if (walk.line) map.removeLayer(walk.line);
+        if (walk.marker) staffLayer.removeLayer(walk.marker);
+        walks.delete(id);
+      }
+
+      function startWalk(id, name, gridRoute) {
+        const key = String(id);
+        stopWalk(key);
+        const centers = gridRoute.map(([x, y]) => [x + 0.5, y + 0.5]);
+        if (centers.length < 2) return;
+        const line = L.polyline(centers.map((center) => centerToLatLng(tmj, center)), {
+          color: "#c5161c",
+          weight: 5,
+          opacity: 0.9,
+          dashArray: "10 8",
+        });
+        if (showRoute) line.addTo(map);
+        const marker = staffMarker(centerToLatLng(tmj, centers[0]), true, `${name} · идёт к ВС`);
+        walks.set(key, { centers, startedAt: performance.now(), line, marker, name });
+      }
+
+      function tick(now) {
+        for (const walk of walks.values()) {
+          if (walk.done || !walk.line) continue;
+          const traveled = ((now - walk.startedAt) / 1000) * WALK_MPS;
+          const sample = pointAt(walk.centers, traveled);
+          if (!sample) continue;
+          walk.marker.setLatLng(centerToLatLng(tmj, sample.done ? walk.centers.at(-1) : sample.point));
+          if (sample.done) {
+            if (map.hasLayer(walk.line)) map.removeLayer(walk.line);
+            walk.line = null;
+            walk.marker.setTooltipContent(`${walk.name} · на месте`);
+            walk.done = true;
+            continue;
+          }
+          const rest = walk.centers.slice(sample.nextIndex).map((center) => centerToLatLng(tmj, center));
+          walk.line.setLatLngs([centerToLatLng(tmj, sample.point), ...rest]);
+        }
+        bag.frame = requestAnimationFrame(tick);
+      }
+      bag.frame = requestAnimationFrame(tick);
+
+      function renderAircraftMarkers(list, aog) {
+        standsLayer.clearLayers();
+        for (const plane of list) {
+          const isAog = aog.has(plane.id);
+          L.marker(cellToLatLng(tmj, plane.point[0], plane.point[1]), {
+            icon: L.divIcon({
+              className: isAog ? "aircraft-marker aog" : "aircraft-marker",
+              html: "",
+              iconSize: [16, 16],
+              iconAnchor: [8, 8],
+            }),
+          }).bindTooltip(`${isAog ? "AOG · " : ""}ВС ${plane.id.slice(0, 8)}`, {
+            permanent: true,
+            direction: "top",
+            className: "map-label",
+            offset: [0, -6],
+          }).addTo(standsLayer);
+        }
+      }
+
+      function renderStaffMarkers() {
+        staffLayer.clearLayers();
+        const seen = new Set();
+        for (const agent of agents) {
+          const walk = walks.get(String(agent.id));
+          if (walk) {
+            walk.marker.addTo(staffLayer);
+            seen.add(String(agent.id));
+            continue;
+          }
+          const statusText = agent.busy ? "занят на задаче" : "свободен";
+          staffMarker(cellToLatLng(tmj, agent.point[0], agent.point[1]), agent.busy, `${agent.name} · ${statusText}`);
+        }
+        for (const [id, walk] of walks) {
+          if (!seen.has(id)) walk.marker.addTo(staffLayer);
+        }
+      }
+
+      function renderTransportMarkers() {
+        transportLayer.clearLayers();
+        for (const vehicle of fleet) {
+          L.marker(cellToLatLng(tmj, vehicle.point[0], vehicle.point[1]), {
+            icon: L.divIcon({
+              className: "transport-marker",
+              html: "",
+              iconSize: [18, 18],
+              iconAnchor: [9, 9],
+            }),
+          }).bindTooltip(vehicle.label, {
+            permanent: true,
+            direction: "top",
+            className: "map-label",
+            offset: [0, -8],
+          }).addTo(transportLayer);
+        }
+      }
+
+      async function refresh() {
+        const staff = await loadStaff();
+        if (cancelled) return;
+        agents = staff.plotted;
+        aircraftNow = await loadAircraft();
+        const aog = await loadAogIds();
+        fleet = await loadTransport();
+        busyIds = await loadBusyEngineerIds();
+        if (cancelled) return;
+        for (const agent of agents) agent.busy = busyIds.has(String(agent.id));
+        setAircraft(aircraftNow);
+        setAogIds(aog);
+        setPlaneId((prev) => (aircraftNow.some((plane) => plane.id === prev) ? prev : aircraftNow[0]?.id || ""));
+        renderAircraftMarkers(aircraftNow, aog);
+        renderStaffMarkers();
+        renderTransportMarkers();
+        const gap = staff.missing.length ? `, без координат: ${staff.missing.length}` : "";
+        setLive(`Бортов: ${aircraftNow.length} · инженеров на карте: ${agents.length}${gap} · техники: ${fleet.length} · AOG: ${aog.size}`);
+      }
+
+      map.on("click", (event) => {
+        const cell = clickToCell(tmj, event.latlng.lat, event.latlng.lng);
+        if (!cell) {
+          setTileInfo("Клик вне карты.");
+          return;
+        }
+        const cells = grid[cell.row][cell.col];
+        const hintText = roadHint(cells);
+        if (!cells.length) {
+          setTileInfo(`Point [${cell.col}, ${cell.row}]${hintText}`);
+          return;
+        }
+        const lines = cells.map((item) => {
+          const flip = item.flippedH || item.flippedV || item.flippedD
+            ? ` (flip h:${item.flippedH} v:${item.flippedV} d:${item.flippedD})`
+            : "";
+          return `${item.layerName}: gid=${item.gid}${flip}`;
+        });
+        setTileInfo(`Point [${cell.col}, ${cell.row}]${hintText}\n${lines.join("\n")}`);
+      });
+
+      actions.current = {
+        setLayer(name, on) {
+          const layer = layerOf[name];
+          if (!layer) return;
+          if (name === "route") showRoute = on;
+          if (on) layer.addTo(map);
+          else map.removeLayer(layer);
+          if (name !== "route") return;
+          for (const walk of walks.values()) {
+            if (!walk.line) continue;
+            if (on) walk.line.addTo(map);
+            else map.removeLayer(walk.line);
+          }
+        },
+        async assign() {
+          const form = formRef.current;
+          const plane = aircraftNow.find((item) => item.id === form.planeId);
+          if (!plane) {
+            setResult({ type: "info", text: "Нет воздушного судна. Борта приходят из /api/aircraft, фронт их не создаёт." });
+            return;
+          }
+          const issueValue = form.issue;
+          const text = form.description.trim() || issueLabel(issueValue);
+          const busyBefore = new Set(busyIds);
+          setPending(true);
+          setResult({ type: "info", text: "Поиск свободного инженера и спецтранспорта..." });
+          try {
+            // Координату борта бэкенд берёт из Redis по plane_uuid.
+            const response = await apiRequest("/api/assign", {
+              method: "POST",
+              body: { issue: issueValue, plane_uuid: plane.id, description: text },
+            });
+            const gridRoute = Array.isArray(response.route) ? response.route.map(([x, y]) => [x, y]) : [];
+            const assignedName = await engineerName(response.engineer_uuid);
+            routeExtrasLayer.clearLayers();
+            startWalk(response.engineer_uuid, assignedName, gridRoute);
+            const routeLine = walks.get(String(response.engineer_uuid))?.line || null;
+            const pickup = findTransportOnRoute(gridRoute, fleet);
+            if (pickup) {
+              L.marker(cellToLatLng(tmj, pickup.point[0], pickup.point[1]), {
+                icon: L.divIcon({
+                  className: "transport-pickup-marker",
+                  html: "",
+                  iconSize: [16, 16],
+                  iconAnchor: [8, 8],
+                }),
+              }).bindTooltip(`Заезд: ${pickup.label}`, {
+                permanent: true,
+                direction: "top",
+                className: "map-label",
+                offset: [0, -8],
+              }).addTo(routeExtrasLayer);
+            }
+            if (!showRoute) map.removeLayer(routeExtrasLayer);
+            await refresh();
+            const skipped = [...busyBefore].filter((id) => id !== String(response.engineer_uuid)).length;
+            // Таблица только из ответа; пустой/отсутствующий candidates не заполняем.
+            const chosenId = String(response.engineer_uuid ?? "");
+            const rawCandidates = Array.isArray(response.candidates) ? response.candidates : [];
+            const candidates = await Promise.all(rawCandidates.map(async (row) => ({
+              engineerId: String(row.engineer_id ?? ""),
+              name: await engineerName(row.engineer_id),
+              eligible: Boolean(row.eligible),
+              reason: row.reason == null ? "" : String(row.reason),
+              etaSeconds: row.eta_seconds,
+              usesVehicle: Boolean(row.uses_vehicle),
+            })));
+            candidates.sort((a, b) => Number(b.engineerId === chosenId) - Number(a.engineerId === chosenId));
+            // Очередь ЦПУ помечаем assigned только здесь, после успешного assign — не при выборе строки.
+            if (form.activeMcc && chosenId) {
+              markMccAssigned(form.activeMcc);
+              setActiveMcc(null);
+              setInbox(freshInbox());
+            }
+            setResult({
+              type: "ok",
+              name: assignedName,
+              plane: plane.id.slice(0, 8),
+              issue: issueLabel(issueValue),
+              onSite: gridRoute.length < 2,
+              cells: Math.max(0, gridRoute.length - 1),
+              minutes: Math.max(0, Math.round(Number(response.time || 0) / 60)),
+              pickup: pickup ? pickup.label : "",
+              needed: pickup ? "" : (ISSUE_REQUIRED_VEHICLE[issueValue] ? vehicleLabel(ISSUE_REQUIRED_VEHICLE[issueValue]) : ""),
+              skipped,
+              sla: Boolean(response.time_limit_exceeded),
+              chosenId,
+              candidates,
+              candidateMs: response.candidate_ms,
+            });
+            if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
+          } catch (error) {
+            setResult({ type: "error", text: `Ошибка: ${assignErrorMessage(error)}` });
+          } finally {
+            setPending(false);
+          }
+        },
+      };
+
+      await refresh();
+      if (cancelled) return;
+      bag.timer = window.setInterval(() => {
+        refresh().catch((error) => console.warn("[map] обновление", error));
+      }, 5000);
+    })().catch((error) => {
+      if (!cancelled) setTileInfo(`Ошибка: ${error.message}`);
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(bag.frame);
+      clearInterval(bag.timer);
+      bag.cleanupResize?.();
+      bag.map?.remove();
+      actions.current = {};
+    };
+  }, [allowed]);
+
+  if (!allowed) return <Navigate to="/" replace />;
+
+  function chooseMcc(item) {
+    const known = aircraft.some((plane) => plane.id === item.planeUuid);
+    skipAuto.current = item.issue !== issue;
+    lastAuto.current = item.description;
+    setActiveMcc(item.id);
+    if (known) setPlaneId(item.planeUuid);
+    setIssue(item.issue);
+    setDescription(item.description);
+    setResult({
+      type: "info",
+      text: known
+        ? "Замечание ЦПУ подставлено, статус: не назначена. Назначьте инженера."
+        : "Этого борта нет в /api/aircraft. Замечание не назначено, назначить его нельзя.",
+    });
+  }
+
+  function toggleLayer(name, on) {
+    setLayersOn((current) => ({ ...current, [name]: on }));
+    actions.current.setLayer?.(name, on);
+  }
+
+  function logout() {
+    clearSession();
+    navigate("/");
+  }
+
+  function takeAlert(item) {
+    setReassignId(String(item.request_id || ""));
+    if (item.alternative_engineer_id) setReassignEngineer(String(item.alternative_engineer_id));
+  }
+
+  async function downloadJournal() {
+    setJournalPending(true);
+    setJournalNote("");
+    try {
+      await downloadJournalCsv();
+      setJournalNote("Файл journal.csv сохранён.");
+    } catch (error) {
+      setJournalNote(assignErrorMessage(error));
+    } finally {
+      setJournalPending(false);
+    }
+  }
+
+  async function submitReassign(event) {
+    event.preventDefault();
+    const id = reassignId.trim();
+    const engineerId = reassignEngineer.trim();
+    const reason = reassignReason.trim();
+    if (!id || !engineerId || !reason) {
+      setReassignNote("Укажите заявку, инженера и причину.");
+      return;
+    }
+    const confirmed = window.confirm("Переназначить может только старший смены. Продолжить?");
+    if (!confirmed) return;
+    setReassignPending(true);
+    setReassignNote("");
+    try {
+      const data = await reassignRequest(id, engineerId, reason);
+      setReassignNote(`Переназначено: ${data?.id || id}${data?.status ? ` · ${data.status}` : ""}`);
+    } catch (error) {
+      setReassignNote(assignErrorMessage(error));
+    } finally {
+      setReassignPending(false);
+    }
+  }
+
+  return (
+    <div className="dispatcher-page">
+      <div id="sidebar">
+        <div className="brand-row">
+          <div>
+            <p className="eyebrow">НАЧАЛЬНИК СМЕНЫ</p>
+            <h1>Диспетчерская карта</h1>
+          </div>
+          <button type="button" className="role-link" onClick={logout}>Выйти</button>
+        </div>
+        <div className="account-strip"><span>{session.name}</span></div>
+        <StatusChain current={dispatcherStatusStep(result, inbox, activeMcc)} />
+        <section className="request-panel">
+          <div className="section-heading"><h2>Риск норматива</h2></div>
+          <div className="mcc-inbox">
+            {alerts.length ? alerts.map((item, index) => {
+              const minutes = marginMinutes(item.alternative_margin_seconds);
+              return (
+                <button
+                  type="button"
+                  key={`${item.request_id}-${index}`}
+                  className="mcc-item"
+                  onClick={() => takeAlert(item)}
+                >
+                  <strong>{item.message}</strong>
+                  {minutes == null ? null : <span>Запас альтернативы: {minutes} мин</span>}
+                  <span>Заявка {item.request_id}</span>
+                </button>
+              );
+            }) : <p className="mcc-empty">Нет рисков норматива.</p>}
+          </div>
+          {alertsNote ? <p className="fault-hint">{alertsNote}</p> : null}
+          <button type="button" className="shift-button" disabled={journalPending} onClick={downloadJournal}>Скачать журнал</button>
+          {journalNote ? <p className="fault-hint">{journalNote}</p> : null}
+        </section>
+        <section className="request-panel">
+          <div className="section-heading"><h2>Заявки ЦПУ</h2></div>
+          <div className="mcc-inbox">
+            {inbox.length ? inbox.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={item.id === activeMcc ? "mcc-item selected" : "mcc-item"}
+                onClick={() => chooseMcc(item)}
+              >
+                <strong>{issueLabel(item.issue)}</strong>
+                <span>Борт {String(item.planeUuid).slice(0, 8)} · не назначена</span>
+                <span>{item.description}</span>
+              </button>
+            )) : <p className="mcc-empty">Нет новых замечаний от ЦПУ.</p>}
+          </div>
+        </section>
+        <section className="request-panel">
+          <div className="section-heading"><h2>Новая заявка</h2><span className="live-label">LIVE</span></div>
+          <label>Воздушное судно
+            <select value={planeId} disabled={!aircraft.length} onChange={(event) => setPlaneId(event.target.value)}>
+              {aircraft.length ? aircraft.map((plane) => (
+                <option key={plane.id} value={plane.id}>
+                  {plane.id.slice(0, 8)} · {plane.point[0]}, {plane.point[1]}{aogIds.has(plane.id) ? " · AOG" : ""}
+                </option>
+              )) : <option value="">Нет бортов в Redis</option>}
+            </select>
+          </label>
+          <p className="fault-hint">{live}</p>
+          <label>Тип неисправности
+            <select value={issue} onChange={(event) => setIssue(event.target.value)}>
+              {GROUPS.map(([label, values]) => {
+                const visible = values.filter((value) => value !== "other");
+                if (!visible.length) return null;
+                return (
+                  <optgroup key={label} label={label}>
+                    {visible.map((value) => <option key={value} value={value}>{ISSUE_LABELS.get(value)}</option>)}
+                  </optgroup>
+                );
+              })}
+            </select>
+          </label>
+          <div className="fault-hint">{hint}</div>
+          <label>Описание проблемы
+            <textarea rows={3} value={description} placeholder="Например: обнаружены следы подтекания топлива" onChange={(event) => setDescription(event.target.value)} />
+          </label>
+          <button id="assign-button" type="button" disabled={pending} onClick={() => actions.current.assign?.()}>Назначить инженера</button>
+          <div className={result.type === "ok" ? "assignment-result success" : "assignment-result"}>
+            {result.type === "ok" ? (
+              <>
+                <strong>{result.name}</strong><br />
+                Борт {result.plane} · {result.issue}<br />
+                {result.onSite ? "Инженер уже у воздушного судна, маршрут пустой." : <>Маршрут: <strong>{result.cells} клеток</strong><br />В пути: <strong>{result.minutes} мин</strong></>}
+                {result.pickup ? <><br />Маршрут заезжает за спецтранспорт: <strong>{result.pickup}</strong>.</> : null}
+                {result.needed ? <><br />Для неисправности нужен: <strong>{result.needed}</strong>.</> : null}
+                {result.skipped ? <><br /><em>Занятые инженеры пропущены ({result.skipped}).</em></> : null}
+                {result.sla ? <><br /><em>Время в пути больше 15 минут.</em></> : null}
+                {Array.isArray(result.candidates) && result.candidates.length ? (
+                  <div className="candidates-block">
+                    <p className="candidates-meta">
+                      Кандидаты{result.candidateMs != null ? ` · ${result.candidateMs} мс` : ""}
+                    </p>
+                    <table className="candidates-table">
+                      <thead>
+                        <tr>
+                          <th>Инженер</th>
+                          <th>Допуск</th>
+                          <th>Причина</th>
+                          <th>ETA</th>
+                          <th>Техника</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result.candidates.map((row) => {
+                          const chosen = row.engineerId === result.chosenId;
+                          const etaMin = row.etaSeconds == null || Number.isNaN(Number(row.etaSeconds))
+                            ? "—"
+                            : `${Math.max(0, Math.round(Number(row.etaSeconds) / 60))} мин`;
+                          return (
+                            <tr key={row.engineerId} className={chosen ? "candidate-chosen" : undefined}>
+                              <td>
+                                <strong>{row.name}</strong>
+                                <span className="candidate-id">{row.engineerId.slice(0, 8)}</span>
+                                {chosen ? <span className="candidate-badge">выбран</span> : null}
+                              </td>
+                              <td>{row.eligible ? "да" : "нет"}</td>
+                              <td>{chosen ? "—" : (row.reason || "—")}</td>
+                              <td>{etaMin}</td>
+                              <td>{row.usesVehicle ? "да" : "нет"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </>
+            ) : result.text}
+          </div>
+        </section>
+        <section className="request-panel">
+          <div className="section-heading"><h2>Переназначение</h2></div>
+          <form onSubmit={submitReassign}>
+            <label>Заявка
+              <input type="text" value={reassignId} autoComplete="off" onChange={(event) => setReassignId(event.target.value)} />
+            </label>
+            <label>Инженер
+              <input type="text" value={reassignEngineer} autoComplete="off" onChange={(event) => setReassignEngineer(event.target.value)} />
+            </label>
+            <label>Причина
+              <input type="text" value={reassignReason} autoComplete="off" onChange={(event) => setReassignReason(event.target.value)} />
+            </label>
+            <button type="submit" className="shift-button" disabled={reassignPending}>Переназначить</button>
+          </form>
+          {reassignNote ? <p className="fault-hint">{reassignNote}</p> : null}
+        </section>
+        <section>
+          <h2>Отображение</h2>
+          <div>
+            <label className="layer-row"><input type="checkbox" checked={layersOn.staff} onChange={(event) => toggleLayer("staff", event.target.checked)} /> Сотрудники</label>
+            <label className="layer-row"><input type="checkbox" checked={layersOn.transport} onChange={(event) => toggleLayer("transport", event.target.checked)} /> Спецтранспорт</label>
+            <label className="layer-row"><input type="checkbox" checked={layersOn.stands} onChange={(event) => toggleLayer("stands", event.target.checked)} /> Воздушные суда</label>
+            <label className="layer-row"><input type="checkbox" checked={layersOn.route} onChange={(event) => toggleLayer("route", event.target.checked)} /> Маршрут</label>
+          </div>
+        </section>
+        <section>
+          <h2>Координаты</h2>
+          <div id="tile-info">{tileInfo}</div>
+        </section>
+        <section>
+          <h2>Легенда</h2>
+          <div>
+            {LEGEND.map(([color, label]) => (
+              <div className="legend-row" key={label}>
+                <span className="swatch" style={{ background: color }} />
+                {label}
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+      <div id="map" ref={mapNode} />
+    </div>
+  );
+}
