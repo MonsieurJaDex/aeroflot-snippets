@@ -327,7 +327,11 @@ export default function MccPage() {
             <select
               name="urgency"
               defaultValue={localStorage.getItem("oto-mcc-urgency") || ""}
-              onChange={(event) => localStorage.setItem("oto-mcc-urgency", event.target.value)}
+              onChange={(event) => {
+                const next = event.target.value;
+                localStorage.setItem("oto-mcc-urgency", next);
+                if (next === "urgent") softBeep(780, 80);
+              }}
             >
               <option value="">не указана</option>
               <option value="normal">обычная</option>
