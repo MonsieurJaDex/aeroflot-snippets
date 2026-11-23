@@ -264,9 +264,13 @@ export default function WorkerPage() {
   }, [toast]);
 
   useEffect(() => {
-    if (!pollStale) return;
+    if (!pollStale) {
+      if (staleBeepAt.current) softBeep(640, 80);
+      staleBeepAt.current = 0;
+      return;
+    }
     const now = Date.now();
-    if (now - staleBeepAt.current < 45000) return;
+    if (now - staleBeepAt.current < 45000 && staleBeepAt.current) return;
     staleBeepAt.current = now;
     softBeep(300, 180);
   }, [pollStale]);
@@ -898,10 +902,24 @@ export default function WorkerPage() {
                       onClick={async () => {
                         const ok = await copyText(task.id);
                         flash(ok ? "ID задачи скопирован" : "Не удалось скопировать", ok ? "ok" : "err");
+                        softBeep(ok ? 600 : 320, ok ? 80 : 160);
                       }}
                     >
                       Копировать ID
                     </button>
+                    {task.description ? (
+                      <button
+                        type="button"
+                        className="ghost-copy"
+                        onClick={async () => {
+                          const ok = await copyText(task.description);
+                          flash(ok ? "Описание скопировано" : "Не удалось скопировать", ok ? "ok" : "err");
+                          softBeep(ok ? 560 : 320, ok ? 80 : 160);
+                        }}
+                      >
+                        Копировать описание
+                      </button>
+                    ) : null}
                   </div>
                   <p className="section-label">MEL</p>
                   <select
