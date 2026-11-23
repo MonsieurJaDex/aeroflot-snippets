@@ -185,7 +185,7 @@ export default function DispatcherPage() {
       return [];
     }
   });
-  const [urgentOnly, setUrgentOnly] = useState(false);
+  const [urgentOnly, setUrgentOnly] = useState(() => localStorage.getItem("oto-urgent-only") === "1");
   const lastLiveAt = useRef(Date.now());
 
   formRef.current = { issue, description, planeId, activeMcc };
@@ -306,6 +306,15 @@ export default function DispatcherPage() {
       if ((event.ctrlKey || event.metaKey) && (event.key === "k" || event.key === "K" || event.key === "л" || event.key === "Л")) {
         event.preventDefault();
         document.getElementById("plane-filter")?.focus();
+      }
+      if ((event.ctrlKey || event.metaKey) && (event.key === "u" || event.key === "U" || event.key === "г" || event.key === "Г")) {
+        event.preventDefault();
+        setUrgentOnly((prev) => {
+          const next = !prev;
+          localStorage.setItem("oto-urgent-only", next ? "1" : "0");
+          softBeep(next ? 700 : 480, 80);
+          return next;
+        });
       }
     }
     window.addEventListener("keydown", onKey);
@@ -1184,8 +1193,16 @@ export default function DispatcherPage() {
         <details className="request-panel" open>
           <summary>Заявки ЦПУ · {inbox.length}</summary>
           <label className="layer-row">
-            <input type="checkbox" checked={urgentOnly} onChange={(event) => setUrgentOnly(event.target.checked)} />
-            Только срочные
+            <input
+              type="checkbox"
+              checked={urgentOnly}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setUrgentOnly(next);
+                localStorage.setItem("oto-urgent-only", next ? "1" : "0");
+              }}
+            />
+            Только срочные · Ctrl+U
           </label>
           <div className="mcc-inbox">
             {(() => {
@@ -1396,7 +1413,8 @@ export default function DispatcherPage() {
             <ul>
               <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd> — назначить инженера</li>
               <li><kbd>Ctrl</kbd>+<kbd>K</kbd> — фильтр бортов</li>
-              <li><kbd>Esc</kbd> — снять выбор ЦПУ и фильтр бортов</li>
+              <li><kbd>Ctrl</kbd>+<kbd>U</kbd> — только срочные</li>
+              <li><kbd>Esc</kbd> — снять выбор, фильтр и подсказки</li>
             </ul>
           </details>
           {staleLive ? <p className="fault-hint stale-live">Карта давно не обновлялась — проверьте сеть или API.</p> : null}

@@ -23,7 +23,7 @@ export default function LoginPage() {
   const [apiBase, setApiBaseInput] = useState(getApiBase);
   const [role, setRole] = useState(() => {
     const saved = localStorage.getItem("oto-last-role");
-    return saved === "Dispatcher" || saved === "Engineer" ? saved : null;
+    return saved === "Dispatcher" || saved === "Engineer" || saved === "Mcc" ? saved : null;
   });
   const [mode, setMode] = useState("login");
   const [error, setError] = useState("");
