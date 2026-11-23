@@ -175,6 +175,7 @@ export default function DispatcherPage() {
   const [layersOn, setLayersOn] = useState(layersRef.current);
   const [planeFilter, setPlaneFilter] = useState("");
   const [staleLive, setStaleLive] = useState(false);
+  const [crewNote, setCrewNote] = useState("");
   const lastLiveAt = useRef(Date.now());
 
   formRef.current = { issue, description, planeId, activeMcc };
@@ -491,6 +492,8 @@ export default function DispatcherPage() {
         const gap = staff.missing.length ? `, без координат: ${staff.missing.length}` : "";
         lastLiveAt.current = Date.now();
         setStaleLive(false);
+        const free = agents.filter((agent) => !agent.busy).length;
+        setCrewNote(`Свободно ${free} / ${agents.length}`);
         setLive(`Бортов: ${aircraftNow.length} · инженеров на карте: ${agents.length}${gap} · техники: ${fleet.length} · AOG: ${aog.size}`);
       }
 
@@ -944,7 +947,9 @@ export default function DispatcherPage() {
         </div>
         <div className="account-strip">
           <span>{session.name}{session.email ? ` · ${session.email}` : ""}</span>
-          <span className={staleLive ? "live-label stale" : "live-label"}>{staleLive ? `STALE · ${clock}` : clock}</span>
+          <span className={staleLive ? "live-label stale" : "live-label"}>
+            {crewNote ? `${crewNote} · ` : ""}{staleLive ? `STALE · ${clock}` : clock}
+          </span>
         </div>
         <StatusChain current={dispatcherStatusStep(result, inbox, activeMcc)} />
         <details className="request-panel">

@@ -118,6 +118,9 @@ body::before {
 }
 
 .brand-row {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -125,6 +128,7 @@ body::before {
   padding: 18px 18px 14px;
   background: var(--blue);
   color: #fff;
+  box-shadow: 0 8px 16px rgba(0, 58, 112, .18);
 }
 .brand-row .eyebrow { color: rgba(255,255,255,.78); }
 .brand-row h1 { color: #fff !important; }
