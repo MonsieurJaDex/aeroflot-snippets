@@ -72,34 +72,6 @@ pub fn revoke_and_store_tokens(
     Ok(())
 }
 
-pub fn revoke_and_store_access_token(
-    redis_conn: &mut Connection,
-    user_id: Uuid,
-    access: &str,
-) -> Result<(), redis::RedisError> {
-    let old_access: Option<String> = redis_conn.get(format!("access_from_id:{}", user_id))?;
-
-    let mut pipe = redis::pipe();
-    pipe.atomic();
-    if let Some(old) = old_access.as_deref() {
-        pipe.del(format!("access:{}", old)).ignore();
-    }
-    pipe.set_ex(
-        format!("access:{}", access),
-        user_id.to_string(),
-        ACCESS_TTL_SECS as u64,
-    )
-    .ignore();
-    pipe.set_ex(
-        format!("access_from_id:{}", user_id),
-        access,
-        ACCESS_TTL_SECS as u64,
-    )
-    .ignore();
-    pipe.query::<()>(redis_conn)?;
-    Ok(())
-}
-
 pub fn hash_password(password: String) -> anyhow::Result<String> {
     let argon2 = Argon2::default();
     Ok(argon2.hash_password(password.as_bytes())?.to_string())

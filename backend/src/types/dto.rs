@@ -130,19 +130,27 @@ pub struct GetRouteRequest {
 pub struct AssignEngineerRequest {
     /// Known issue category. Defaults to `other` when omitted.
     #[serde(default)]
+    #[allow(dead_code)]
     pub issue: AircraftIssue,
     /// Free-form text passed to the Bayes classifier.
     #[schema(example = "подтекание топлива из дренажных колпачков")]
+    #[allow(dead_code)]
     pub classifier_text: String,
     /// Human-readable note stored on the task.
     #[schema(example = "Обнаружены следы подтекания топлива")]
+    #[allow(dead_code)]
     pub note: Option<String>,
     /// Previous name of `note`. Accepted for one release.
     #[serde(default)]
+    #[allow(dead_code)]
     pub description: Option<String>,
     /// UUID of the aircraft.
     #[schema(format = "uuid", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
+    #[allow(dead_code)]
     pub plane_uuid: String,
+    /// Existing request in status `unassigned`.
+    #[serde(default)]
+    pub request_id: Option<String>,
 }
 
 /// One aircraft currently stored in Redis.
@@ -235,8 +243,21 @@ pub struct AssignEngineerResponse {
     /// Previous name of `sla_exceeded`. Kept for one release.
     #[schema(deprecated)]
     pub time_limit_exceeded: bool,
+    pub candidates: Vec<AssignmentCandidate>,
+    /// Milliseconds spent building the candidate list.
+    pub candidate_ms: i32,
     /// Route the engineer must follow to reach the aircraft.
     pub route: Route,
+}
+
+/// One row of the assignment comparison.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AssignmentCandidate {
+    pub engineer_id: String,
+    pub eligible: bool,
+    pub reason: String,
+    pub eta_seconds: u64,
+    pub uses_vehicle: bool,
 }
 
 /// Response payload describing the engineer's current task.
@@ -254,6 +275,14 @@ pub struct CurrentTaskResponse {
     pub plane_uuid: Option<String>,
     /// Route from the engineer to the aircraft.
     pub route: Route,
+    pub status: String,
+    pub eta_seconds: u64,
+    #[schema(nullable)]
+    pub ata_chapter: Option<String>,
+    #[schema(nullable)]
+    pub mel_category: Option<String>,
+    pub arrived: bool,
+    pub tools_picked: bool,
 }
 
 // ---------------------------------------------------------------------------
