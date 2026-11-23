@@ -134,9 +134,9 @@ export default function DispatcherPage() {
   const [alertsNote, setAlertsNote] = useState("");
   const [journalNote, setJournalNote] = useState("");
   const [journalPending, setJournalPending] = useState(false);
-  const [reassignId, setReassignId] = useState("");
-  const [reassignEngineer, setReassignEngineer] = useState("");
-  const [reassignReason, setReassignReason] = useState("");
+  const [reassignId, setReassignId] = useState(() => sessionStorage.getItem("oto-reassign-id") || "");
+  const [reassignEngineer, setReassignEngineer] = useState(() => sessionStorage.getItem("oto-reassign-eng") || "");
+  const [reassignReason, setReassignReason] = useState(() => sessionStorage.getItem("oto-reassign-reason") || "");
   const [reassignNote, setReassignNote] = useState("");
   const [reassignPending, setReassignPending] = useState(false);
   const [queueNote, setQueueNote] = useState("");
@@ -812,6 +812,12 @@ export default function DispatcherPage() {
     try {
       const data = await reassignRequest(id, engineerId, reason);
       softBeep(760, 120);
+      setReassignId("");
+      setReassignEngineer("");
+      setReassignReason("");
+      sessionStorage.removeItem("oto-reassign-id");
+      sessionStorage.removeItem("oto-reassign-eng");
+      sessionStorage.removeItem("oto-reassign-reason");
       setReassignNote(`Переназначено: ${data?.id || id}${data?.status ? ` · ${data.status}` : ""}`);
     } catch (error) {
       setReassignNote(assignErrorMessage(error));
@@ -1507,10 +1513,16 @@ export default function DispatcherPage() {
                                 chosen ? "candidate-chosen" : "",
                                 row.eligible ? "" : "candidate-skip",
                               ].filter(Boolean).join(" ") || undefined}
-                              title="Клик — подставить в переназначение"
+                              title="Клик — в переназначение · двойной клик — копировать uuid"
                               onClick={() => {
                                 setReassignEngineer(row.engineerId);
+                                sessionStorage.setItem("oto-reassign-eng", row.engineerId);
                                 setLive(`В переназначение: ${row.name}`);
+                              }}
+                              onDoubleClick={async () => {
+                                const ok = await copyText(row.engineerId);
+                                setLive(ok ? `Скопирован uuid ${row.engineerId.slice(0, 8)}` : "Не удалось скопировать uuid");
+                                softBeep(ok ? 600 : 320, ok ? 80 : 160);
                               }}
                               style={{ cursor: "pointer" }}
                             >
