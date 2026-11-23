@@ -63,6 +63,7 @@ export default function MccPage() {
   const [trainPending, setTrainPending] = useState(false);
   const [savedEmail, setSavedEmail] = useState(() => localStorage.getItem("oto-last-email") || "");
   const [savedPlane, setSavedPlane] = useState(() => localStorage.getItem("oto-last-plane") || "");
+  const [draftText, setDraftText] = useState(() => sessionStorage.getItem("oto-mcc-draft") || "");
 
   useEffect(() => {
     const open = items.filter((row) => !isMccAssigned(row)).length;
@@ -235,7 +236,20 @@ export default function MccPage() {
               {ISSUES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
-          <label>Описание<textarea name="description" rows={3} required placeholder="Что сообщил экипаж или сотрудник" /></label>
+          <label>Описание
+            <textarea
+              name="description"
+              rows={3}
+              required
+              placeholder="Что сообщил экипаж или сотрудник"
+              value={draftText}
+              onChange={(event) => {
+                const next = event.target.value;
+                setDraftText(next);
+                sessionStorage.setItem("oto-mcc-draft", next);
+              }}
+            />
+          </label>
           <label>Глава ATA<input name="ata" type="text" placeholder="необязательно, например 28" /></label>
           <label>Срочность
             <select name="urgency" defaultValue="">
