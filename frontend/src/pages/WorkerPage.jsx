@@ -1003,13 +1003,13 @@ export default function WorkerPage() {
           {busyAction === "mel" ? "…" : "Сохранить MEL · M"}
         </button>
         <button id="tools-task" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={!task || task.tools_picked || busyAction === "tools"} onClick={pickTools} title="T">
-          {task?.tools_picked ? "Инструмент ✓" : busyAction === "tools" ? "…" : "Инструмент получен"}
+          {task?.tools_picked ? "Инструмент ✓" : busyAction === "tools" ? "…" : "Инструмент · T"}
         </button>
         <button id="waiting-part" className="worker-action worker-action-warning" type="button" hidden={!task} disabled={busyAction === "waiting"} onClick={waitForPart} title="W">
-          {busyAction === "waiting" ? "…" : "Ожидание запчасти"}
+          {busyAction === "waiting" ? "…" : "Запчасть · W"}
         </button>
         <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask} title="C">
-          {busyAction === "complete" ? "…" : "Завершить задачу"}
+          {busyAction === "complete" ? "…" : "Завершить · C"}
         </button>
         <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog} title="O">
           {busyAction === "aog" ? "…" : aogOn ? "Снять AOG · O" : "Поставить AOG · O"}
