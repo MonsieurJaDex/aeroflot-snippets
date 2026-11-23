@@ -1144,6 +1144,7 @@ export default function DispatcherPage() {
             Копировать UUID борта
           </button>
           {planeId && aogIds.has(planeId) ? <p className="fault-hint stale-live">Выбранный борт в AOG.</p> : null}
+          {!aircraft.length ? <p className="fault-hint stale-live">Нет бортов в Redis. Список приходит из /api/aircraft.</p> : null}
           <p className="fault-hint">{live}</p>
           <label>Тип неисправности
             <select value={issue} onChange={(event) => setIssue(event.target.value)}>

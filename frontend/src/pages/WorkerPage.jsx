@@ -854,7 +854,7 @@ export default function WorkerPage() {
           {outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео"}
         </button>
       </div>
-      <div className={toastKind === "err" ? "worker-toast err" : "worker-toast"} role="status" hidden={!toast}>{toast}</div>
+      <div className={toastKind === "err" ? "worker-toast err" : "worker-toast"} role="status" aria-live="polite" hidden={!toast}>{toast}</div>
     </main>
   );
 }
