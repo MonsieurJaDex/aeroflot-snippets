@@ -731,6 +731,11 @@ export default function DispatcherPage() {
   function takeAlert(item) {
     setReassignId(String(item.request_id || ""));
     if (item.alternative_engineer_id) setReassignEngineer(String(item.alternative_engineer_id));
+    window.queueMicrotask?.(() => {
+      const panel = document.getElementById("reassign-panel");
+      panel?.setAttribute("open", "");
+      document.getElementById("reassign-reason")?.focus();
+    });
   }
 
   async function downloadJournal() {
@@ -782,6 +787,7 @@ export default function DispatcherPage() {
       const data = await queueRequest(item.serverId);
       markMccQueued(item.id);
       setInbox(freshInbox());
+      softBeep(700, 100);
       setQueueNote(`В очереди: ${data?.id || item.serverId}${data?.status ? ` · ${data.status}` : ""}`);
     } catch (error) {
       setQueueNote(assignErrorMessage(error));
@@ -1411,7 +1417,7 @@ export default function DispatcherPage() {
           </form>
           {transportNote ? <p className="fault-hint">{transportNote}</p> : null}
         </details>
-        <details className="request-panel">
+        <details className="request-panel" id="reassign-panel">
           <summary>Переназначение</summary>
           <form onSubmit={submitReassign}>
             <label>Заявка
@@ -1421,7 +1427,7 @@ export default function DispatcherPage() {
               <input type="text" value={reassignEngineer} autoComplete="off" spellCheck={false} onChange={(event) => setReassignEngineer(event.target.value)} />
             </label>
             <label>Причина
-              <input type="text" value={reassignReason} autoComplete="off" onChange={(event) => setReassignReason(event.target.value)} />
+              <input id="reassign-reason" type="text" value={reassignReason} autoComplete="off" onChange={(event) => setReassignReason(event.target.value)} />
             </label>
             <button type="submit" className="shift-button" disabled={reassignPending}>Переназначить</button>
           </form>
