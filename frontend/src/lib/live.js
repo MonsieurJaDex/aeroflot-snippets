@@ -155,6 +155,17 @@ export async function loadMovements(limit = 20) {
   return Array.isArray(data?.movements) ? data.movements : [];
 }
 
+export async function departAircraft(id) {
+  return apiRequest("/api/aircraft/depart", {
+    method: "POST",
+    body: { id },
+  });
+}
+
+export async function trainClassifier() {
+  return apiRequest("/api/classify/train", { method: "POST" });
+}
+
 export function assignErrorMessage(err) {
   const raw = String(err?.message || err || "");
   if (/no suitable engineer available/i.test(raw)) return "На данную исправность отсутствует подходящий специалист";

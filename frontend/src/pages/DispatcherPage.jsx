@@ -4,6 +4,7 @@ import L from "leaflet";
 import {
   ISSUE_REQUIRED_VEHICLE,
   engineerTypeForIssue,
+  engineerTypeLabel,
   issueGroups,
   issueLabel,
   vehicleLabel,
@@ -16,6 +17,7 @@ import {
   loadAogIds,
   loadBusyEngineerIds,
   createDefect,
+  departAircraft,
   downloadJournalCsv,
   loadAlerts,
   loadMovements,
@@ -23,7 +25,9 @@ import {
   loadTransport,
   queueRequest,
   reassignRequest,
+  trainClassifier,
 } from "../lib/live.js";
+import { classifyRemark } from "../lib/mccApi.js";
 import StatusChain from "../components/StatusChain.jsx";
 import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { apiRequest, clearSession, getSession } from "../lib/session.js";
@@ -105,6 +109,12 @@ export default function DispatcherPage() {
   const [defectAta, setDefectAta] = useState("");
   const [defectNote, setDefectNote] = useState("");
   const [defectPending, setDefectPending] = useState(false);
+  const [classifyHint, setClassifyHint] = useState("");
+  const [classifyPending, setClassifyPending] = useState(false);
+  const [trainNote, setTrainNote] = useState("");
+  const [trainPending, setTrainPending] = useState(false);
+  const [departNote, setDepartNote] = useState("");
+  const [departPending, setDepartPending] = useState(false);
   const [movements, setMovements] = useState([]);
   const [layersOn, setLayersOn] = useState(layersRef.current);
 
@@ -602,6 +612,60 @@ export default function DispatcherPage() {
     return `${id} · прибыл ${arrived}${left}${point}`;
   }
 
+  async function onClassifyDescription() {
+    const text = description.trim();
+    if (!text) {
+      setClassifyHint("Сначала введите описание.");
+      return;
+    }
+    setClassifyPending(true);
+    setClassifyHint("");
+    try {
+      const data = await classifyRemark(text);
+      const name = engineerTypeLabel(data.engineer_type) || data.engineer_type;
+      const pct = Number(data.confidence);
+      const conf = Number.isFinite(pct) ? `${Math.round((pct <= 1 ? pct * 100 : pct))}%` : "—";
+      setClassifyHint(`${name}, уверенность ${conf}. Подсказка, не назначение.`);
+    } catch (error) {
+      setClassifyHint(assignErrorMessage(error));
+    } finally {
+      setClassifyPending(false);
+    }
+  }
+
+  async function onTrainClassifier() {
+    setTrainPending(true);
+    setTrainNote("");
+    try {
+      const data = await trainClassifier();
+      const acc = data?.accuracy == null ? "—" : `${Math.round(Number(data.accuracy) * 100)}%`;
+      setTrainNote(`Обучено: ${data?.documents ?? "?"} док. · accuracy ${acc}`);
+    } catch (error) {
+      setTrainNote(assignErrorMessage(error));
+    } finally {
+      setTrainPending(false);
+    }
+  }
+
+  async function onDepartPlane() {
+    if (!planeId) {
+      setDepartNote("Выберите борт.");
+      return;
+    }
+    setDepartPending(true);
+    setDepartNote("");
+    try {
+      await departAircraft(planeId);
+      setDepartNote(`Вылет зафиксирован: ${planeId.slice(0, 8)}`);
+      const moves = await loadMovements(12);
+      setMovements(moves);
+    } catch (error) {
+      setDepartNote(assignErrorMessage(error));
+    } finally {
+      setDepartPending(false);
+    }
+  }
+
   return (
     <div className="dispatcher-page">
       <div id="sidebar">
@@ -685,6 +749,10 @@ export default function DispatcherPage() {
             <button type="submit" className="shift-button" disabled={defectPending}>Добавить дефект</button>
           </form>
           {defectNote ? <p className="fault-hint">{defectNote}</p> : null}
+          <button type="button" className="shift-button" disabled={trainPending} onClick={onTrainClassifier}>
+            {trainPending ? "Обучение…" : "Переобучить классификатор"}
+          </button>
+          {trainNote ? <p className="fault-hint">{trainNote}</p> : null}
         </section>
         <section className="request-panel">
           <div className="section-heading"><h2>Новая заявка</h2><span className="live-label">LIVE</span></div>
@@ -715,6 +783,14 @@ export default function DispatcherPage() {
           <label>Описание проблемы
             <textarea rows={3} value={description} placeholder="Например: обнаружены следы подтекания топлива" onChange={(event) => setDescription(event.target.value)} />
           </label>
+          <button type="button" className="shift-button" disabled={classifyPending || pending} onClick={onClassifyDescription}>
+            {classifyPending ? "Классификация…" : "Подсказать тип инженера"}
+          </button>
+          {classifyHint ? <p className="fault-hint">{classifyHint}</p> : null}
+          <button type="button" className="shift-button" disabled={departPending || !planeId} onClick={onDepartPlane}>
+            {departPending ? "Фиксация…" : "Зафиксировать вылет борта"}
+          </button>
+          {departNote ? <p className="fault-hint">{departNote}</p> : null}
           <button id="assign-button" type="button" disabled={pending} onClick={() => actions.current.assign?.()}>Назначить инженера</button>
           <div className={result.type === "ok" ? "assignment-result success" : "assignment-result"}>
             {result.type === "ok" ? (

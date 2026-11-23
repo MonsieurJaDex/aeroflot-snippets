@@ -8,3 +8,7 @@ export function createRemark(body) {
 export function classifyRemark(text) {
   return apiRequest("/api/classify", { method: "POST", body: { text } });
 }
+
+export function trainClassifier() {
+  return apiRequest("/api/classify/train", { method: "POST" });
+}

@@ -4,7 +4,7 @@ import { AIRCRAFT_ISSUES, engineerTypeLabel, issueLabel } from "../lib/catalog.j
 import StatusChain from "../components/StatusChain.jsx";
 import { classifyRemark, createRemark } from "../lib/mccApi.js";
 import { addMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
-import { getSession } from "../lib/session.js";
+import { clearSession, getSession, login } from "../lib/session.js";
 
 const ISSUES = AIRCRAFT_ISSUES.filter(([value]) => value !== "other");
 
@@ -51,6 +51,8 @@ export default function MccPage() {
   const [hint, setHint] = useState("");
   const [pending, setPending] = useState(false);
   const [classifying, setClassifying] = useState(false);
+  const [sessionName, setSessionName] = useState(() => getSession()?.name || "");
+  const [authPending, setAuthPending] = useState(false);
 
   useEffect(() => {
     const onStorage = (event) => {
@@ -102,6 +104,29 @@ export default function MccPage() {
     }
   }
 
+  async function onAuth(event) {
+    event.preventDefault();
+    setError("");
+    setAuthPending(true);
+    const form = new FormData(event.currentTarget);
+    try {
+      // Токен любой роли бэка — для POST /api/requests нужен bearer.
+      const session = await login(String(form.get("email") || "").trim(), String(form.get("password") || ""));
+      setSessionName(session?.name || "");
+      setStatus(`Вход: ${session?.name || "ок"}. Можно писать замечания на сервер.`);
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setAuthPending(false);
+    }
+  }
+
+  function onLogout() {
+    clearSession();
+    setSessionName("");
+    setStatus("Вышли. Серверные замечания снова недоступны без входа.");
+  }
+
   async function onClassify() {
     setError("");
     const { description } = readForm();
@@ -137,6 +162,20 @@ export default function MccPage() {
         </div>
         <p className="mcc-back"><Link className="role-link" to="/">К ролям</Link></p>
         <StatusChain current={items.some((item) => !isMccAssigned(item)) ? "не назначен" : items.length ? "назначен" : "замечание"} />
+        {!sessionName ? (
+          <form className="auth-panel auth-form" onSubmit={onAuth}>
+            <p className="section-label">Вход для записи на сервер</p>
+            <label>Email<input type="email" name="email" required autoComplete="username" /></label>
+            <label>Пароль<input type="password" name="password" required autoComplete="current-password" /></label>
+            <button type="submit" disabled={authPending}>{authPending ? "Вход…" : "Войти"}</button>
+          </form>
+        ) : (
+          <div className="auth-panel" style={{ marginBottom: 12 }}>
+            <p className="section-label">Сессия</p>
+            <div className="account-name">{sessionName}</div>
+            <button type="button" className="role-link" style={{ marginTop: 10 }} onClick={onLogout}>Выйти</button>
+          </div>
+        )}
         <form className="auth-panel auth-form" ref={formRef} onSubmit={onSubmit}>
           <label>UUID воздушного судна<input name="plane" type="text" placeholder="необязательно, если борт ещё не известен" /></label>
           <label>Тип неисправности

@@ -131,8 +131,12 @@ export default function WorkerPage() {
         if (!mine || !Array.isArray(mine.position)) return;
         // Пока идёт ход по маршруту, точку не дёргаем с Redis (там часто уже стоим у ВС).
         mapApi.current.showSelfPoint?.(mine.position, { fromServer: true });
+        setNotice((prev) => (prev.startsWith("Нет связи")
+          ? "Связь восстановлена. Позиция снова с сервера."
+          : prev));
       } catch (error) {
         console.warn("[worker] своя позиция", error);
+        if (!cancelled) setNotice("Нет связи с геосервером. Показана последняя известная позиция.");
       }
     }
 
