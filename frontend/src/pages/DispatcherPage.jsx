@@ -892,11 +892,13 @@ export default function DispatcherPage() {
     setDepartNote("");
     try {
       await departAircraft(planeId);
+      softBeep(540, 100);
       setDepartNote(`Вылет зафиксирован: ${planeId.slice(0, 8)}`);
       const moves = await loadMovements(12);
       setMovements(moves);
     } catch (error) {
       setDepartNote(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setDepartPending(false);
     }
@@ -1005,11 +1007,13 @@ export default function DispatcherPage() {
     setArriveNote("");
     try {
       const data = await arriveAircraft(plane.point, plane.id);
+      softBeep(580, 100);
       setArriveNote(`Прибытие: ${(data?.aircraft_id || plane.id).slice(0, 8)}`);
       const moves = await loadMovements(12);
       setMovements(moves);
     } catch (error) {
       setArriveNote(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setArrivePending(false);
     }
