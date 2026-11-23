@@ -1405,7 +1405,18 @@ export default function DispatcherPage() {
           <summary>Спецтранспорт</summary>
           <form onSubmit={onMoveTransport}>
             <label>Техника
-              <select value={transportId} onChange={(event) => setTransportId(event.target.value)}>
+              <select
+                value={transportId}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  setTransportId(id);
+                  const vehicle = fleet.find((item) => item.id === id);
+                  if (vehicle?.point) {
+                    setTransportX(String(vehicle.point[0]));
+                    setTransportY(String(vehicle.point[1]));
+                  }
+                }}
+              >
                 {fleet.length ? fleet.map((item) => (
                   <option key={item.id} value={item.id}>{item.label} · {item.id.slice(0, 8)}</option>
                 )) : <option value="">Нет техники</option>}
