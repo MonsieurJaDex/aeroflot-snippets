@@ -316,6 +316,23 @@ export default function DispatcherPage() {
           return next;
         });
       }
+      if ((event.ctrlKey || event.metaKey) && (event.key === "j" || event.key === "J" || event.key === "о" || event.key === "О")) {
+        event.preventDefault();
+        document.getElementById("download-journal")?.click();
+      }
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-4]$/.test(event.key)) {
+        if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+        const names = ["staff", "transport", "stands", "route"];
+        const name = names[Number(event.key) - 1];
+        if (!name) return;
+        event.preventDefault();
+        setLayersOn((prev) => {
+          const next = { ...prev, [name]: !prev[name] };
+          actions.current.setLayer?.(name, next[name]);
+          softBeep(next[name] ? 620 : 400, 70);
+          return next;
+        });
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1196,8 +1213,8 @@ export default function DispatcherPage() {
             }) : <p className="mcc-empty">Нет рисков норматива.</p>}
           </div>
           {alertsNote ? <p className="fault-hint">{alertsNote}</p> : null}
-          <button type="button" className="shift-button" disabled={journalPending} onClick={downloadJournal}>
-            {journalPending ? "Скачивание…" : "Скачать журнал"}
+          <button id="download-journal" type="button" className="shift-button" disabled={journalPending} onClick={downloadJournal} title="Ctrl+J">
+            {journalPending ? "Скачивание…" : "Скачать журнал · Ctrl+J"}
           </button>
           {journalNote ? <p className="fault-hint">{journalNote}</p> : null}
         </details>
@@ -1425,6 +1442,8 @@ export default function DispatcherPage() {
               <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd> — назначить инженера</li>
               <li><kbd>Ctrl</kbd>+<kbd>K</kbd> — фильтр бортов</li>
               <li><kbd>Ctrl</kbd>+<kbd>U</kbd> — только срочные</li>
+              <li><kbd>Ctrl</kbd>+<kbd>J</kbd> — журнал.csv</li>
+              <li><kbd>1</kbd>–<kbd>4</kbd> — слои карты</li>
               <li><kbd>Esc</kbd> — снять выбор, фильтр и подсказки</li>
             </ul>
           </details>
@@ -1638,10 +1657,10 @@ export default function DispatcherPage() {
         <details className="request-panel">
           <summary>Отображение</summary>
           <div>
-            <label className="layer-row"><input type="checkbox" checked={layersOn.staff} onChange={(event) => toggleLayer("staff", event.target.checked)} /> Сотрудники</label>
-            <label className="layer-row"><input type="checkbox" checked={layersOn.transport} onChange={(event) => toggleLayer("transport", event.target.checked)} /> Спецтранспорт</label>
-            <label className="layer-row"><input type="checkbox" checked={layersOn.stands} onChange={(event) => toggleLayer("stands", event.target.checked)} /> Воздушные суда</label>
-            <label className="layer-row"><input type="checkbox" checked={layersOn.route} onChange={(event) => toggleLayer("route", event.target.checked)} /> Маршрут</label>
+            <label className="layer-row"><input type="checkbox" checked={layersOn.staff} onChange={(event) => toggleLayer("staff", event.target.checked)} /> Сотрудники · 1</label>
+            <label className="layer-row"><input type="checkbox" checked={layersOn.transport} onChange={(event) => toggleLayer("transport", event.target.checked)} /> Спецтранспорт · 2</label>
+            <label className="layer-row"><input type="checkbox" checked={layersOn.stands} onChange={(event) => toggleLayer("stands", event.target.checked)} /> Воздушные суда · 3</label>
+            <label className="layer-row"><input type="checkbox" checked={layersOn.route} onChange={(event) => toggleLayer("route", event.target.checked)} /> Маршрут · 4</label>
           </div>
         </details>
         <details className="request-panel">
