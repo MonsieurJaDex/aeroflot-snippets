@@ -74,13 +74,14 @@ export default function MccPage() {
 
   async function onSubmit(event) {
     event.preventDefault();
+    const form = event.currentTarget;
     setError("");
     setStatus("");
     const draft = readForm();
-    if (!draft.planeUuid || !draft.description) return;
+    if (!draft.description) return;
     if (!signedIn()) {
       addMcc(draft);
-      event.currentTarget.reset();
+      form.reset();
       setHint("");
       setError("Нужен вход, чтобы записать замечание на сервер. Оно осталось в локальной очереди.");
       setItems(freshList());
@@ -90,7 +91,7 @@ export default function MccPage() {
     try {
       const created = await createRemark(remarkBody(draft));
       addMcc({ ...draft, serverId: created?.id || null, serverStatus: created?.status || "crew_remark" });
-      event.currentTarget.reset();
+      form.reset();
       setHint("");
       setStatus("Замечание записано на сервере. Инженера не назначали.");
       setItems(freshList());
@@ -137,7 +138,7 @@ export default function MccPage() {
         <p className="mcc-back"><Link className="role-link" to="/">К ролям</Link></p>
         <StatusChain current={items.some((item) => !isMccAssigned(item)) ? "не назначен" : items.length ? "назначен" : "замечание"} />
         <form className="auth-panel auth-form" ref={formRef} onSubmit={onSubmit}>
-          <label>UUID воздушного судна<input name="plane" type="text" required placeholder="uuid борта из списка начальника смены" /></label>
+          <label>UUID воздушного судна<input name="plane" type="text" placeholder="необязательно, если борт ещё не известен" /></label>
           <label>Тип неисправности
             <select name="issue" required defaultValue={ISSUES[0][0]}>
               {ISSUES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}

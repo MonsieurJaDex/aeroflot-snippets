@@ -139,6 +139,22 @@ export async function reassignRequest(id, engineerId, reason) {
   });
 }
 
+export async function queueRequest(id) {
+  return apiRequest(`/api/requests/${encodeURIComponent(id)}/queue`, { method: "POST" });
+}
+
+export async function createDefect(text, ataChapter) {
+  return apiRequest("/api/defects", {
+    method: "POST",
+    body: { text, ata_chapter: ataChapter },
+  });
+}
+
+export async function loadMovements(limit = 20) {
+  const data = await apiRequest(`/api/aircraft/movements?limit=${limit}`);
+  return Array.isArray(data?.movements) ? data.movements : [];
+}
+
 export function assignErrorMessage(err) {
   const raw = String(err?.message || err || "");
   if (/no suitable engineer available/i.test(raw)) return "На данную исправность отсутствует подходящий специалист";

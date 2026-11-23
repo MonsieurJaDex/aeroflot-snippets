@@ -36,6 +36,11 @@ export function markMccAssigned(id) {
   save(listMcc().map((item) => (item.id === id ? { ...item, status: "assigned" } : item)));
 }
 
+export function markMccQueued(id) {
+  if (!id) return;
+  save(listMcc().map((item) => (item.id === id ? { ...item, status: "unassigned" } : item)));
+}
+
 export function isMccAssigned(item) {
   return item?.status === "assigned";
 }

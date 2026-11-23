@@ -88,9 +88,9 @@ export default function LoginPage() {
     <main className="role-page">
       <div className="role-shell">
         <div className="role-hero">
-          <p className="eyebrow">АЭРОФЛОТ / ОТО</p>
-          <h1>Вход в систему</h1>
-          <p className="role-copy">Заявка идёт по цепочке: ЦПУ фиксирует замечание, начальник смены назначает исполнителя, инженер выполняет работу.</p>
+          <p className="eyebrow">ОТО · ДИСПЕТЧЕРИЗАЦИЯ</p>
+          <h1>Аэрофлот</h1>
+          <p className="role-copy">ЦПУ фиксирует замечание, начальник смены назначает, инженер выполняет. Вход по роли.</p>
         </div>
 
         <details className="api-config">

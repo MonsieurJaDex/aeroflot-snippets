@@ -15,14 +15,17 @@ import {
   loadAircraft,
   loadAogIds,
   loadBusyEngineerIds,
+  createDefect,
   downloadJournalCsv,
   loadAlerts,
+  loadMovements,
   loadStaff,
   loadTransport,
+  queueRequest,
   reassignRequest,
 } from "../lib/live.js";
 import StatusChain from "../components/StatusChain.jsx";
-import { listMcc, markMccAssigned, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
+import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { apiRequest, clearSession, getSession } from "../lib/session.js";
 import { pointAt, WALK_MPS } from "../lib/walk.js";
 import {
@@ -96,6 +99,13 @@ export default function DispatcherPage() {
   const [reassignReason, setReassignReason] = useState("");
   const [reassignNote, setReassignNote] = useState("");
   const [reassignPending, setReassignPending] = useState(false);
+  const [queueNote, setQueueNote] = useState("");
+  const [queuePending, setQueuePending] = useState("");
+  const [defectText, setDefectText] = useState("");
+  const [defectAta, setDefectAta] = useState("");
+  const [defectNote, setDefectNote] = useState("");
+  const [defectPending, setDefectPending] = useState(false);
+  const [movements, setMovements] = useState([]);
   const [layersOn, setLayersOn] = useState(layersRef.current);
 
   formRef.current = { issue, description, planeId, activeMcc };
@@ -130,20 +140,21 @@ export default function DispatcherPage() {
   useEffect(() => {
     if (!allowed) return undefined;
     let cancelled = false;
-    // Риск норматива, пока диспетчер на экране.
-    async function pullAlerts() {
+    // Риск норматива и прибытия ВС, пока диспетчер на экране.
+    async function pullSide() {
       try {
-        const list = await loadAlerts();
+        const [list, moves] = await Promise.all([loadAlerts(), loadMovements(12)]);
         if (cancelled) return;
         setAlerts(list);
+        setMovements(moves);
         setAlertsNote("");
       } catch (error) {
-        console.warn("[alerts]", error);
-        if (!cancelled) setAlertsNote("Список рисков недоступен.");
+        console.warn("[alerts/movements]", error);
+        if (!cancelled) setAlertsNote("Список рисков или движений недоступен.");
       }
     }
-    pullAlerts();
-    const timer = window.setInterval(pullAlerts, 15000);
+    pullSide();
+    const timer = window.setInterval(pullSide, 15000);
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -374,10 +385,17 @@ export default function DispatcherPage() {
           setPending(true);
           setResult({ type: "info", text: "Поиск свободного инженера и спецтранспорта..." });
           try {
-            // Координату борта бэкенд берёт из Redis по plane_uuid.
+            // Контракт assign: classifier_text + note + plane_uuid; issue и request_id опциональны.
+            const mccItem = listMcc().find((item) => item.id === form.activeMcc);
             const response = await apiRequest("/api/assign", {
               method: "POST",
-              body: { issue: issueValue, plane_uuid: plane.id, description: text },
+              body: {
+                classifier_text: text,
+                note: text,
+                plane_uuid: plane.id,
+                issue: issueValue,
+                request_id: mccItem?.serverId || null,
+              },
             });
             const gridRoute = Array.isArray(response.route) ? response.route.map(([x, y]) => [x, y]) : [];
             const assignedName = await engineerName(response.engineer_uuid);
@@ -534,13 +552,63 @@ export default function DispatcherPage() {
     }
   }
 
+  async function enqueueMcc(item, event) {
+    event.stopPropagation();
+    if (!item?.serverId) {
+      setQueueNote("Нет serverId — сначала запись через ЦПУ на сервер.");
+      return;
+    }
+    setQueuePending(item.id);
+    setQueueNote("");
+    try {
+      const data = await queueRequest(item.serverId);
+      markMccQueued(item.id);
+      setInbox(freshInbox());
+      setQueueNote(`В очереди: ${data?.id || item.serverId}${data?.status ? ` · ${data.status}` : ""}`);
+    } catch (error) {
+      setQueueNote(assignErrorMessage(error));
+    } finally {
+      setQueuePending("");
+    }
+  }
+
+  async function submitDefect(event) {
+    event.preventDefault();
+    const text = defectText.trim();
+    const ata = defectAta.trim();
+    if (!text || !ata) {
+      setDefectNote("Нужны текст дефекта и глава ATA.");
+      return;
+    }
+    setDefectPending(true);
+    setDefectNote("");
+    try {
+      await createDefect(text, ata);
+      setDefectText("");
+      setDefectAta("");
+      setDefectNote("Дефект добавлен в классификатор.");
+    } catch (error) {
+      setDefectNote(assignErrorMessage(error));
+    } finally {
+      setDefectPending(false);
+    }
+  }
+
+  function movementLabel(row) {
+    const id = String(row.aircraft_id || "").slice(0, 8) || "борт";
+    const arrived = row.arrived_at ? new Date(row.arrived_at).toLocaleString("ru-RU") : "—";
+    const left = row.departed_at ? ` · ушёл ${new Date(row.departed_at).toLocaleString("ru-RU")}` : " · на стоянке";
+    const point = Array.isArray(row.point) ? ` · ${row.point[0]}, ${row.point[1]}` : "";
+    return `${id} · прибыл ${arrived}${left}${point}`;
+  }
+
   return (
     <div className="dispatcher-page">
       <div id="sidebar">
         <div className="brand-row">
           <div>
-            <p className="eyebrow">НАЧАЛЬНИК СМЕНЫ</p>
-            <h1>Диспетчерская карта</h1>
+            <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
+            <h1>Начальник смены</h1>
           </div>
           <button type="button" className="role-link" onClick={logout}>Выйти</button>
         </div>
@@ -573,18 +641,50 @@ export default function DispatcherPage() {
           <div className="section-heading"><h2>Заявки ЦПУ</h2></div>
           <div className="mcc-inbox">
             {inbox.length ? inbox.map((item) => (
-              <button
-                type="button"
-                key={item.id}
-                className={item.id === activeMcc ? "mcc-item selected" : "mcc-item"}
-                onClick={() => chooseMcc(item)}
-              >
-                <strong>{issueLabel(item.issue)}</strong>
-                <span>Борт {String(item.planeUuid).slice(0, 8)} · не назначена</span>
-                <span>{item.description}</span>
-              </button>
+              <div key={item.id} className={item.id === activeMcc ? "mcc-item selected" : "mcc-item"}>
+                <button type="button" className="mcc-item-pick" onClick={() => chooseMcc(item)}>
+                  <strong>{issueLabel(item.issue)}</strong>
+                  <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status || "не назначена"}</span>
+                  <span>{item.description}</span>
+                </button>
+                {item.serverId ? (
+                  <button
+                    type="button"
+                    className="shift-button"
+                    disabled={queuePending === item.id || item.status === "unassigned"}
+                    onClick={(event) => enqueueMcc(item, event)}
+                  >
+                    {item.status === "unassigned" ? "Уже в очереди" : "В очередь назначения"}
+                  </button>
+                ) : null}
+              </div>
             )) : <p className="mcc-empty">Нет новых замечаний от ЦПУ.</p>}
           </div>
+          {queueNote ? <p className="fault-hint">{queueNote}</p> : null}
+        </section>
+        <section className="request-panel">
+          <div className="section-heading"><h2>Движения ВС</h2></div>
+          <div className="mcc-inbox">
+            {movements.length ? movements.map((row) => (
+              <div className="mcc-item" key={row.id || `${row.aircraft_id}-${row.arrived_at}`}>
+                <strong>{String(row.aircraft_id || "").slice(0, 8) || "ВС"}</strong>
+                <span>{movementLabel(row)}</span>
+              </div>
+            )) : <p className="mcc-empty">Нет записей прибытия.</p>}
+          </div>
+        </section>
+        <section className="request-panel">
+          <div className="section-heading"><h2>Классификатор</h2></div>
+          <form onSubmit={submitDefect}>
+            <label>Текст дефекта
+              <input type="text" value={defectText} autoComplete="off" onChange={(event) => setDefectText(event.target.value)} />
+            </label>
+            <label>Глава ATA
+              <input type="text" value={defectAta} autoComplete="off" onChange={(event) => setDefectAta(event.target.value)} />
+            </label>
+            <button type="submit" className="shift-button" disabled={defectPending}>Добавить дефект</button>
+          </form>
+          {defectNote ? <p className="fault-hint">{defectNote}</p> : null}
         </section>
         <section className="request-panel">
           <div className="section-heading"><h2>Новая заявка</h2><span className="live-label">LIVE</span></div>

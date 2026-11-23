@@ -40,6 +40,7 @@ function etaMinutes(seconds) {
   return Math.round(value / 60);
 }
 
+// datetime-local в RFC3339; пустая строка уходит как null.
 function deferUntilIso(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -162,7 +163,7 @@ export default function WorkerPage() {
     const category = task?.mel_category;
     if (category === "A" || category === "B" || category === "C" || category === "D") {
       setMelCategory(category);
-    } else if (!task) {
+    } else {
       setMelCategory("A");
     }
   }, [task?.id, task?.mel_category]);
@@ -389,6 +390,9 @@ export default function WorkerPage() {
     .toUpperCase() || "--";
   const route = Array.isArray(task?.route) ? task.route : [];
   const routeText = !task ? "" : route.length < 2 ? "Вы уже у воздушного судна." : `Маршрут: ${Math.max(0, route.length - 1)} клеток`;
+  const step = chainStep(task, statusStep);
+  const minutes = task ? etaMinutes(task.eta_seconds) : null;
+  const canDecide = task?.status === "assigned";
 
   async function refreshTask() {
     try {
@@ -529,10 +533,13 @@ export default function WorkerPage() {
 
         <div className="worker-status-bar" aria-live="polite">
           <span className={task ? "worker-status busy" : "worker-status free"}>{task ? "Занят" : "Свободен"}</span>
-          <span className={`worker-task-badge${aogOn ? " aog" : ""}`}>{!task ? "Ожидание" : aogOn ? "AOG" : "В работе"}</span>
+          <span className="worker-task-badge">{task ? step : "Ожидание"}</span>
+          {aogOn ? <span className="worker-task-badge aog">AOG</span> : null}
+          {minutes != null ? <span className="worker-task-badge">ETA {minutes} мин</span> : null}
+          {task?.arrived ? <span className="worker-task-badge">Прибыл</span> : null}
         </div>
 
-        <StatusChain current={task ? "в работе" : statusStep} />
+        <StatusChain current={step} />
 
         <section className="worker-map-card">
           <div className="section-heading">
@@ -551,7 +558,7 @@ export default function WorkerPage() {
           <article className="assignment-card">
             <div className="section-heading">
               <p className="section-label">Текущее назначение</p>
-              <span className="task-state">{!task ? "ОЖИДАНИЕ" : aogOn ? "AOG" : "В РАБОТЕ"}</span>
+              <span className="task-state">{!task ? "ОЖИДАНИЕ" : step}</span>
             </div>
             <div className="task-content">
               {task ? (
@@ -559,7 +566,20 @@ export default function WorkerPage() {
                   <strong>ВС {planeLabel(task)}</strong><br />
                   {issueLabel(task.issue)}<br />
                   {task.description || ""}<br />
-                  {routeText}
+                  {routeText}<br />
+                  ETA: {minutes} мин<br />
+                  {task.tools_picked ? "Инструмент получен" : "Инструмент не получен"}
+                  {task.mel_category ? <><br />MEL {task.mel_category}</> : null}
+                  {task.arrived ? <><br />Прибыл к воздушному судну</> : null}
+                  <p className="section-label">MEL</p>
+                  <select aria-label="Категория MEL" value={melCategory} onChange={(event) => setMelCategory(event.target.value)}>
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                    <option value="C">C</option>
+                    <option value="D">D</option>
+                  </select>
+                  <p className="section-label">Отложить до</p>
+                  <input aria-label="Отложить до" type="datetime-local" value={deferUntil} onChange={(event) => setDeferUntil(event.target.value)} />
                 </>
               ) : "Новых заявок нет."}
             </div>
@@ -568,6 +588,11 @@ export default function WorkerPage() {
         <section className="notice-card"><div>{notice}</div></section>
       </div>
       <div className="worker-dock" role="group" aria-label="Действия по задаче">
+        <button id="accept-task" className="worker-action worker-action-accept" type="button" hidden={!canDecide} disabled={busyAction === "accept"} onClick={acceptTask}>Принять</button>
+        <button id="reject-task" className="worker-action worker-action-danger" type="button" hidden={!canDecide} disabled={busyAction === "reject"} onClick={rejectTask}>Отклонить</button>
+        <button id="save-mel" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "mel"} onClick={saveMel}>Сохранить MEL</button>
+        <button id="tools-task" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={!task || task.tools_picked || busyAction === "tools"} onClick={pickTools}>Инструмент получен</button>
+        <button id="waiting-part" className="worker-action worker-action-warning" type="button" hidden={!task} disabled={busyAction === "waiting"} onClick={waitForPart}>Ожидание запчасти</button>
         <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask}>Завершить задачу</button>
         <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog}>{aogOn ? "Снять AOG" : "Поставить AOG"}</button>
       </div>
