@@ -1591,13 +1591,43 @@ export default function DispatcherPage() {
           <summary>Переназначение</summary>
           <form onSubmit={submitReassign}>
             <label>Заявка
-              <input type="text" value={reassignId} autoComplete="off" spellCheck={false} onChange={(event) => setReassignId(event.target.value)} />
+              <input
+                type="text"
+                value={reassignId}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setReassignId(next);
+                  sessionStorage.setItem("oto-reassign-id", next);
+                }}
+              />
             </label>
             <label>Инженер
-              <input type="text" value={reassignEngineer} autoComplete="off" spellCheck={false} onChange={(event) => setReassignEngineer(event.target.value)} />
+              <input
+                type="text"
+                value={reassignEngineer}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setReassignEngineer(next);
+                  sessionStorage.setItem("oto-reassign-eng", next);
+                }}
+              />
             </label>
             <label>Причина
-              <input id="reassign-reason" type="text" value={reassignReason} autoComplete="off" onChange={(event) => setReassignReason(event.target.value)} />
+              <input
+                id="reassign-reason"
+                type="text"
+                value={reassignReason}
+                autoComplete="off"
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setReassignReason(next);
+                  sessionStorage.setItem("oto-reassign-reason", next);
+                }}
+              />
             </label>
             <button type="submit" className="shift-button" disabled={reassignPending}>
               {reassignPending ? "Переназначение…" : "Переназначить"}
