@@ -277,7 +277,7 @@ export default function MccPage() {
             </select>
           </label>
           <label>Примечание<input name="note" type="text" placeholder="необязательно" /></label>
-          <button type="button" className="mcc-classify" onClick={onClassify} disabled={classifying || pending || trainPending || !draftText.trim()}>
+          <button type="button" className="mcc-classify" onClick={onClassify} disabled={classifying || pending || trainPending || !draftText.trim() || !sessionName}>
             {classifying ? "Классификация…" : "Подсказать тип инженера"}
           </button>
           <button type="button" className="mcc-classify" onClick={onTrain} disabled={trainPending || pending || classifying || !sessionName}>
