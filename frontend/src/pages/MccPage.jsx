@@ -262,7 +262,35 @@ export default function MccPage() {
           </div>
         )}
         <form className="auth-panel auth-form" ref={formRef} onSubmit={onSubmit}>
-          <label>UUID воздушного судна<input name="plane" type="text" spellCheck={false} autoComplete="off" placeholder="необязательно, если борт ещё не известен" defaultValue={savedPlane} /></label>
+          <label>UUID воздушного судна
+            <input name="plane" type="text" spellCheck={false} autoComplete="off" placeholder="необязательно, если борт ещё не известен" defaultValue={savedPlane} />
+          </label>
+          <button
+            type="button"
+            className="mcc-classify"
+            onClick={async () => {
+              try {
+                const text = (await navigator.clipboard.readText()).trim();
+                const match = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+                const plane = formRef.current?.elements?.namedItem("plane");
+                if (!match || !plane) {
+                  setError("В буфере нет UUID.");
+                  softBeep(320, 200);
+                  return;
+                }
+                plane.value = match[0];
+                localStorage.setItem("oto-last-plane", match[0]);
+                setSavedPlane(match[0]);
+                setStatus(`UUID из буфера: ${match[0].slice(0, 8)}…`);
+                softBeep(640, 100);
+              } catch {
+                setError("Нет доступа к буферу обмена.");
+                softBeep(320, 200);
+              }
+            }}
+          >
+            Вставить UUID из буфера
+          </button>
           <label>Тип неисправности
             <select name="issue" required defaultValue={ISSUES[0][0]}>
               {ISSUES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}

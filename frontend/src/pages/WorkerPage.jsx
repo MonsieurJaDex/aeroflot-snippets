@@ -168,7 +168,10 @@ export default function WorkerPage() {
           await updateEngineerPosition(row.id, [[row.point, row.t]]);
         });
         setOutboxCount(pendingCount());
-        if (sent) flash(`Дослано геоточек: ${sent}`);
+        if (sent) {
+          flash(`Дослано геоточек: ${sent}`);
+          softBeep(640, 100);
+        }
       } catch (error) {
         console.warn("[worker] outbox", error);
       }

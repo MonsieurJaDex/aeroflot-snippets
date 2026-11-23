@@ -21,3 +21,10 @@ export function relativeRu(iso, now = Date.now()) {
   if (sec < 86400) return `${Math.floor(sec / 3600)} ч назад`;
   return `${Math.floor(sec / 86400)} дн назад`;
 }
+
+export function formatPollMs(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n < 0) return "";
+  if (n < 1000) return `${Math.round(n)} мс`;
+  return `${(n / 1000).toFixed(1)} с`;
+}

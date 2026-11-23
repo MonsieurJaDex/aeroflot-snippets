@@ -37,7 +37,7 @@ import {
 import { classifyRemark } from "../lib/mccApi.js";
 import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
-import { relativeRu } from "../lib/format.js";
+import { formatPollMs, relativeRu } from "../lib/format.js";
 import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
@@ -1074,7 +1074,7 @@ export default function DispatcherPage() {
           </span>
           <span className={staleLive ? "live-label stale" : "live-label"}>
             {crewNote ? `${crewNote} · ` : ""}
-            {pollMs != null ? `${pollMs} мс · ` : ""}
+            {pollMs != null ? `${formatPollMs(pollMs)} · ` : ""}
             {staleLive ? `STALE · ${clock}` : clock}
           </span>
         </div>
