@@ -13,6 +13,7 @@ pub fn bfs(
     start: Point,
     end: Point,
     road_points: &HashSet<i64>,
+    map_id: &str,
     redis_conn: &mut Connection,
 ) -> Result<Route> {
     if start.1 < 0 || start.1 as usize >= matrix.0.len() {
@@ -31,7 +32,10 @@ pub fn bfs(
         return Err(anyhow!("end x coordinate out of matrix"));
     }
 
-    let path_key = Route::new(vec![start, end]).compute_universal_key();
+    let path_key = crate::maps::route_cache_key(
+        map_id,
+        Route::new(vec![start, end]).compute_universal_key(),
+    );
 
     match redis_conn.get(&path_key) {
         Result::Ok(Some(cached)) => match serde_json::from_str::<Vec<String>>(&cached) {
@@ -127,6 +131,7 @@ pub fn find_nearest(
     start: Point,
     road_points: &HashSet<i64>,
     target_positions: &HashMap<Point, Uuid>,
+    map_id: &str,
     redis_conn: &mut redis::Connection,
 ) -> anyhow::Result<Route> {
     if start.1 < 0 || start.1 as usize >= matrix.0.len() {
@@ -195,7 +200,9 @@ pub fn find_nearest(
 
                 match serde_json::to_string(&value) {
                     Result::Ok(serialized) => {
-                        if let Err(e) = redis_conn.set(&route.compute_universal_key(), serialized) {
+                        let cache_key =
+                            crate::maps::route_cache_key(map_id, route.compute_universal_key());
+                        if let Err(e) = redis_conn.set(&cache_key, serialized) {
                             tracing::warn!(error = %e, "failed to cache find_nearest route");
                         }
                     }

@@ -14,8 +14,9 @@ use utoipa::{Modify, OpenApi};
 
 use crate::router::{
     __path_assign_engineer, __path_classify_problem, __path_complete_current_task,
-    __path_current_task_aog, __path_current_task_aog_post, __path_get_current_task, __path_get_map,
-    __path_get_route, __path_list_aircraft, __path_list_aog, __path_train_classifier,
+    __path_current_task_aog, __path_current_task_aog_post, __path_get_active_map,
+    __path_get_current_task, __path_get_map, __path_get_route, __path_list_aircraft, __path_list_aog,
+    __path_list_maps, __path_set_active_map, __path_train_classifier,
     auth::{
         __path_get_engineer_name_handler, __path_login_handler, __path_me_handler,
         __path_register_handler, __path_update_access_token,
@@ -32,7 +33,8 @@ use crate::types::{
         AircraftEntry, AircraftListResponse, AogListResponse, AssignEngineerRequest,
         AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse,
         ClassifyRequest, ClassifyResponse, ErrorResponse, GetRouteRequest, GetRouteResponse,
-        GetUserNameResponse, LoginRequest, LoginResponse, MapResponse, MeResponse, OAuthTokenType,
+        ActiveMapResponse, GetUserNameResponse, LoginRequest, LoginResponse, MapListResponse,
+        MapResponse, MapSummary, MeResponse, OAuthTokenType, SelectMapRequest,
         RegisterRequest, TrainClassifierResponse, UpdateAccessRequest, UpdateAccessResponse,
         UpdateEngineerPositionRequest, UpdateTransportPositionRequest, EngineerPositionSample,
     },
@@ -59,6 +61,9 @@ use crate::types::{
     modifiers(&SpecPolish),
     paths(
         get_map,
+        list_maps,
+        get_active_map,
+        set_active_map,
         get_route,
         assign_engineer,
         classify_problem,
@@ -84,6 +89,10 @@ use crate::types::{
         // --- Domain types ---
         MapMatrix,
         MapResponse,
+        MapSummary,
+        MapListResponse,
+        ActiveMapResponse,
+        SelectMapRequest,
         Point,
         Route,
         ErrorResponse,

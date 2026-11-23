@@ -49,6 +49,7 @@ diesel::table! {
         task_route -> Text,
         is_accepted -> Bool,
         is_active -> Bool,
+        map_id -> Nullable<Text>,
     }
 }
 

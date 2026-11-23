@@ -19,4 +19,6 @@ pub struct Task {
     pub plane_id: Option<Uuid>,
     pub task_route: String,
     pub is_active: bool,
+    /// Map the route was built on. `None` for tasks created before map selection.
+    pub map_id: Option<String>,
 }

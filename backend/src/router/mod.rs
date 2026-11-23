@@ -23,14 +23,16 @@ use crate::{
     database::schema::{self, engineers, tasks},
     middleware::AuthUser,
     models::task::Task,
+    maps::ActiveMap,
     search::find_nearest,
     types::{
         config::AppState,
         dto::{
-            AircraftEntry, AircraftListResponse, AogListResponse, AssignEngineerRequest,
-            AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse,
-            ClassifyRequest, ClassifyResponse, CurrentTaskResponse, ErrorResponse, GetRouteRequest,
-            GetRouteResponse, MapResponse, PageQuery, TrainClassifierResponse,
+            ActiveMapResponse, AircraftEntry, AircraftListResponse, AogListResponse,
+            AssignEngineerRequest, AssignEngineerResponse, ClassifyRequest, ClassifyResponse,
+            CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse, ErrorResponse,
+            GetRouteRequest, GetRouteResponse, MapListResponse, MapResponse, MapSummary, PageQuery,
+            SelectMapRequest, TrainClassifierResponse,
         },
         enums::{UserRole, VehicleType},
         map::{Point, Route},
@@ -182,6 +184,13 @@ pub(crate) fn slice_page<T>(items: Vec<T>, limit: usize, offset: usize) -> (Vec<
     (page, total)
 }
 
+fn active_map(state: &AppState) -> Result<ActiveMap, Response<Body>> {
+    state.active.read().map(|guard| guard.clone()).map_err(|e| {
+        tracing::error!(error = %e, "map lock poisoned");
+        internal_error()
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Map
 // ---------------------------------------------------------------------------
@@ -199,11 +208,143 @@ pub(crate) fn slice_page<T>(items: Vec<T>, limit: usize, offset: usize) -> (Vec<
     ),
 )]
 pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
+    let active = match active_map(&app_state) {
+        Ok(active) => active,
+        Err(response) => return response,
+    };
     Json(MapResponse {
-        matrix: app_state.map.clone(),
-        updated_at: app_state.map_loaded_at.to_rfc3339(),
+        id: active.id,
+        name: active.name,
+        matrix: active.map,
+        updated_at: active.loaded_at.to_rfc3339(),
     })
     .into_response()
+}
+
+/// Lists every map file the server can switch to.
+#[utoipa::path(
+    get,
+    path = "/api/maps",
+    tag = "Map",
+    operation_id = "listMaps",
+    security(("bearerAuth" = [])),
+    responses(
+        (status = 200, description = "Maps discovered next to the CLI map", body = MapListResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn list_maps(State(app_state): State<Arc<AppState>>) -> Response<Body> {
+    let active = match active_map(&app_state) {
+        Ok(active) => active,
+        Err(response) => return response,
+    };
+    let maps = app_state
+        .catalog
+        .entries
+        .iter()
+        .map(|entry| MapSummary {
+            active: entry.id == active.id,
+            id: entry.id.clone(),
+            name: entry.name.clone(),
+            width: entry.width as i64,
+            height: entry.height as i64,
+        })
+        .collect();
+    Json(MapListResponse {
+        maps,
+        active_id: active.id,
+    })
+    .into_response()
+}
+
+/// Returns the id of the map routing and positions currently use.
+#[utoipa::path(
+    get,
+    path = "/api/maps/active",
+    tag = "Map",
+    operation_id = "getActiveMap",
+    security(("bearerAuth" = [])),
+    responses(
+        (status = 200, description = "Active map", body = ActiveMapResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn get_active_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
+    let active = match active_map(&app_state) {
+        Ok(active) => active,
+        Err(response) => return response,
+    };
+    Json(ActiveMapResponse {
+        id: active.id,
+        name: active.name,
+        width: active.map.width() as i64,
+        height: active.map.height() as i64,
+        updated_at: active.loaded_at.to_rfc3339(),
+    })
+    .into_response()
+}
+
+/// Switches the map used by routing, positions and AOG.
+#[utoipa::path(
+    put,
+    path = "/api/maps/active",
+    tag = "Map",
+    operation_id = "setActiveMap",
+    description = "Dispatcher selects a map by id. Positions and AOG of the previous map stay in Redis under that map.",
+    security(("bearerAuth" = [])),
+    request_body = SelectMapRequest,
+    responses(
+        (status = 200, description = "Active map updated", body = ActiveMapResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 404, description = "Unknown map id", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn set_active_map(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<SelectMapRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can select the active map"));
+    }
+    if payload.id.trim().is_empty() {
+        return Err(unprocessable("id is required"));
+    }
+    let entry = app_state
+        .catalog
+        .get(&payload.id)
+        .cloned()
+        .ok_or_else(|| not_found("map was not found"))?;
+    let loaded = crate::maps::load_active(&entry).map_err(|e| {
+        tracing::error!(error = %e, map_id = %entry.id, "failed to load selected map");
+        internal_error()
+    })?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+    crate::maps::store_active(&mut redis_conn, &loaded.id).map_err(|e| {
+        tracing::error!(error = %e, "failed to store the active map id");
+        internal_error()
+    })?;
+    let response = ActiveMapResponse {
+        id: loaded.id.clone(),
+        name: loaded.name.clone(),
+        width: loaded.map.width() as i64,
+        height: loaded.map.height() as i64,
+        updated_at: loaded.loaded_at.to_rfc3339(),
+    };
+    let mut guard = app_state.active.write().map_err(|e| {
+        tracing::error!(error = %e, "map lock poisoned");
+        internal_error()
+    })?;
+    *guard = loaded;
+    Ok(Json(response).into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -236,11 +377,13 @@ pub async fn get_route(
         internal_error()
     })?;
 
+    let active = active_map(&app_state)?;
     let route = crate::search::bfs(
-        &app_state.map,
+        &active.map,
         payload.start_point,
         payload.end_point,
-        &app_state.road_points,
+        &active.road_points,
+        &active.id,
         &mut redis_conn,
     )
     .map_err(|e| bad_request(e.to_string()))?;
@@ -281,10 +424,12 @@ pub async fn get_current_task(
         internal_error()
     })?;
 
+    let active = active_map(&app_state)?;
     use self::tasks::dsl::*;
     let task = tasks
         .filter(assigned_engineer.eq(auth_user.id))
         .filter(is_active.eq(true))
+        .filter(map_id.is_null().or(map_id.eq(active.id.clone())))
         .order(created_at.desc())
         .select(Task::as_select())
         .first::<Task>(&mut pg_conn)
@@ -357,10 +502,12 @@ pub async fn current_task_aog(
         internal_error()
     })?;
 
+    let active = active_map(&app_state)?;
     use self::tasks::dsl::*;
     let task = tasks
         .filter(assigned_engineer.eq(auth_user.id))
         .filter(is_active.eq(true))
+        .filter(map_id.is_null().or(map_id.eq(active.id.clone())))
         .order(created_at.desc())
         .select(Task::as_select())
         .first::<Task>(&mut pg_conn)
@@ -380,7 +527,7 @@ pub async fn current_task_aog(
     let aog = payload.aog.or(payload.toggle).ok_or_else(|| {
         unprocessable("aog is required")
     })?;
-    let key = format!("aog:{plane_uuid}");
+    let key = active.aog_key(plane_uuid);
     if aog {
         redis_conn.set(&key, "1").map_err(|e| {
             tracing::error!(%plane_uuid, error = %e, "failed to set aircraft AOG status");
@@ -458,7 +605,8 @@ pub async fn list_aog(
     })?;
 
     let (limit, offset) = resolve_page(page)?;
-    let aircraft = load_aog_aircraft(&mut redis_conn)?;
+    let active = active_map(&app_state)?;
+    let aircraft = load_aog_aircraft(&mut redis_conn, &active)?;
     let plane_uuids: Vec<String> = aircraft.iter().map(|entry| entry.id.to_string()).collect();
     let (aircraft, total) = slice_page(aircraft, limit, offset);
     let plane_uuids = {
@@ -505,8 +653,9 @@ pub async fn list_aircraft(
         internal_error()
     })?;
 
+    let active = active_map(&app_state)?;
     let (limit, offset) = resolve_page(page)?;
-    let aircraft = load_aircraft(&mut redis_conn)?;
+    let aircraft = load_aircraft(&mut redis_conn, &active)?;
     let (aircraft, total) = slice_page(aircraft, limit, offset);
     Ok(Json(AircraftListResponse { aircraft, total }).into_response())
 }
@@ -541,10 +690,12 @@ pub async fn complete_current_task(
         internal_error()
     })?;
 
+    let active = active_map(&app_state)?;
     use self::tasks::dsl::*;
     let task = tasks
         .filter(assigned_engineer.eq(auth_user.id))
         .filter(is_active.eq(true))
+        .filter(map_id.is_null().or(map_id.eq(active.id.clone())))
         .order(created_at.desc())
         .select(Task::as_select())
         .first::<Task>(&mut pg_conn)
@@ -695,10 +846,11 @@ pub async fn assign_engineer(
         internal_error()
     })?;
 
+    let active = active_map(&app_state)?;
     let plane_uuid =
         Uuid::from_str(&payload.plane_uuid).map_err(|_| bad_request("invalid aircraft UUID"))?;
-    let plane_point = load_aircraft_position(&mut redis_conn, plane_uuid)?;
-    if !app_state.map.in_bounds(plane_point) {
+    let plane_point = load_aircraft_position(&mut redis_conn, &active, plane_uuid)?;
+    if !active.map.in_bounds(plane_point) {
         return Err(bad_request("aircraft position is outside of map bounds"));
     }
 
@@ -736,7 +888,10 @@ pub async fn assign_engineer(
     };
 
     use self::tasks::dsl::*;
-    let busy_engineers = tasks.filter(is_active.eq(true)).select(assigned_engineer);
+    let busy_engineers = tasks
+        .filter(is_active.eq(true))
+        .filter(map_id.is_null().or(map_id.eq(active.id.clone())))
+        .select(assigned_engineer);
 
     let suitable_engineers: Vec<Uuid> = engineers::table
         .filter(engineers::engineer_type.eq(engineer_type))
@@ -749,14 +904,15 @@ pub async fn assign_engineer(
         })?;
 
     // 2. Their current positions (from Redis).
-    let engineers_positions = load_engineer_positions(&mut redis_conn, &suitable_engineers)?;
+    let engineers_positions =
+        load_engineer_positions(&mut redis_conn, &active, &suitable_engineers)?;
     if engineers_positions.is_empty() {
         return Err(not_found("no suitable engineer available"));
     }
 
     // 3. Special vehicle, when this specialization always uses one.
     let transport_map = match vehicle {
-        Some(vehicle_type) => load_transport_positions(&mut redis_conn, vehicle_type)?,
+        Some(vehicle_type) => load_transport_positions(&mut redis_conn, &active, vehicle_type)?,
         None => HashMap::new(),
     };
 
@@ -768,10 +924,11 @@ pub async fn assign_engineer(
             (engineer_id, Route::new(Vec::new()), 0)
         } else {
             let nearest_route = find_nearest(
-                &app_state.map,
+                &active.map,
                 plane_point,
-                &app_state.road_points,
+                &active.road_points,
                 &engineers_positions,
+                &active.id,
                 &mut redis_conn,
             )
             .map_err(|e| bad_request(e.to_string()))?;
@@ -790,10 +947,11 @@ pub async fn assign_engineer(
 
             let (final_route, total_cells) = if transport_map.is_empty() {
                 let route = crate::search::bfs(
-                    &app_state.map,
+                    &active.map,
                     chosen_pos,
                     plane_point,
-                    &app_state.road_points,
+                    &active.road_points,
+                    &active.id,
                     &mut redis_conn,
                 )
                 .map_err(|e| bad_request(e.to_string()))?;
@@ -801,7 +959,7 @@ pub async fn assign_engineer(
                 (route, len)
             } else {
                 build_route_with_transport(
-                    &app_state,
+                    &active,
                     &mut redis_conn,
                     chosen_pos,
                     plane_point,
@@ -831,6 +989,7 @@ pub async fn assign_engineer(
         plane_id: Some(plane_uuid),
         task_route: serde_json::to_string(&final_route).expect("Route is always serializable"),
         is_active: true,
+        map_id: Some(active.id.clone()),
     };
 
     diesel::insert_into(schema::tasks::table)
@@ -843,7 +1002,7 @@ pub async fn assign_engineer(
 
     // 7. Teleport engineer to destination (simulation only).
     redis_conn
-        .set(format!("position:{}", chosen_uuid), plane_point.as_value())
+        .set(active.engineer_position_key(chosen_uuid), plane_point.as_value())
         .map_err(|e| {
             tracing::error!(error = %e, "failed to teleport engineer");
             internal_error()
@@ -870,9 +1029,10 @@ pub async fn assign_engineer(
 /// Loads the current map position of an aircraft (`position:aircraft:{uuid}`).
 fn load_aircraft_position(
     redis_conn: &mut redis::Connection,
+    map: &ActiveMap,
     id: Uuid,
 ) -> Result<Point, Response<Body>> {
-    match redis_conn.get(format!("position:aircraft:{id}")) {
+    match redis_conn.get(map.vehicle_position_key(&VehicleType::Aircraft, id)) {
         Ok(Some(raw)) => Point::from_value(raw).map_err(|e| {
             tracing::error!(%id, error = %e, "aircraft position could not be parsed");
             internal_error()
@@ -886,9 +1046,12 @@ fn load_aircraft_position(
 }
 
 /// Loads every aircraft stored as a vehicle in Redis.
-fn load_aircraft(redis_conn: &mut redis::Connection) -> Result<Vec<AircraftEntry>, Response<Body>> {
+fn load_aircraft(
+    redis_conn: &mut redis::Connection,
+    map: &ActiveMap,
+) -> Result<Vec<AircraftEntry>, Response<Body>> {
     let keys: Vec<String> = redis_conn
-        .scan_match("position:aircraft:*")
+        .scan_match(map.vehicle_scan("aircraft"))
         .map_err(|e| {
             tracing::error!(error = %e, "failed to scan aircraft keys");
             internal_error()
@@ -898,7 +1061,7 @@ fn load_aircraft(redis_conn: &mut redis::Connection) -> Result<Vec<AircraftEntry
 
     let mut aircraft = Vec::with_capacity(keys.len());
     for key in keys {
-        let Some(uuid_str) = key.strip_prefix("position:aircraft:") else {
+        let Some(uuid_str) = map.aircraft_id_from_key(&key) else {
             continue;
         };
         let id = match Uuid::from_str(uuid_str) {
@@ -933,9 +1096,10 @@ fn load_aircraft(redis_conn: &mut redis::Connection) -> Result<Vec<AircraftEntry
 /// Loads aircraft that currently have an AOG flag (`aog:{uuid}`) and a known position.
 fn load_aog_aircraft(
     redis_conn: &mut redis::Connection,
+    map: &ActiveMap,
 ) -> Result<Vec<AircraftEntry>, Response<Body>> {
     let keys: Vec<String> = redis_conn
-        .scan_match("aog:*")
+        .scan_match(map.aog_scan())
         .map_err(|e| {
             tracing::error!(error = %e, "failed to scan AOG keys");
             internal_error()
@@ -945,7 +1109,7 @@ fn load_aog_aircraft(
 
     let mut aircraft = Vec::with_capacity(keys.len());
     for key in keys {
-        let Some(uuid_str) = key.strip_prefix("aog:") else {
+        let Some(uuid_str) = map.aog_id_from_key(&key) else {
             continue;
         };
         let id = match Uuid::from_str(uuid_str) {
@@ -955,7 +1119,7 @@ fn load_aog_aircraft(
                 continue;
             }
         };
-        let raw = match redis_conn.get(format!("position:aircraft:{id}")) {
+        let raw = match redis_conn.get(map.vehicle_position_key(&VehicleType::Aircraft, id)) {
             Ok(Some(raw)) => raw,
             Ok(None) => continue,
             Err(e) => {
@@ -980,12 +1144,13 @@ fn load_aog_aircraft(
 /// Loads current engineer positions from Redis into a `Point -> Uuid` map.
 fn load_engineer_positions(
     redis_conn: &mut redis::Connection,
+    map: &ActiveMap,
     ids: &[Uuid],
 ) -> Result<HashMap<Point, Uuid>, Response<Body>> {
     let mut positions = HashMap::with_capacity(ids.len());
 
     for &id in ids {
-        match redis_conn.get(format!("position:{}", id)) {
+        match redis_conn.get(map.engineer_position_key(id)) {
             Ok(Some(raw)) => match Point::from_value(raw) {
                 Ok(point) => {
                     positions.insert(point, id);
@@ -1010,12 +1175,14 @@ fn load_engineer_positions(
 /// Loads special-vehicle positions of the given type into a `Point -> Uuid` map.
 fn load_transport_positions(
     redis_conn: &mut redis::Connection,
+    map: &ActiveMap,
     vehicle_type: VehicleType,
 ) -> Result<HashMap<Point, Uuid>, Response<Body>> {
     let mut positions = HashMap::new();
 
+    let vehicle_name = vehicle_type.to_string();
     let keys: Vec<String> = redis_conn
-        .scan_match(format!("position:{}:*", vehicle_type))
+        .scan_match(map.vehicle_scan(&vehicle_name))
         .map_err(|e| {
             tracing::error!(error = %e, "failed to scan transport keys");
             internal_error()
@@ -1060,7 +1227,7 @@ fn load_transport_positions(
 
 /// Builds the full route "engineer → transport → aircraft".
 fn build_route_with_transport(
-    state: &AppState,
+    map: &ActiveMap,
     redis_conn: &mut redis::Connection,
     engineer_pos: Point,
     plane_pos: Point,
@@ -1068,10 +1235,11 @@ fn build_route_with_transport(
     engineer_id: Uuid,
 ) -> Result<(Route, usize), Response<Body>> {
     let to_transport = find_nearest(
-        &state.map,
+        &map.map,
         engineer_pos,
-        &state.road_points,
+        &map.road_points,
         transport_map,
+        &map.id,
         redis_conn,
     )
     .map_err(|e| bad_request(e.to_string()))?;
@@ -1090,10 +1258,11 @@ fn build_route_with_transport(
     })?;
 
     let to_plane = crate::search::bfs(
-        &state.map,
+        &map.map,
         transport_pos,
         plane_pos,
-        &state.road_points,
+        &map.road_points,
+        &map.id,
         redis_conn,
     )
     .map_err(|e| bad_request(e.to_string()))?;

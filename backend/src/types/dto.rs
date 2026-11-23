@@ -23,11 +23,53 @@ use validator::Validate;
 #[derive(Debug, Serialize, ToSchema)]
 #[schema(description = "Airport map served to authenticated clients.")]
 pub struct MapResponse {
+    /// File stem of the map currently being served.
+    pub id: String,
+    /// Display name, equal to the file stem.
+    pub name: String,
     /// Grid of walkable cells and obstacles.
     pub matrix: crate::types::map::MapMatrix,
     /// When this process loaded the map file.
     #[schema(format = "date-time")]
     pub updated_at: String,
+}
+
+/// One map the server can switch to.
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(description = "A map file discovered next to the CLI map.")]
+pub struct MapSummary {
+    pub id: String,
+    pub name: String,
+    pub width: i64,
+    pub height: i64,
+    /// True for the map routing and Redis positions currently use.
+    pub active: bool,
+}
+
+/// Catalog of maps and the id that is active.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MapListResponse {
+    pub maps: Vec<MapSummary>,
+    pub active_id: String,
+}
+
+/// Active map without the matrix.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ActiveMapResponse {
+    pub id: String,
+    pub name: String,
+    pub width: i64,
+    pub height: i64,
+    #[schema(format = "date-time")]
+    pub updated_at: String,
+}
+
+/// Body of `PUT /api/maps/active`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SelectMapRequest {
+    /// Id from `GET /api/maps`.
+    pub id: String,
 }
 
 /// Response payload for the `get_route` endpoint.

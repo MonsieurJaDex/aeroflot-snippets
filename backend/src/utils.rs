@@ -150,10 +150,12 @@ pub fn create_token_pair(
 }
 pub fn get_transport_from_redis(
     redis_conn: &mut Connection,
+    map_id: &str,
     transport_type: String,
 ) -> Result<Vec<TransportPositionEntry>, anyhow::Error> {
-    // Redis фильтрует по паттерну — не гоняем лишние ключи по сети
-    let pattern = format!("position:{}:*", transport_type);
+    // `map:{id}:position:{type}:{uuid}` — the extra segment keeps engineer keys out.
+    let pattern = format!("map:{map_id}:position:{transport_type}:*");
+    let prefix = format!("map:{map_id}:position:");
 
     let keys: Vec<String> = redis_conn
         .scan_match(&pattern)
@@ -164,10 +166,12 @@ pub fn get_transport_from_redis(
     let mut result = Vec::with_capacity(keys.len());
 
     for key in keys {
-        // Key shape: position:{vehicle_type}:{uuid}
-        let mut parts = key.splitn(3, ':');
-        let _prefix = parts.next();
-        let (Some(type_str), Some(uuid_str)) = (parts.next(), parts.next()) else {
+        // Key shape: map:{id}:position:{vehicle_type}:{uuid}
+        let Some(rest) = key.strip_prefix(&prefix) else {
+            tracing::warn!(%key, "transport key is outside the active map, skipped");
+            continue;
+        };
+        let Some((type_str, uuid_str)) = rest.split_once(':') else {
             tracing::warn!(%key, "malformed transport key, skipped");
             continue;
         };

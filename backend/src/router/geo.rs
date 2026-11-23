@@ -4,13 +4,15 @@ use std::sync::Arc;
 
 use axum::http::Response;
 use axum::{Extension, Json, body::Body, extract::State, http::StatusCode, response::IntoResponse};
-use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, RunQueryDsl};
 use redis::TypedCommands;
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::{ApiJson, ApiQuery, bad_request, forbidden, internal_error, resolve_page, slice_page};
+use super::{
+    ApiJson, ApiQuery, active_map, bad_request, forbidden, internal_error, resolve_page, slice_page,
+};
 use crate::middleware::AuthUser;
 use crate::utils::get_transport_from_redis;
 use crate::{
@@ -65,6 +67,7 @@ pub async fn update_engineer_position_handler(
         return Err(bad_request("batch is empty"));
     }
 
+    let active = active_map(&app_state)?;
     let mut latest: Option<(Point, i64)> = None;
     for sample in payload.batch {
         let point = sample.0;
@@ -72,7 +75,7 @@ pub async fn update_engineer_position_handler(
         if timestamp < 0 {
             return Err(bad_request("timestamp must be a unix time in seconds"));
         }
-        if !app_state.map.in_bounds(point) {
+        if !active.map.in_bounds(point) {
             return Err(bad_request("point is outside of map bounds"));
         }
         if latest.is_none_or(|(_, best)| timestamp >= best) {
@@ -86,7 +89,7 @@ pub async fn update_engineer_position_handler(
         internal_error()
     })?;
 
-    let ts_key = format!("position_ts:{uuid}");
+    let ts_key = active.engineer_timestamp_key(uuid);
     let stored_raw: Option<String> = redis_conn.get(&ts_key).map_err(|e| {
         tracing::error!(%uuid, error = %e, "failed to read engineer position timestamp");
         internal_error()
@@ -99,7 +102,7 @@ pub async fn update_engineer_position_handler(
 
     let mut pipe = redis::pipe();
     pipe.atomic()
-        .set(format!("position:{uuid}"), point.as_value())
+        .set(active.engineer_position_key(uuid), point.as_value())
         .ignore()
         .set(ts_key, timestamp.to_string())
         .ignore()
@@ -140,7 +143,8 @@ pub async fn update_transport_position_handler(
     }
     let uuid = Uuid::parse_str(&payload.id).map_err(|_| bad_request("invalid UUID format"))?;
 
-    if !app_state.map.in_bounds(payload.new_point) {
+    let active = active_map(&app_state)?;
+    if !active.map.in_bounds(payload.new_point) {
         return Err(bad_request("point is outside of map bounds"));
     }
 
@@ -149,7 +153,7 @@ pub async fn update_transport_position_handler(
         internal_error()
     })?;
 
-    let key = format!("position:{}:{}", payload.vehicle_type, uuid);
+    let key = active.vehicle_position_key(&payload.vehicle_type, uuid);
     redis_conn
         .set(key, payload.new_point.as_value())
         .map_err(|e| {
@@ -193,8 +197,14 @@ pub async fn active_engineers(
         internal_error()
     })?;
 
+    let active = active_map(&app_state)?;
     let ids: Vec<Uuid> = schema::tasks::table
         .filter(schema::tasks::is_active.eq(true))
+        .filter(
+            schema::tasks::map_id
+                .is_null()
+                .or(schema::tasks::map_id.eq(active.id)),
+        )
         .select(schema::tasks::assigned_engineer)
         .load(&mut pg_conn)
         .map_err(|e| {
@@ -264,7 +274,11 @@ pub async fn get_engineers_positions(
         })?;
 
     // One round-trip instead of N.
-    let keys: Vec<String> = ids.iter().map(|id| format!("position:{}", id)).collect();
+    let active = active_map(&app_state)?;
+    let keys: Vec<String> = ids
+        .iter()
+        .map(|id| active.engineer_position_key(*id))
+        .collect();
 
     let raw: Vec<Option<String>> = redis::cmd("MGET")
         .arg(&keys)
@@ -334,7 +348,8 @@ pub async fn get_transport_positions(
     })?;
 
     let (limit, offset) = resolve_page(page)?;
-    let result = get_transport_from_redis(&mut redis_conn, "*".to_string()).map_err(|e| {
+    let active = active_map(&app_state)?;
+    let result = get_transport_from_redis(&mut redis_conn, &active.id, "*".to_string()).map_err(|e| {
         tracing::error!(error = %e, "failed to fetch transport positions");
         internal_error()
     })?;
