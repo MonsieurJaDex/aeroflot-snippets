@@ -7,7 +7,7 @@ import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { relativeRu } from "../lib/format.js";
 import { classifyRemark, createRemark, trainClassifier } from "../lib/mccApi.js";
-import { addMcc, clearAllMcc, clearAssignedMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
+import { addMcc, clearAllMcc, clearAssignedMcc, countOpenMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { clearSession, getSession, login } from "../lib/session.js";
 
 const ISSUES = AIRCRAFT_ISSUES.filter(([value]) => value !== "other");
@@ -73,7 +73,7 @@ export default function MccPage() {
   }, []);
 
   useEffect(() => {
-    const open = items.filter((row) => !isMccAssigned(row)).length;
+    const open = countOpenMcc();
     document.title = open ? `ОТО · ЦПУ · очередь ${open}` : "ОТО · ЦПУ";
     return () => { document.title = "Аэрофлот ОТО"; };
   }, [items]);
