@@ -623,6 +623,7 @@ export default function DispatcherPage() {
               candidates,
               candidateMs: response.candidate_ms,
             });
+            softBeep(response.sla_exceeded ? 420 : 880, 160);
             if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
           } catch (error) {
             setResult({ type: "error", text: `Ошибка: ${assignErrorMessage(error)}` });
