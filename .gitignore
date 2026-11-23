@@ -2,12 +2,11 @@
 *target/
 
 # backend
-/backend/assets/*
 /backend/.cargo
 
 /backend/build/*
 
-/.DS_Store
+*/.DS_Store
 
 # tools/parser
 /tools/parser/assets/*
@@ -29,3 +28,4 @@ __pycache__
 
 # Локальные правила агента этого пользователя. Не для бэкенд-разработчика.
 .cursor/
+

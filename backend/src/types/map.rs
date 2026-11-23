@@ -19,7 +19,13 @@ use utoipa::ToSchema;
 // ---------------------------------------------------------------------------
 
 /// Dense two-dimensional grid describing an airport map.
+///
+/// Each cell is an integer: `0` means the cell is walkable, any other value is an obstacle.
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+#[schema(
+    description = "Rectangular airport grid. 0 — проходимо, любое другое значение — препятствие.",
+    example = json!([[0, 1, 0], [0, 0, 0], [1, 0, 0]])
+)]
 pub struct MapMatrix(pub Vec<Vec<i64>>);
 
 impl MapMatrix {

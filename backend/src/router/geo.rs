@@ -3,21 +3,24 @@
 use std::sync::Arc;
 
 use axum::http::Response;
-use axum::{Json, body::Body, extract::State, http::StatusCode, response::IntoResponse};
+use axum::{Extension, Json, body::Body, extract::State, http::StatusCode, response::IntoResponse};
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use redis::TypedCommands;
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::{bad_request, internal_error};
+use super::{ApiJson, ApiQuery, bad_request, forbidden, internal_error, resolve_page, slice_page};
+use crate::middleware::AuthUser;
 use crate::utils::get_transport_from_redis;
 use crate::{
     database::schema,
     types::{
         config::AppState,
-        dto::{UpdateEngineerPositionRequest, UpdateTransportPositionRequest},
-        enums::VehicleType,
+        dto::{
+            ErrorResponse, PageQuery, UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
+        },
+        enums::{UserRole, VehicleType},
         map::Point,
     },
 };
@@ -34,18 +37,28 @@ use crate::{
 #[utoipa::path(
     post,
     path = "/api/geo/updateEngineerPosition",
+    tag = "Geo",
+    operation_id = "updateEngineerPosition",
     description = "Flush a buffered batch of engineer positions. Each sample is [point, unix_timestamp]; the newest timestamp wins.",
+    security(("bearerAuth" = [])),
     request_body = UpdateEngineerPositionRequest,
     responses(
         (status = 200, description = "Batch applied, or ignored because a newer position is already stored"),
-        (status = 400, description = "Invalid UUID, empty batch, or out-of-bounds coordinate", body = String),
-        (status = 500, description = "Server-side error", body = String),
+        (status = 400, description = "Invalid UUID, empty batch, or out-of-bounds coordinate", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not an engineer", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn update_engineer_position_handler(
     State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<UpdateEngineerPositionRequest>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<UpdateEngineerPositionRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Engineer {
+        return Err(forbidden("only engineers can update an engineer position"));
+    }
     let uuid = Uuid::parse_str(&payload.id).map_err(|_| bad_request("invalid UUID format"))?;
 
     if payload.batch.is_empty() {
@@ -103,18 +116,28 @@ pub async fn update_engineer_position_handler(
 #[utoipa::path(
     post,
     path = "/api/geo/updateTransportPosition",
+    tag = "Geo",
+    operation_id = "updateTransportPosition",
     description = "Manually update a special-vehicle position (creates the vehicle if it does not exist)",
+    security(("bearerAuth" = [])),
     request_body = UpdateTransportPositionRequest,
     responses(
         (status = 200, description = "Position updated"),
-        (status = 400, description = "Invalid UUID or out-of-bounds coordinate", body = String),
-        (status = 500, description = "Server-side error", body = String),
+        (status = 400, description = "Invalid UUID or out-of-bounds coordinate", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn update_transport_position_handler(
     State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<UpdateTransportPositionRequest>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<UpdateTransportPositionRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can update a transport position"));
+    }
     let uuid = Uuid::parse_str(&payload.id).map_err(|_| bad_request("invalid UUID format"))?;
 
     if !app_state.map.in_bounds(payload.new_point) {
@@ -152,10 +175,14 @@ pub struct ActiveEngineersResponse {
 #[utoipa::path(
     get,
     path = "/api/geo/activeEngineers",
+    tag = "Geo",
+    operation_id = "getActiveEngineers",
     description = "List engineers who currently have an active task",
+    security(("bearerAuth" = [])),
     responses(
         (status = 200, description = "List of engineer UUIDs", body = ActiveEngineersResponse),
-        (status = 500, description = "Server-side error", body = String),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn active_engineers(
@@ -190,18 +217,34 @@ pub struct EngineerPositionEntry {
     pub position: Option<Point>,
 }
 
+/// Engineers and their positions, windowed by `limit` and `offset`.
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(description = "Page of engineer positions.")]
+pub struct EngineersPositionsResponse {
+    pub engineers: Vec<EngineerPositionEntry>,
+    /// Number of engineers before `limit` and `offset` are applied.
+    pub total: u64,
+}
+
 /// Returns every engineer together with their current position.
 #[utoipa::path(
     get,
     path = "/api/geo/getEngineersPositions",
-    description = "List all engineers and their positions",
+    tag = "Geo",
+    operation_id = "getEngineersPositions",
+    description = "List engineers and their positions",
+    security(("bearerAuth" = [])),
+    params(PageQuery),
     responses(
-        (status = 200, description = "Engineer positions", body = Vec<EngineerPositionEntry>),
-        (status = 500, description = "Server-side error", body = String),
+        (status = 200, description = "Engineer positions", body = EngineersPositionsResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 422, description = "Query parameters do not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn get_engineers_positions(
     State(app_state): State<Arc<AppState>>,
+    ApiQuery(page): ApiQuery<PageQuery>,
 ) -> Result<Response<Body>, Response<Body>> {
     let mut pg_conn = app_state.db_pool.get().map_err(|e| {
         tracing::error!(error = %e, "failed to acquire postgres connection");
@@ -231,6 +274,7 @@ pub async fn get_engineers_positions(
             internal_error()
         })?;
 
+    let (limit, offset) = resolve_page(page)?;
     let result: Vec<EngineerPositionEntry> = ids
         .into_iter()
         .zip(raw)
@@ -239,8 +283,9 @@ pub async fn get_engineers_positions(
             position: value.and_then(|v| Point::from_value(v).ok()),
         })
         .collect();
+    let (engineers, total) = slice_page(result, limit, offset);
 
-    Ok(Json(result).into_response())
+    Ok(Json(EngineersPositionsResponse { engineers, total }).into_response())
 }
 
 /// Response entry for [`get_transport_positions`].
@@ -254,28 +299,46 @@ pub struct TransportPositionEntry {
     pub point: Point,
 }
 
+/// Special vehicles and their positions, windowed by `limit` and `offset`.
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(description = "Page of special-vehicle positions.")]
+pub struct TransportPositionsResponse {
+    pub transport: Vec<TransportPositionEntry>,
+    /// Number of vehicles before `limit` and `offset` are applied.
+    pub total: u64,
+}
+
 /// Returns every special vehicle with its type and current position.
 #[utoipa::path(
     get,
     path = "/api/geo/getTransportPositions",
-    description = "List all special vehicles with type, UUID and position",
+    tag = "Geo",
+    operation_id = "getTransportPositions",
+    description = "List special vehicles with type, UUID and position",
+    security(("bearerAuth" = [])),
+    params(PageQuery),
     responses(
-        (status = 200, description = "Transport positions", body = Vec<TransportPositionEntry>),
-        (status = 500, description = "Server-side error", body = String),
+        (status = 200, description = "Transport positions", body = TransportPositionsResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 422, description = "Query parameters do not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn get_transport_positions(
     State(app_state): State<Arc<AppState>>,
+    ApiQuery(page): ApiQuery<PageQuery>,
 ) -> Result<Response<Body>, Response<Body>> {
     let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
         tracing::error!(error = %e, "failed to acquire redis connection");
         internal_error()
     })?;
 
+    let (limit, offset) = resolve_page(page)?;
     let result = get_transport_from_redis(&mut redis_conn, "*".to_string()).map_err(|e| {
         tracing::error!(error = %e, "failed to fetch transport positions");
         internal_error()
-    });
+    })?;
+    let (transport, total) = slice_page(result, limit, offset);
 
-    Ok(Json(result.unwrap()).into_response())
+    Ok(Json(TransportPositionsResponse { transport, total }).into_response())
 }

@@ -5,11 +5,12 @@ pub mod geo;
 
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
+use axum::extract::rejection::JsonRejection;
 use axum::{
     Extension, Json,
     body::Body,
-    extract::State,
-    http::{Response, StatusCode},
+    extract::{FromRequest, FromRequestParts, Request, State},
+    http::{Response, StatusCode, request::Parts},
     response::IntoResponse,
 };
 
@@ -28,10 +29,11 @@ use crate::{
         dto::{
             AircraftEntry, AircraftListResponse, AogListResponse, AssignEngineerRequest,
             AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse,
-            CurrentTaskResponse, GetRouteRequest,
+            ClassifyRequest, ClassifyResponse, CurrentTaskResponse, ErrorResponse, GetRouteRequest,
+            GetRouteResponse, MapResponse, PageQuery, TrainClassifierResponse,
         },
         enums::{UserRole, VehicleType},
-        map::{MapMatrix, Point, Route},
+        map::{Point, Route},
     },
 };
 
@@ -49,29 +51,135 @@ const SLA_LIMIT_SECS: f32 = 900.0;
 // Shared response helpers
 // ---------------------------------------------------------------------------
 
-/// Returns a 500 response with an empty body.
+pub(crate) fn api_error(
+    status: StatusCode,
+    code: &str,
+    message: impl Into<String>,
+) -> Response<Body> {
+    (
+        status,
+        Json(ErrorResponse {
+            code: code.to_owned(),
+            message: message.into(),
+            details: None,
+            request_id: None,
+        }),
+    )
+        .into_response()
+}
+
+/// Returns a 500 JSON error.
 pub(crate) fn internal_error() -> Response<Body> {
-    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    api_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "INTERNAL_ERROR",
+        "internal server error",
+    )
 }
 
-/// Returns a 400 response with the given message.
+/// Returns a 400 JSON error for a business-rule failure.
 pub(crate) fn bad_request(msg: impl Into<String>) -> Response<Body> {
-    (StatusCode::BAD_REQUEST, msg.into()).into_response()
+    api_error(StatusCode::BAD_REQUEST, "BAD_REQUEST", msg)
 }
 
-/// Returns a 401 response with the given message.
+/// Returns a 422 JSON error for a body or query that does not match the schema.
+pub(crate) fn unprocessable(msg: impl Into<String>) -> Response<Body> {
+    api_error(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "VALIDATION_ERROR",
+        msg,
+    )
+}
+
+/// Returns a 401 JSON error.
 pub(crate) fn unauthorized(msg: impl Into<String>) -> Response<Body> {
-    (StatusCode::UNAUTHORIZED, msg.into()).into_response()
+    let message = msg.into();
+    let code = if message.contains("email or password") {
+        "INVALID_CREDENTIALS"
+    } else {
+        "UNAUTHORIZED"
+    };
+    api_error(StatusCode::UNAUTHORIZED, code, message)
 }
 
-/// Returns a 403 response with the given message.
+/// Returns a 403 JSON error.
 pub(crate) fn forbidden(msg: impl Into<String>) -> Response<Body> {
-    (StatusCode::FORBIDDEN, msg.into()).into_response()
+    let message = msg.into();
+    let code = if message.contains("dispatcher") {
+        "NOT_A_DISPATCHER"
+    } else {
+        "NOT_AN_ENGINEER"
+    };
+    api_error(StatusCode::FORBIDDEN, code, message)
 }
 
-/// Returns a 404 response with the given message.
+/// Returns a 404 JSON error.
 pub(crate) fn not_found(msg: impl Into<String>) -> Response<Body> {
-    (StatusCode::NOT_FOUND, msg.into()).into_response()
+    let message = msg.into();
+    let code = if message.contains("suitable engineer") {
+        "NO_SUITABLE_ENGINEER"
+    } else if message.contains("engineer") {
+        "ENGINEER_NOT_FOUND"
+    } else if message.contains("task") {
+        "TASK_NOT_FOUND"
+    } else {
+        "NOT_FOUND"
+    };
+    api_error(StatusCode::NOT_FOUND, code, message)
+}
+
+/// JSON body that answers a parse failure with `ErrorResponse` and status 422.
+pub struct ApiJson<T>(pub T);
+
+impl<S, T> FromRequest<S> for ApiJson<T>
+where
+    Json<T>: FromRequest<S, Rejection = JsonRejection>,
+    S: Send + Sync,
+{
+    type Rejection = Response<Body>;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match Json::<T>::from_request(req, state).await {
+            Ok(Json(value)) => Ok(ApiJson(value)),
+            Err(err) => Err(unprocessable(err.body_text())),
+        }
+    }
+}
+
+/// Query string that answers a parse failure with status 422.
+pub struct ApiQuery<T>(pub T);
+
+impl<S, T> FromRequestParts<S> for ApiQuery<T>
+where
+    axum::extract::Query<T>: FromRequestParts<S>,
+    S: Send + Sync,
+    <axum::extract::Query<T> as FromRequestParts<S>>::Rejection: std::fmt::Display,
+{
+    type Rejection = Response<Body>;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        match axum::extract::Query::<T>::from_request_parts(parts, state).await {
+            Ok(axum::extract::Query(value)) => Ok(ApiQuery(value)),
+            Err(err) => Err(unprocessable(err.to_string())),
+        }
+    }
+}
+
+pub(crate) fn resolve_page(query: PageQuery) -> Result<(usize, usize), Response<Body>> {
+    let limit = query.limit.unwrap_or(100);
+    let offset = query.offset.unwrap_or(0);
+    if !(1..=1000).contains(&limit) || offset < 0 {
+        return Err(unprocessable(
+            "limit must be between 1 and 1000 and offset must be >= 0",
+        ));
+    }
+    Ok((limit as usize, offset as usize))
+}
+
+pub(crate) fn slice_page<T>(items: Vec<T>, limit: usize, offset: usize) -> (Vec<T>, u64) {
+    let total = items.len() as u64;
+    let page = items.into_iter().skip(offset).take(limit).collect();
+    (page, total)
 }
 
 // ---------------------------------------------------------------------------
@@ -82,15 +190,20 @@ pub(crate) fn not_found(msg: impl Into<String>) -> Response<Body> {
 #[utoipa::path(
     get,
     path = "/api/map",
+    tag = "Map",
+    operation_id = "getMap",
+    security(("bearerAuth" = [])),
     responses(
-        (status = 200, description = "Current map matrix", body = MapMatrix),
-    ),
-    params(
-        ("Authorization" = String, Header, description = "Bearer access token"),
+        (status = 200, description = "Current map matrix", body = MapResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
     ),
 )]
 pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
-    Json(&app_state.map).into_response()
+    Json(MapResponse {
+        matrix: app_state.map.clone(),
+        updated_at: app_state.map_loaded_at.to_rfc3339(),
+    })
+    .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -101,20 +214,22 @@ pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
 #[utoipa::path(
     post,
     path = "/api/getRoute",
+    tag = "Route",
+    operation_id = "getRoute",
     description = "Classic point-to-point BFS route",
+    security(("bearerAuth" = [])),
     request_body = GetRouteRequest,
     responses(
-        (status = 200, description = "Successfully found a route", body = Route),
-        (status = 400, description = "Invalid input data", body = String),
-        (status = 500, description = "Server-side error", body = String),
-    ),
-    params(
-        ("Authorization" = String, Header, description = "Bearer access token"),
+        (status = 200, description = "Successfully found a route", body = GetRouteResponse),
+        (status = 400, description = "Invalid input data", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn get_route(
     State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<GetRouteRequest>,
+    ApiJson(payload): ApiJson<GetRouteRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
     let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
         tracing::error!(error = %e, "failed to acquire redis connection");
@@ -130,7 +245,8 @@ pub async fn get_route(
     )
     .map_err(|e| bad_request(e.to_string()))?;
 
-    Ok((StatusCode::OK, Json(route)).into_response())
+    let distance = route.len();
+    Ok(Json(GetRouteResponse { route, distance }).into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -141,14 +257,15 @@ pub async fn get_route(
 #[utoipa::path(
     get,
     path = "/api/tasks/current",
+    tag = "Tasks",
+    operation_id = "getCurrentTask",
+    description = "Returns the engineer's active task. Returns null if no active task.",
+    security(("bearerAuth" = [])),
     responses(
-        (status = 200, description = "Current active task", body = Option<CurrentTaskResponse>),
-        (status = 403, description = "Authenticated user is not an engineer", body = String),
-        (status = 404, description = "Engineer has no active task", body = String),
-        (status = 500, description = "Server-side error", body = String),
-    ),
-    params(
-        ("Authorization" = String, Header, description = "Bearer access token"),
+        (status = 200, description = "Current active task, or null if the engineer has none", body = Option<CurrentTaskResponse>),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not an engineer", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn get_current_task(
@@ -178,7 +295,7 @@ pub async fn get_current_task(
         })?;
 
     let Some(task) = task else {
-        return Err(not_found("engineer has no active task"));
+        return Ok(Json(None::<CurrentTaskResponse>).into_response());
     };
 
     let route: Route = serde_json::from_str(&task.task_route).map_err(|e| {
@@ -205,25 +322,27 @@ pub async fn get_current_task(
 ///
 /// The status is stored in Redis under `aog:{plane_uuid}`.
 #[utoipa::path(
-    post,
+    put,
     path = "/api/tasks/current/aog",
+    tag = "Tasks",
+    operation_id = "setCurrentTaskAog",
+    description = "Sets or clears AOG on the aircraft of the engineer's current task. Always returns 200.",
+    security(("bearerAuth" = [])),
     request_body = CurrentTaskAogRequest,
     responses(
-        (status = 200, description = "AOG status removed", body = CurrentTaskAogResponse),
-        (status = 201, description = "AOG status set", body = CurrentTaskAogResponse),
-        (status = 400, description = "Current task has no aircraft", body = String),
-        (status = 403, description = "Authenticated user is not an engineer", body = String),
-        (status = 404, description = "Engineer has no active task", body = String),
-        (status = 500, description = "Server-side error", body = String),
-    ),
-    params(
-        ("Authorization" = String, Header, description = "Bearer access token"),
+        (status = 200, description = "AOG status updated", body = CurrentTaskAogResponse),
+        (status = 400, description = "Current task has no aircraft", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not an engineer", body = ErrorResponse),
+        (status = 404, description = "Engineer has no active task", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn current_task_aog(
     State(app_state): State<Arc<AppState>>,
     Extension(auth_user): Extension<AuthUser>,
-    Json(payload): Json<CurrentTaskAogRequest>,
+    ApiJson(payload): ApiJson<CurrentTaskAogRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
     if auth_user.role != UserRole::Engineer {
         return Err(forbidden("only engineers can change AOG status"));
@@ -258,54 +377,76 @@ pub async fn current_task_aog(
         return Err(bad_request("current task has no aircraft"));
     };
 
+    let aog = payload.aog.or(payload.toggle).ok_or_else(|| {
+        unprocessable("aog is required")
+    })?;
     let key = format!("aog:{plane_uuid}");
-    if payload.toggle {
+    if aog {
         redis_conn.set(&key, "1").map_err(|e| {
             tracing::error!(%plane_uuid, error = %e, "failed to set aircraft AOG status");
             internal_error()
         })?;
-
-        return Ok((
-            StatusCode::CREATED,
-            Json(CurrentTaskAogResponse {
-                plane_uuid: plane_uuid.to_string(),
-                aog: true,
-            }),
-        )
-            .into_response());
+    } else {
+        redis_conn.del(&key).map_err(|e| {
+            tracing::error!(%plane_uuid, error = %e, "failed to clear aircraft AOG status");
+            internal_error()
+        })?;
     }
 
-    redis_conn.del(&key).map_err(|e| {
-        tracing::error!(%plane_uuid, error = %e, "failed to clear aircraft AOG status");
-        internal_error()
-    })?;
+    Ok(Json(CurrentTaskAogResponse {
+        plane_uuid: plane_uuid.to_string(),
+        aog,
+    })
+    .into_response())
+}
 
-    Ok((
-        StatusCode::OK,
-        Json(CurrentTaskAogResponse {
-            plane_uuid: plane_uuid.to_string(),
-            aog: false,
-        }),
-    )
-        .into_response())
+/// Previous POST form of [`current_task_aog`]. Same handler, kept so existing clients keep working.
+#[utoipa::path(
+    post,
+    path = "/api/tasks/current/aog",
+    tag = "Tasks",
+    operation_id = "setCurrentTaskAogLegacy",
+    description = "Deprecated alias of PUT /api/tasks/current/aog. Always returns 200.",
+    security(("bearerAuth" = [])),
+    request_body = CurrentTaskAogRequest,
+    responses(
+        (status = 200, description = "AOG status updated", body = CurrentTaskAogResponse),
+        (status = 400, description = "Current task has no aircraft", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not an engineer", body = ErrorResponse),
+        (status = 404, description = "Engineer has no active task", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn current_task_aog_post(
+    state: State<Arc<AppState>>,
+    auth_user: Extension<AuthUser>,
+    payload: ApiJson<CurrentTaskAogRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    current_task_aog(state, auth_user, payload).await
 }
 
 /// Lists aircraft UUIDs that currently have an AOG status.
 #[utoipa::path(
     get,
     path = "/api/tasks/aog",
+    tag = "Aircraft",
+    operation_id = "listAog",
+    security(("bearerAuth" = [])),
+    params(PageQuery),
     responses(
         (status = 200, description = "Aircraft currently marked AOG", body = AogListResponse),
-        (status = 403, description = "Authenticated user is not a dispatcher", body = String),
-        (status = 500, description = "Server-side error", body = String),
-    ),
-    params(
-        ("Authorization" = String, Header, description = "Bearer access token"),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 422, description = "Query parameters do not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn list_aog(
     State(app_state): State<Arc<AppState>>,
     Extension(auth_user): Extension<AuthUser>,
+    ApiQuery(page): ApiQuery<PageQuery>,
 ) -> Result<Response<Body>, Response<Body>> {
     if auth_user.role != UserRole::Dispatcher {
         return Err(forbidden("only dispatchers can view AOG aircraft"));
@@ -316,26 +457,44 @@ pub async fn list_aog(
         internal_error()
     })?;
 
-    let plane_uuids = load_aog_aircraft(&mut redis_conn)?;
-    Ok(Json(AogListResponse { plane_uuids }).into_response())
+    let (limit, offset) = resolve_page(page)?;
+    let aircraft = load_aog_aircraft(&mut redis_conn)?;
+    let plane_uuids: Vec<String> = aircraft.iter().map(|entry| entry.id.to_string()).collect();
+    let (aircraft, total) = slice_page(aircraft, limit, offset);
+    let plane_uuids = {
+        let (_, _) = (limit, offset);
+        let start = offset.min(plane_uuids.len());
+        let end = start.saturating_add(limit).min(plane_uuids.len());
+        plane_uuids[start..end].to_vec()
+    };
+    Ok(Json(AogListResponse {
+        aircraft,
+        total,
+        plane_uuids,
+    })
+    .into_response())
 }
 
 /// Lists every aircraft currently stored in Redis.
 #[utoipa::path(
     get,
     path = "/api/aircraft",
+    tag = "Aircraft",
+    operation_id = "listAircraft",
+    security(("bearerAuth" = [])),
+    params(PageQuery),
     responses(
         (status = 200, description = "Current aircraft", body = AircraftListResponse),
-        (status = 403, description = "Authenticated user is not a dispatcher", body = String),
-        (status = 500, description = "Server-side error", body = String),
-    ),
-    params(
-        ("Authorization" = String, Header, description = "Bearer access token"),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 422, description = "Query parameters do not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn list_aircraft(
     State(app_state): State<Arc<AppState>>,
     Extension(auth_user): Extension<AuthUser>,
+    ApiQuery(page): ApiQuery<PageQuery>,
 ) -> Result<Response<Body>, Response<Body>> {
     if auth_user.role != UserRole::Dispatcher {
         return Err(forbidden("only dispatchers can view aircraft"));
@@ -346,23 +505,27 @@ pub async fn list_aircraft(
         internal_error()
     })?;
 
+    let (limit, offset) = resolve_page(page)?;
     let aircraft = load_aircraft(&mut redis_conn)?;
-    Ok(Json(AircraftListResponse { aircraft }).into_response())
+    let (aircraft, total) = slice_page(aircraft, limit, offset);
+    Ok(Json(AircraftListResponse { aircraft, total }).into_response())
 }
 
-/// Fetches the currently active task for the authenticated engineer.
+/// Completes the current active task of the authenticated engineer.
 #[utoipa::path(
     post,
     path = "/api/tasks/current/complete",
+    tag = "Tasks",
+    operation_id = "completeCurrentTask",
+    summary = "Completes the current active task of the authenticated engineer",
     description = "Marks the current active task of the authenticated engineer as completed",
+    security(("bearerAuth" = [])),
     responses(
         (status = 200, description = "Task marked as completed"),
-        (status = 403, description = "Authenticated user is not an engineer", body = String),
-        (status = 404, description = "Engineer has no active task", body = String),
-        (status = 500, description = "Server-side error", body = String),
-    ),
-    params(
-        ("Authorization" = String, Header, description = "Bearer access token"),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not an engineer", body = ErrorResponse),
+        (status = 404, description = "Engineer has no active task", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn complete_current_task(
@@ -407,6 +570,91 @@ pub async fn complete_current_task(
 }
 
 // ---------------------------------------------------------------------------
+// Problem classification
+// ---------------------------------------------------------------------------
+
+/// Classifies a free-form problem description into an engineer specialization.
+#[utoipa::path(
+    post,
+    path = "/api/classify",
+    tag = "Classifier",
+    operation_id = "classifyProblem",
+    description = "Classify a problem description with TF-IDF weighted Naive Bayes",
+    security(("bearerAuth" = [])),
+    request_body = ClassifyRequest,
+    responses(
+        (status = 200, description = "Predicted engineer role", body = ClassifyResponse),
+        (status = 400, description = "Description has no words", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn classify_problem(
+    State(app_state): State<Arc<AppState>>,
+    ApiJson(payload): ApiJson<ClassifyRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    let model = app_state.classifier.read().map_err(|e| {
+        tracing::error!(error = %e, "classifier lock poisoned");
+        internal_error()
+    })?;
+    let classification = model
+        .classify(&payload.text)
+        .map_err(|e| bad_request(e.to_string()))?;
+
+    Ok(Json(ClassifyResponse {
+        engineer_type: classification.engineer_type,
+        confidence: classification.confidence,
+    })
+    .into_response())
+}
+
+/// Retrains the problem classifier from the TSV dataset configured at startup.
+#[utoipa::path(
+    post,
+    path = "/api/classify/train",
+    tag = "Classifier",
+    operation_id = "trainClassifier",
+    description = "Retrain the problem classifier from the dataset file",
+    security(("bearerAuth" = [])),
+    responses(
+        (status = 200, description = "Classifier retrained", body = TrainClassifierResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 500, description = "Dataset could not be loaded", body = ErrorResponse),
+    ),
+)]
+pub async fn train_classifier(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can retrain the classifier"));
+    }
+
+    let trained =
+        crate::types::classifier::ProblemClassifier::train_from_dataset(&app_state.dataset_path)
+            .map_err(|e| {
+                tracing::error!(error = %e, "failed to retrain problem classifier");
+                internal_error()
+            })?;
+    let documents = trained.learned();
+
+    let mut model = app_state.classifier.write().map_err(|e| {
+        tracing::error!(error = %e, "classifier lock poisoned");
+        internal_error()
+    })?;
+    *model = trained;
+
+    Ok(Json(TrainClassifierResponse {
+        documents,
+        trained_at: Utc::now().to_rfc3339(),
+        accuracy: None,
+    })
+    .into_response())
+}
+
+// ---------------------------------------------------------------------------
 // Engineer assignment
 // ---------------------------------------------------------------------------
 
@@ -414,23 +662,25 @@ pub async fn complete_current_task(
 #[utoipa::path(
     post,
     path = "/api/assign",
-    description = "Find the nearest suitable engineer, optionally pick up a special vehicle, and assign to an aircraft",
+    tag = "Assign",
+    operation_id = "assignEngineer",
+    description = "Classify the problem text, then find the nearest suitable engineer and optionally pick up a special vehicle",
+    security(("bearerAuth" = [])),
     request_body = AssignEngineerRequest,
     responses(
         (status = 200, description = "Task created, engineer assigned", body = AssignEngineerResponse),
-        (status = 400, description = "Invalid input or route error", body = String),
-        (status = 403, description = "Authenticated user is not a dispatcher", body = String),
-        (status = 404, description = "No suitable engineer / transport found", body = String),
-        (status = 500, description = "Server-side error", body = String),
-    ),
-    params(
-        ("Authorization" = String, Header, description = "Bearer access token"),
+        (status = 400, description = "Invalid input or route error", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 404, description = "No suitable engineer or transport found", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
 )]
 pub async fn assign_engineer(
     State(app_state): State<Arc<AppState>>,
     Extension(auth_user): Extension<AuthUser>,
-    Json(payload): Json<AssignEngineerRequest>,
+    ApiJson(payload): ApiJson<AssignEngineerRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
     if auth_user.role != UserRole::Dispatcher {
         return Err(forbidden("only dispatchers can assign engineers"));
@@ -452,13 +702,44 @@ pub async fn assign_engineer(
         return Err(bad_request("aircraft position is outside of map bounds"));
     }
 
-    // 1. Suitable engineers (of the right specialization, not already busy with
-    //    the same issue type).
+    // 1. Suitable engineers: specialization comes from the Bayes classifier,
+    //    not from the AircraftIssue mapping. Busy engineers are skipped.
+    let engineer_type = {
+        let model = app_state.classifier.read().map_err(|e| {
+            tracing::error!(error = %e, "classifier lock poisoned");
+            internal_error()
+        })?;
+        model
+            .classify(&payload.classifier_text)
+            .map_err(|e| bad_request(e.to_string()))?
+            .engineer_type
+    };
+    let note = payload
+        .note
+        .clone()
+        .filter(|text| !text.trim().is_empty())
+        .or_else(|| {
+            payload
+                .description
+                .clone()
+                .filter(|text| !text.trim().is_empty())
+        })
+        .ok_or_else(|| unprocessable("note is required"))?;
+    let issue = payload.issue;
+    let (vehicle, resolution) = if issue == crate::types::enums::AircraftIssue::Other {
+        (
+            engineer_type.typical_vehicle(),
+            engineer_type.default_resolution_time(),
+        )
+    } else {
+        (issue.required_vehicle(), issue.resolution_time())
+    };
+
     use self::tasks::dsl::*;
     let busy_engineers = tasks.filter(is_active.eq(true)).select(assigned_engineer);
 
     let suitable_engineers: Vec<Uuid> = engineers::table
-        .filter(engineers::engineer_type.eq(payload.issue.responsible_engineer()))
+        .filter(engineers::engineer_type.eq(engineer_type))
         .filter(engineers::id.ne_all(busy_engineers))
         .select(engineers::id)
         .load(&mut pg_conn)
@@ -473,8 +754,8 @@ pub async fn assign_engineer(
         return Err(not_found("no suitable engineer available"));
     }
 
-    // 3. Special vehicles, if the issue requires one.
-    let transport_map = match payload.issue.required_vehicle() {
+    // 3. Special vehicle, when this specialization always uses one.
+    let transport_map = match vehicle {
         Some(vehicle_type) => load_transport_positions(&mut redis_conn, vehicle_type)?,
         None => HashMap::new(),
     };
@@ -534,17 +815,17 @@ pub async fn assign_engineer(
     // 5. Task timing.
     let travel_secs = total_cells as f32 / ENGINEER_SPEED_CELLS_PER_SEC;
     let now = Utc::now();
-    let task_ends_at = now + payload.issue.resolution_time() + Duration::from_secs_f32(travel_secs);
+    let task_ends_at = now + resolution + Duration::from_secs_f32(travel_secs);
 
     // 6. Persist task.
     let new_task = Task {
         id: Uuid::new_v4(),
-        description: payload.description,
+        description: note,
         created_at: now,
         ends_at: task_ends_at,
         created_by: auth_user.id,
         assigned_engineer: chosen_uuid,
-        issue_type: payload.issue,
+        issue_type: payload.classifier_text,
         plane_x: plane_point.0,
         plane_y: plane_point.1,
         plane_id: Some(plane_uuid),
@@ -568,10 +849,15 @@ pub async fn assign_engineer(
             internal_error()
         })?;
 
+    let eta_seconds = travel_secs as u64;
+    let sla_exceeded = travel_secs >= SLA_LIMIT_SECS;
     Ok(Json(AssignEngineerResponse {
         engineer_uuid: chosen_uuid.to_string(),
-        time: travel_secs as u64,
-        time_limit_exceeded: travel_secs >= SLA_LIMIT_SECS,
+        eta_seconds,
+        sla_exceeded,
+        distance: total_cells as u64,
+        time: eta_seconds,
+        time_limit_exceeded: sla_exceeded,
         route: final_route,
     })
     .into_response())
@@ -644,8 +930,10 @@ fn load_aircraft(redis_conn: &mut redis::Connection) -> Result<Vec<AircraftEntry
     Ok(aircraft)
 }
 
-/// Loads aircraft UUIDs that currently have an AOG flag (`aog:{uuid}`).
-fn load_aog_aircraft(redis_conn: &mut redis::Connection) -> Result<Vec<String>, Response<Body>> {
+/// Loads aircraft that currently have an AOG flag (`aog:{uuid}`) and a known position.
+fn load_aog_aircraft(
+    redis_conn: &mut redis::Connection,
+) -> Result<Vec<AircraftEntry>, Response<Body>> {
     let keys: Vec<String> = redis_conn
         .scan_match("aog:*")
         .map_err(|e| {
@@ -655,21 +943,38 @@ fn load_aog_aircraft(redis_conn: &mut redis::Connection) -> Result<Vec<String>, 
         .filter_map(Result::ok)
         .collect();
 
-    let mut plane_uuids = Vec::with_capacity(keys.len());
+    let mut aircraft = Vec::with_capacity(keys.len());
     for key in keys {
         let Some(uuid_str) = key.strip_prefix("aog:") else {
             continue;
         };
-        match Uuid::from_str(uuid_str) {
-            Ok(uuid) => plane_uuids.push(uuid.to_string()),
+        let id = match Uuid::from_str(uuid_str) {
+            Ok(id) => id,
             Err(e) => {
                 tracing::warn!(%key, error = %e, "malformed AOG key, skipped");
+                continue;
             }
-        }
+        };
+        let raw = match redis_conn.get(format!("position:aircraft:{id}")) {
+            Ok(Some(raw)) => raw,
+            Ok(None) => continue,
+            Err(e) => {
+                tracing::error!(%id, error = %e, "failed to fetch AOG aircraft position");
+                return Err(internal_error());
+            }
+        };
+        let point = match Point::from_value(raw) {
+            Ok(point) => point,
+            Err(e) => {
+                tracing::warn!(%id, error = %e, "malformed AOG aircraft position, skipped");
+                continue;
+            }
+        };
+        aircraft.push(AircraftEntry { id, point });
     }
 
-    plane_uuids.sort();
-    Ok(plane_uuids)
+    aircraft.sort_by_key(|entry| entry.id);
+    Ok(aircraft)
 }
 
 /// Loads current engineer positions from Redis into a `Point -> Uuid` map.

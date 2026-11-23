@@ -12,6 +12,7 @@
 //! | [`map`]  | Airport map primitives ([`MapMatrix`], [`Point`], [`Route`]).        |
 
 pub mod auth;
+pub mod classifier;
 pub mod config;
 pub mod doc;
 pub mod dto;

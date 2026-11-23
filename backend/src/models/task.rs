@@ -2,8 +2,6 @@ use chrono::{DateTime, Utc};
 use diesel::{Selectable, deserialize::Queryable, prelude::Insertable};
 use uuid::Uuid;
 
-use crate::types::enums::AircraftIssue;
-
 // business and diesel model for tasks
 #[derive(Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::database::schema::tasks)]
@@ -15,7 +13,7 @@ pub struct Task {
     pub ends_at: DateTime<Utc>,
     pub created_by: Uuid,
     pub assigned_engineer: Uuid,
-    pub issue_type: AircraftIssue,
+    pub issue_type: String,
     pub plane_x: i64,
     pub plane_y: i64,
     pub plane_id: Option<Uuid>,
