@@ -69,7 +69,13 @@ const LEGEND = [
 
 function freshInbox() {
   // В очереди только ещё не назначенные; assigned — только после успешного /api/assign.
-  return listMcc().filter((item) => item.status !== "assigned");
+  return listMcc()
+    .filter((item) => item.status !== "assigned")
+    .sort((a, b) => {
+      const urgent = Number(b.urgency === "urgent") - Number(a.urgency === "urgent");
+      if (urgent) return urgent;
+      return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+    });
 }
 
 function marginMinutes(seconds) {
@@ -932,7 +938,7 @@ export default function DispatcherPage() {
           <button type="button" className="role-link" onClick={logout}>Выйти</button>
         </div>
         <div className="account-strip">
-          <span>{session.name}</span>
+          <span>{session.name}{session.email ? ` · ${session.email}` : ""}</span>
           <span className={staleLive ? "live-label stale" : "live-label"}>{staleLive ? `STALE · ${clock}` : clock}</span>
         </div>
         <StatusChain current={dispatcherStatusStep(result, inbox, activeMcc)} />

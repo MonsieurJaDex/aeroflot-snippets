@@ -710,7 +710,7 @@ export default function WorkerPage() {
             <div className="account-copy">
               <p className="section-label">Учетная запись</p>
               <div className="account-name">{profile?.name || "—"}</div>
-              <div className="account-role">{skill}</div>
+              <div className="account-role">{skill}{profile?.email ? ` · ${profile.email}` : ""}</div>
             </div>
             <button type="button" className="role-link" onClick={() => { clearSession(); navigate("/"); }}>Выйти</button>
           </div>
@@ -795,6 +795,25 @@ export default function WorkerPage() {
         <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask}>Завершить задачу</button>
         <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog}>{aogOn ? "Снять AOG" : "Поставить AOG"}</button>
         <button id="refresh-route" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "route"} onClick={refreshRouteFromServer}>Обновить маршрут</button>
+        <button
+          id="refresh-task"
+          className="worker-action worker-action-secondary"
+          type="button"
+          disabled={busyAction === "refresh"}
+          onClick={async () => {
+            setBusyAction("refresh");
+            try {
+              await refreshTask();
+              setToast("Задача обновлена");
+            } catch (error) {
+              setNotice(`Не удалось обновить: ${error.message}`);
+            } finally {
+              setBusyAction("");
+            }
+          }}
+        >
+          Обновить задачу
+        </button>
         <button id="push-geo" className="worker-action worker-action-secondary" type="button" disabled={busyAction === "geo"} onClick={pushSelfPosition}>
           {outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео"}
         </button>

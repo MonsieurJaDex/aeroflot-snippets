@@ -11,7 +11,11 @@ import { clearSession, getSession, login } from "../lib/session.js";
 const ISSUES = AIRCRAFT_ISSUES.filter(([value]) => value !== "other");
 
 function freshList() {
-  return listMcc();
+  return listMcc().slice().sort((a, b) => {
+    const urgent = Number(b.urgency === "urgent") - Number(a.urgency === "urgent");
+    if (urgent) return urgent;
+    return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+  });
 }
 
 function signedIn() {

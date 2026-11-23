@@ -26,6 +26,18 @@
 [hidden] { display: none !important; }
 html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
 body { overflow: hidden; }
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 4000;
+  padding: 8px 12px;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+}
+.skip-link:focus { left: 8px; }
 .dispatcher-page { display: flex; height: 100%; min-height: 0; overflow: hidden; }
 .worker-page, .role-page { height: 100%; min-height: 0; }
 body::before {
