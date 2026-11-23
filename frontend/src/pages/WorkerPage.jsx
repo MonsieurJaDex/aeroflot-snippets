@@ -290,6 +290,10 @@ export default function WorkerPage() {
   useEffect(() => {
     if (!allowed) return undefined;
     function onKey(event) {
+      if (event.key === "Escape") {
+        setToast("");
+        return;
+      }
       if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
       if (event.key === "a" || event.key === "A" || event.key === "ф" || event.key === "Ф") {
         if (taskRef.current?.status === "assigned") {
@@ -301,6 +305,18 @@ export default function WorkerPage() {
         if (taskRef.current?.status === "assigned") {
           event.preventDefault();
           document.getElementById("reject-task")?.click();
+        }
+      }
+      if (event.key === "t" || event.key === "T" || event.key === "е" || event.key === "Е") {
+        if (taskRef.current && !taskRef.current.tools_picked) {
+          event.preventDefault();
+          document.getElementById("tools-task")?.click();
+        }
+      }
+      if (event.key === "c" || event.key === "C" || event.key === "с" || event.key === "С") {
+        if (taskRef.current) {
+          event.preventDefault();
+          document.getElementById("complete-task")?.click();
         }
       }
     }
@@ -798,15 +814,16 @@ export default function WorkerPage() {
         </div>
 
         <StatusChain current={step} />
-        {canDecide ? (
-          <details className="shortcut-help">
-            <summary>Горячие клавиши</summary>
-            <ul>
-              <li><kbd>A</kbd> — принять</li>
-              <li><kbd>R</kbd> — отклонить</li>
-            </ul>
-          </details>
-        ) : null}
+        <details className="shortcut-help">
+          <summary>Горячие клавиши</summary>
+          <ul>
+            <li><kbd>A</kbd> — принять</li>
+            <li><kbd>R</kbd> — отклонить</li>
+            <li><kbd>T</kbd> — инструмент получен</li>
+            <li><kbd>C</kbd> — завершить</li>
+            <li><kbd>Esc</kbd> — закрыть тост</li>
+          </ul>
+        </details>
 
         <section className="worker-map-card">
           <div className="section-heading">
@@ -886,13 +903,13 @@ export default function WorkerPage() {
         <button id="save-mel" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "mel"} onClick={saveMel}>
           {busyAction === "mel" ? "…" : "Сохранить MEL"}
         </button>
-        <button id="tools-task" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={!task || task.tools_picked || busyAction === "tools"} onClick={pickTools}>
+        <button id="tools-task" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={!task || task.tools_picked || busyAction === "tools"} onClick={pickTools} title="T">
           {task?.tools_picked ? "Инструмент ✓" : busyAction === "tools" ? "…" : "Инструмент получен"}
         </button>
         <button id="waiting-part" className="worker-action worker-action-warning" type="button" hidden={!task} disabled={busyAction === "waiting"} onClick={waitForPart}>
           {busyAction === "waiting" ? "…" : "Ожидание запчасти"}
         </button>
-        <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask}>
+        <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask} title="C">
           {busyAction === "complete" ? "…" : "Завершить задачу"}
         </button>
         <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog}>
@@ -925,7 +942,14 @@ export default function WorkerPage() {
           {busyAction === "geo" ? "…" : outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео"}
         </button>
       </div>
-      <div className={toastKind === "err" ? "worker-toast err" : "worker-toast"} role="status" aria-live="polite" hidden={!toast}>{toast}</div>
+      <div
+        className={toastKind === "err" ? "worker-toast err" : "worker-toast"}
+        role="status"
+        aria-live="polite"
+        hidden={!toast}
+        onClick={() => setToast("")}
+        title="Esc или клик — закрыть"
+      >{toast}</div>
     </main>
   );
 }

@@ -61,8 +61,13 @@ body::before {
   font-size: 13px;
   font-weight: 700;
   text-align: center;
+  animation: net-slide .25s ease-out;
 }
 .net-banner.ok { background: var(--green); }
+@keyframes net-slide {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
 
 :focus-visible {
   outline: 2px solid var(--orange);
@@ -397,8 +402,12 @@ button.mcc-item.selected::after { content: none; }
 .worker-action:disabled, #complete-task:disabled, #aog-task:disabled, #accept-task:disabled, #reject-task:disabled { opacity: .55; cursor: default; }
 .worker-dock .worker-action { touch-action: manipulation; }
 .notice-card { margin-top: 16px; color: var(--muted); }
-.worker-toast { position: fixed; right: 24px; bottom: 24px; z-index: 1000; max-width: min(360px, calc(100% - 32px)); padding: 12px 14px; border: 1px solid var(--green); border-radius: var(--radius); background: #e7f6ef; color: var(--green); font-weight: 700; }
+.worker-toast { position: fixed; right: 24px; bottom: 24px; z-index: 1000; max-width: min(360px, calc(100% - 32px)); padding: 12px 14px; border: 1px solid var(--green); border-radius: var(--radius); background: #e7f6ef; color: var(--green); font-weight: 700; cursor: pointer; animation: toast-in .2s ease-out; }
 .worker-toast.err { border-color: var(--red); background: #f8e6e7; color: var(--red); }
+@keyframes toast-in {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
 .worker-map-card { margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; border-top: 3px solid var(--blue); }
 #worker-map { height: 480px; background-color: var(--map); background-image: linear-gradient(rgba(0, 82, 155, .1) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 82, 155, .1) 1px, transparent 1px); background-size: 24px 24px; }
 .worker-map-engineer, .worker-map-stand, .worker-map-self { width: 18px; height: 18px; border: 3px solid #ffffff; border-radius: 50%; box-shadow: 0 2px 8px rgba(20,50,90,.25); }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { softBeep } from "../lib/beep.js";
 
 export default function NetBanner() {
   const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
@@ -8,10 +9,12 @@ export default function NetBanner() {
     const on = () => {
       setOnline(true);
       setFlashOk(true);
+      softBeep(720, 100);
     };
     const off = () => {
       setOnline(false);
       setFlashOk(false);
+      softBeep(280, 220);
     };
     window.addEventListener("online", on);
     window.addEventListener("offline", off);
