@@ -156,7 +156,7 @@ export default function DispatcherPage() {
   const [routeNote, setRouteNote] = useState("");
   const [routePending, setRoutePending] = useState(false);
   const [fleet, setFleet] = useState([]);
-  const [transportId, setTransportId] = useState("");
+  const [transportId, setTransportId] = useState(() => sessionStorage.getItem("oto-transport-id") || "");
   const [transportX, setTransportX] = useState(() => sessionStorage.getItem("oto-transport-x") || "");
   const [transportY, setTransportY] = useState(() => sessionStorage.getItem("oto-transport-y") || "");
   const [transportNote, setTransportNote] = useState("");
@@ -373,9 +373,12 @@ export default function DispatcherPage() {
         }
         if (!transportId && transport[0]?.id) {
           setTransportId(transport[0].id);
+          sessionStorage.setItem("oto-transport-id", transport[0].id);
           if (transport[0].point) {
             setTransportX(String(transport[0].point[0]));
             setTransportY(String(transport[0].point[1]));
+            sessionStorage.setItem("oto-transport-x", String(transport[0].point[0]));
+            sessionStorage.setItem("oto-transport-y", String(transport[0].point[1]));
           }
         }
         setAlertsNote("");
@@ -1676,10 +1679,13 @@ export default function DispatcherPage() {
                 onChange={(event) => {
                   const id = event.target.value;
                   setTransportId(id);
+                  sessionStorage.setItem("oto-transport-id", id);
                   const vehicle = fleet.find((item) => item.id === id);
                   if (vehicle?.point) {
                     setTransportX(String(vehicle.point[0]));
                     setTransportY(String(vehicle.point[1]));
+                    sessionStorage.setItem("oto-transport-x", String(vehicle.point[0]));
+                    sessionStorage.setItem("oto-transport-y", String(vehicle.point[1]));
                   }
                 }}
               >
