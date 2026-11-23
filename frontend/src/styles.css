@@ -73,6 +73,7 @@ body::before {
   outline: 2px solid var(--orange);
   outline-offset: 2px;
 }
+#app-main:focus { outline: none; }
 
 .task-id-row {
   display: flex;

@@ -1297,8 +1297,12 @@ export default function DispatcherPage() {
                 type="button"
                 className="mcc-item"
                 key={row.id || `${row.aircraft_id}-${row.arrived_at}`}
+                title="Подставить борт в заявку"
                 onClick={() => {
-                  if (row.aircraft_id) setPlaneId(String(row.aircraft_id));
+                  if (!row.aircraft_id) return;
+                  setPlaneId(String(row.aircraft_id));
+                  softBeep(520, 80);
+                  setLive(`Борт из movements: ${String(row.aircraft_id).slice(0, 8)}`);
                 }}
               >
                 <strong>{String(row.aircraft_id || "").slice(0, 8) || "ВС"}</strong>
