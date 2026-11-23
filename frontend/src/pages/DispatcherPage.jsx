@@ -164,6 +164,9 @@ export default function DispatcherPage() {
   const [trackPending, setTrackPending] = useState(false);
   const [movements, setMovements] = useState([]);
   const [layersOn, setLayersOn] = useState(layersRef.current);
+  const [planeFilter, setPlaneFilter] = useState("");
+  const [staleLive, setStaleLive] = useState(false);
+  const lastLiveAt = useRef(Date.now());
 
   formRef.current = { issue, description, planeId, activeMcc };
   layersRef.current = layersOn;
@@ -217,6 +220,26 @@ export default function DispatcherPage() {
     const timer = window.setInterval(() => setClock(new Date().toLocaleTimeString("ru-RU")), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!allowed) return undefined;
+    const timer = window.setInterval(() => {
+      setStaleLive(Date.now() - lastLiveAt.current > 20000);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [allowed]);
+
+  useEffect(() => {
+    const q = planeFilter.trim().toLowerCase();
+    if (!q || !aircraft.length) return;
+    const list = aircraft.filter((plane) => {
+      const hay = `${plane.id} ${plane.point?.[0]} ${plane.point?.[1]}`.toLowerCase();
+      return hay.includes(q);
+    });
+    if (list.length && !list.some((plane) => plane.id === planeId)) {
+      setPlaneId(list[0].id);
+    }
+  }, [planeFilter, aircraft, planeId]);
 
   useEffect(() => {
     const bits = ["ОТО · смена"];
@@ -455,6 +478,8 @@ export default function DispatcherPage() {
         renderStaffMarkers();
         renderTransportMarkers();
         const gap = staff.missing.length ? `, без координат: ${staff.missing.length}` : "";
+        lastLiveAt.current = Date.now();
+        setStaleLive(false);
         setLive(`Бортов: ${aircraftNow.length} · инженеров на карте: ${agents.length}${gap} · техники: ${fleet.length} · AOG: ${aog.size}`);
       }
 
@@ -897,7 +922,10 @@ export default function DispatcherPage() {
           </div>
           <button type="button" className="role-link" onClick={logout}>Выйти</button>
         </div>
-        <div className="account-strip"><span>{session.name}</span><span className="live-label">{clock}</span></div>
+        <div className="account-strip">
+          <span>{session.name}</span>
+          <span className={staleLive ? "live-label stale" : "live-label"}>{staleLive ? `STALE · ${clock}` : clock}</span>
+        </div>
         <StatusChain current={dispatcherStatusStep(result, inbox, activeMcc)} />
         <details className="request-panel">
           <summary>Карта локации</summary>
@@ -1011,13 +1039,32 @@ export default function DispatcherPage() {
         </details>
         <section className="request-panel">
           <div className="section-heading"><h2>Новая заявка</h2><span className="live-label">LIVE</span></div>
+          <label>Фильтр бортов
+            <input
+              type="search"
+              value={planeFilter}
+              placeholder="uuid или координата"
+              autoComplete="off"
+              onChange={(event) => setPlaneFilter(event.target.value)}
+            />
+          </label>
           <label>Воздушное судно
             <select value={planeId} disabled={!aircraft.length} onChange={(event) => setPlaneId(event.target.value)}>
-              {aircraft.length ? aircraft.map((plane) => (
-                <option key={plane.id} value={plane.id}>
-                  {plane.id.slice(0, 8)} · {plane.point[0]}, {plane.point[1]}{aogIds.has(plane.id) ? " · AOG" : ""}
-                </option>
-              )) : <option value="">Нет бортов в Redis</option>}
+              {(() => {
+                const q = planeFilter.trim().toLowerCase();
+                const list = q
+                  ? aircraft.filter((plane) => {
+                    const hay = `${plane.id} ${plane.point?.[0]} ${plane.point?.[1]}`.toLowerCase();
+                    return hay.includes(q);
+                  })
+                  : aircraft;
+                if (!list.length) return <option value="">Нет совпадений</option>;
+                return list.map((plane) => (
+                  <option key={plane.id} value={plane.id}>
+                    {plane.id.slice(0, 8)} · {plane.point[0]}, {plane.point[1]}{aogIds.has(plane.id) ? " · AOG" : ""}
+                  </option>
+                ));
+              })()}
             </select>
           </label>
           <button
@@ -1065,7 +1112,11 @@ export default function DispatcherPage() {
             {routePending ? "Считаем…" : "Проба маршрута getRoute"}
           </button>
           {routeNote ? <p className="fault-hint">{routeNote}</p> : null}
-          <button id="assign-button" type="button" disabled={pending} onClick={() => actions.current.assign?.()}>Назначить инженера · Ctrl+Enter</button>
+          <button id="assign-button" type="button" disabled={pending} onClick={() => actions.current.assign?.()}>
+            {pending ? "Назначение…" : "Назначить инженера · Ctrl+Enter"}
+          </button>
+          <p className="fault-hint">Esc — снять выбор заявки ЦПУ. Ctrl+Enter — назначить.</p>
+          {staleLive ? <p className="fault-hint stale-live">Карта давно не обновлялась — проверьте сеть или API.</p> : null}
           <div className={result.type === "ok" ? "assignment-result success" : "assignment-result"}>
             {result.type === "ok" ? (
               <>

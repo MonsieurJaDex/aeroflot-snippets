@@ -240,6 +240,26 @@ export default function WorkerPage() {
     return () => { document.title = "Аэрофлот ОТО"; };
   }, [task, etaLeft]);
 
+  // Экран не гаснет, пока есть активная задача на телефоне инженера.
+  useEffect(() => {
+    if (!task) return undefined;
+    let lock = null;
+    async function grab() {
+      try {
+        lock = await navigator.wakeLock?.request("screen");
+      } catch { /* не везде есть */ }
+    }
+    grab();
+    const onVis = () => {
+      if (document.visibilityState === "visible") grab();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      lock?.release?.().catch(() => {});
+    };
+  }, [task?.id]);
+
   useEffect(() => {
     if (!task || task.eta_seconds == null) {
       setEtaLeft(null);
@@ -515,6 +535,7 @@ export default function WorkerPage() {
   }
 
   async function rejectTask() {
+    if (!window.confirm("Отклонить назначение? Задача вернётся диспетчеру.")) return;
     setBusyAction("reject");
     try {
       await apiRequest("/api/tasks/current/reject", { method: "POST" });
@@ -543,6 +564,7 @@ export default function WorkerPage() {
   }
 
   async function waitForPart() {
+    if (!window.confirm("Отметить ожидание запчасти? Задача уйдёт из текущих.")) return;
     setBusyAction("waiting");
     try {
       await apiRequest("/api/tasks/current/waiting-part", { method: "POST" });
@@ -575,6 +597,7 @@ export default function WorkerPage() {
   }
 
   async function completeTask() {
+    if (!window.confirm("Завершить задачу? Отменить будет нельзя.")) return;
     setBusyAction("complete");
     try {
       await apiRequest("/api/tasks/current/complete", { method: "POST" });
@@ -589,11 +612,13 @@ export default function WorkerPage() {
   }
 
   async function toggleAog() {
+    const next = !aogOn;
+    if (!window.confirm(next ? "Поставить AOG на текущий борт?" : "Снять AOG с борта?")) return;
     setBusyAction("aog");
     try {
       const data = await apiRequest("/api/tasks/current/aog", {
         method: "PUT",
-        body: { aog: !aogOn },
+        body: { aog: next },
       });
       setAogOn(Boolean(data?.aog));
       setToast(data?.aog ? "Самолёт отмечен как AOG" : "AOG снят");
