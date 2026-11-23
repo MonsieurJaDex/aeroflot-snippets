@@ -177,6 +177,14 @@ export default function DispatcherPage() {
   const [staleLive, setStaleLive] = useState(false);
   const [crewNote, setCrewNote] = useState("");
   const [pollMs, setPollMs] = useState(null);
+  const [assignHistory, setAssignHistory] = useState(() => {
+    try {
+      const rows = JSON.parse(sessionStorage.getItem("oto-assign-history") || "[]");
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  });
   const lastLiveAt = useRef(Date.now());
 
   formRef.current = { issue, description, planeId, activeMcc };
@@ -632,6 +640,21 @@ export default function DispatcherPage() {
               sessionStorage.setItem("oto-disp-draft", nextAuto);
               setDescription(nextAuto);
             }
+            {
+              const entry = {
+                at: new Date().toISOString(),
+                name: assignedName,
+                plane: plane.id.slice(0, 8),
+                issue: issueLabel(issueValue),
+                minutes: Math.max(0, Math.round(Number(response.eta_seconds ?? response.time ?? 0) / 60)),
+                sla: Boolean(response.sla_exceeded ?? response.time_limit_exceeded),
+              };
+              setAssignHistory((prev) => {
+                const next = [entry, ...prev].slice(0, 8);
+                sessionStorage.setItem("oto-assign-history", JSON.stringify(next));
+                return next;
+              });
+            }
             if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
           } catch (error) {
             setResult({ type: "error", text: `Ошибка: ${assignErrorMessage(error)}` });
@@ -1007,6 +1030,17 @@ export default function DispatcherPage() {
                 <span>{row.point ? `${row.point[0]}, ${row.point[1]}` : "без точки"}</span>
               </button>
             )) : <p className="mcc-empty">Нет AOG.</p>}
+          </div>
+        </details>
+        <details className="request-panel" open={assignHistory.length > 0}>
+          <summary>Недавние назначения · {assignHistory.length}</summary>
+          <div className="mcc-inbox">
+            {assignHistory.length ? assignHistory.map((row, index) => (
+              <div className="mcc-item" key={`${row.at}-${index}`}>
+                <strong>{row.name} · {row.plane}</strong>
+                <span>{row.issue} · ETA {row.minutes} мин{row.sla ? " · SLA" : ""} · {relativeRu(row.at)}</span>
+              </div>
+            )) : <p className="mcc-empty">Пока пусто в этой вкладке.</p>}
           </div>
         </details>
         <details className="request-panel" open={alerts.length > 0}>
