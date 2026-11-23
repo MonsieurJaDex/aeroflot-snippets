@@ -704,6 +704,7 @@ export default function WorkerPage() {
     const point = lastSelfRef.current;
     if (!current?.userId || !Array.isArray(point)) {
       setNotice("Нет своей точки для отправки.");
+      flash("Нет точки", "err");
       return;
     }
     setBusyAction("geo");
@@ -712,10 +713,12 @@ export default function WorkerPage() {
       await updateEngineerPosition(current.userId, [[point, t]]);
       setOutboxCount(pendingCount());
       flash("Позиция отправлена");
+      softBeep(500, 90);
     } catch (error) {
       enqueueEngineerPoint(current.userId, point, t);
       setOutboxCount(pendingCount());
       setNotice(`Сеть недоступна, точка в очереди (${pendingCount()}). ${error.message}`);
+      flash("Гео в очередь", "err");
     } finally {
       setBusyAction("");
     }
