@@ -736,6 +736,19 @@ export default function WorkerPage() {
               <p className="section-label">Учетная запись</p>
               <div className="account-name">{profile?.name || "—"}</div>
               <div className="account-role">{skill}{profile?.email ? ` · ${profile.email}` : ""}</div>
+              {profile?.userId ? (
+                <button
+                  type="button"
+                  className="ghost-copy"
+                  style={{ marginTop: 6 }}
+                  onClick={async () => {
+                    const ok = await copyText(profile.userId);
+                    flash(ok ? "UUID скопирован" : "Не удалось скопировать", ok ? "ok" : "err");
+                  }}
+                >
+                  UUID · {String(profile.userId).slice(0, 8)}
+                </button>
+              ) : null}
             </div>
             <button
               type="button"
