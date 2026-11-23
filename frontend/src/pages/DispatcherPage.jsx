@@ -760,6 +760,7 @@ export default function DispatcherPage() {
       setJournalNote("Файл journal.csv сохранён.");
     } catch (error) {
       setJournalNote(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setJournalPending(false);
     }
