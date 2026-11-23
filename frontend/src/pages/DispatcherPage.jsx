@@ -871,9 +871,11 @@ export default function DispatcherPage() {
     try {
       const data = await trainClassifier();
       const acc = data?.accuracy == null ? "—" : `${Math.round(Number(data.accuracy) * 100)}%`;
+      softBeep(600, 140);
       setTrainNote(`Обучено: ${data?.documents ?? "?"} док. · accuracy ${acc}`);
     } catch (error) {
       setTrainNote(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setTrainPending(false);
     }
