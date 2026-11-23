@@ -891,12 +891,13 @@ export default function WorkerPage() {
               flash("Задача обновлена");
             } catch (error) {
               setNotice(`Не удалось обновить: ${error.message}`);
+              flash("Ошибка обновления", "err");
             } finally {
               setBusyAction("");
             }
           }}
         >
-          Обновить задачу
+          {busyAction === "refresh" ? "…" : "Обновить задачу"}
         </button>
         <button id="push-geo" className="worker-action worker-action-secondary" type="button" disabled={busyAction === "geo"} onClick={pushSelfPosition}>
           {outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео"}
