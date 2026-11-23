@@ -3,6 +3,8 @@ import { Navigate, useNavigate } from "react-router-dom";
 import L from "leaflet";
 import StatusChain from "../components/StatusChain.jsx";
 import { engineerTypeLabel, issueLabel } from "../lib/catalog.js";
+import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
+import { updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { CELL_METERS, pointAt, totalMeters, WALK_MPS } from "../lib/walk.js";
 import {
@@ -83,6 +85,8 @@ export default function WorkerPage() {
   const [statusStep, setStatusStep] = useState("не назначен");
   const [melCategory, setMelCategory] = useState("A");
   const [deferUntil, setDeferUntil] = useState("");
+  const [outboxCount, setOutboxCount] = useState(() => pendingCount());
+  const lastSelfRef = useRef(null);
 
   taskRef.current = task;
 
@@ -130,6 +134,7 @@ export default function WorkerPage() {
         const mine = engineers.find((entry) => String(entry.id) === String(current.userId));
         if (!mine || !Array.isArray(mine.position)) return;
         // Пока идёт ход по маршруту, точку не дёргаем с Redis (там часто уже стоим у ВС).
+        lastSelfRef.current = mine.position;
         mapApi.current.showSelfPoint?.(mine.position, { fromServer: true });
         setNotice((prev) => (prev.startsWith("Нет связи")
           ? "Связь восстановлена. Позиция снова с сервера."
@@ -140,15 +145,34 @@ export default function WorkerPage() {
       }
     }
 
+    async function flushOutbox() {
+      const current = getSession();
+      if (!current?.userId) return;
+      try {
+        const sent = await flushEngineerOutbox(async (row) => {
+          await updateEngineerPosition(row.id, [[row.point, row.t]]);
+        });
+        setOutboxCount(pendingCount());
+        if (sent) setToast(`Дослано геоточек: ${sent}`);
+      } catch (error) {
+        console.warn("[worker] outbox", error);
+      }
+    }
+
     loadTask();
     refreshSelf();
+    flushOutbox();
     const timer = window.setInterval(() => {
       loadTask();
       refreshSelf();
+      flushOutbox();
     }, 5000);
+    const onOnline = () => flushOutbox();
+    window.addEventListener("online", onOnline);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      window.removeEventListener("online", onOnline);
     };
   }, [allowed]);
 
@@ -248,6 +272,7 @@ export default function WorkerPage() {
       if (opts.fromServer && walk && !walk.done) return;
       const same = selfPoint && selfPoint[0] === next[0] && selfPoint[1] === next[1];
       selfPoint = next;
+      lastSelfRef.current = next;
       if (same && selfMarker && bag.map?.hasLayer(selfMarker)) return;
       placeSelfMarker();
       if (!walk) focus();
@@ -516,6 +541,28 @@ export default function WorkerPage() {
     }
   }
 
+  async function pushSelfPosition() {
+    const current = getSession();
+    const point = lastSelfRef.current;
+    if (!current?.userId || !Array.isArray(point)) {
+      setNotice("Нет своей точки для отправки.");
+      return;
+    }
+    setBusyAction("geo");
+    const t = Math.floor(Date.now() / 1000);
+    try {
+      await updateEngineerPosition(current.userId, [[point, t]]);
+      setOutboxCount(pendingCount());
+      setToast("Позиция отправлена");
+    } catch (error) {
+      enqueueEngineerPoint(current.userId, point, t);
+      setOutboxCount(pendingCount());
+      setNotice(`Сеть недоступна, точка в очереди (${pendingCount()}). ${error.message}`);
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   return (
     <main className="worker-page">
       <div className="worker-shell">
@@ -599,6 +646,9 @@ export default function WorkerPage() {
         <button id="waiting-part" className="worker-action worker-action-warning" type="button" hidden={!task} disabled={busyAction === "waiting"} onClick={waitForPart}>Ожидание запчасти</button>
         <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask}>Завершить задачу</button>
         <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog}>{aogOn ? "Снять AOG" : "Поставить AOG"}</button>
+        <button id="push-geo" className="worker-action worker-action-secondary" type="button" disabled={busyAction === "geo"} onClick={pushSelfPosition}>
+          {outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео"}
+        </button>
       </div>
       <div className="worker-toast" role="status" hidden={!toast}>{toast}</div>
     </main>

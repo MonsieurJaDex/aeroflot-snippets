@@ -162,6 +162,23 @@ export async function departAircraft(id) {
   });
 }
 
+export async function arriveAircraft(point, id = null) {
+  const body = { point };
+  if (id) body.id = id;
+  return apiRequest("/api/aircraft/arrive", {
+    method: "POST",
+    body,
+  });
+}
+
+export async function updateEngineerPosition(id, batch) {
+  return apiRequest("/api/geo/updateEngineerPosition", {
+    method: "POST",
+    auth: false,
+    body: { id, batch },
+  });
+}
+
 export async function trainClassifier() {
   return apiRequest("/api/classify/train", { method: "POST" });
 }

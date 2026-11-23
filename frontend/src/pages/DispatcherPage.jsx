@@ -16,6 +16,7 @@ import {
   loadAircraft,
   loadAogIds,
   loadBusyEngineerIds,
+  arriveAircraft,
   createDefect,
   departAircraft,
   downloadJournalCsv,
@@ -115,6 +116,8 @@ export default function DispatcherPage() {
   const [trainPending, setTrainPending] = useState(false);
   const [departNote, setDepartNote] = useState("");
   const [departPending, setDepartPending] = useState(false);
+  const [arriveNote, setArriveNote] = useState("");
+  const [arrivePending, setArrivePending] = useState(false);
   const [movements, setMovements] = useState([]);
   const [layersOn, setLayersOn] = useState(layersRef.current);
 
@@ -666,6 +669,26 @@ export default function DispatcherPage() {
     }
   }
 
+  async function onArrivePlane() {
+    const plane = aircraft.find((item) => item.id === planeId);
+    if (!plane?.point) {
+      setArriveNote("Выберите борт со стоянкой.");
+      return;
+    }
+    setArrivePending(true);
+    setArriveNote("");
+    try {
+      const data = await arriveAircraft(plane.point, plane.id);
+      setArriveNote(`Прибытие: ${(data?.aircraft_id || plane.id).slice(0, 8)}`);
+      const moves = await loadMovements(12);
+      setMovements(moves);
+    } catch (error) {
+      setArriveNote(assignErrorMessage(error));
+    } finally {
+      setArrivePending(false);
+    }
+  }
+
   return (
     <div className="dispatcher-page">
       <div id="sidebar">
@@ -787,6 +810,10 @@ export default function DispatcherPage() {
             {classifyPending ? "Классификация…" : "Подсказать тип инженера"}
           </button>
           {classifyHint ? <p className="fault-hint">{classifyHint}</p> : null}
+          <button type="button" className="shift-button" disabled={arrivePending || !planeId} onClick={onArrivePlane}>
+            {arrivePending ? "Фиксация…" : "Зафиксировать прибытие борта"}
+          </button>
+          {arriveNote ? <p className="fault-hint">{arriveNote}</p> : null}
           <button type="button" className="shift-button" disabled={departPending || !planeId} onClick={onDepartPlane}>
             {departPending ? "Фиксация…" : "Зафиксировать вылет борта"}
           </button>
