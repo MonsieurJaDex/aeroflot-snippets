@@ -1292,11 +1292,11 @@ export default function DispatcherPage() {
             {classifyPending ? "Классификация…" : "Подсказать тип инженера"}
           </button>
           {classifyHint ? <p className="fault-hint">{classifyHint}</p> : null}
-          <button type="button" className="shift-button" disabled={arrivePending || !planeId || pending} onClick={onArrivePlane}>
+          <button type="button" className="shift-button" disabled={arrivePending || !planeId || pending || departPending} onClick={onArrivePlane}>
             {arrivePending ? "Фиксация…" : "Зафиксировать прибытие борта"}
           </button>
           {arriveNote ? <p className="fault-hint">{arriveNote}</p> : null}
-          <button type="button" className="shift-button" disabled={departPending || !planeId || pending} onClick={onDepartPlane}>
+          <button type="button" className="shift-button" disabled={departPending || !planeId || pending || arrivePending} onClick={onDepartPlane}>
             {departPending ? "Фиксация…" : "Зафиксировать вылет борта"}
           </button>
           {departNote ? <p className="fault-hint">{departNote}</p> : null}
