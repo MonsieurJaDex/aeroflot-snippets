@@ -1092,6 +1092,14 @@ export default function DispatcherPage() {
             <label>Текст дефекта
               <input type="text" value={defectText} autoComplete="off" onChange={(event) => setDefectText(event.target.value)} />
             </label>
+            <button
+              type="button"
+              className="shift-button"
+              disabled={!description.trim()}
+              onClick={() => setDefectText(description.trim())}
+            >
+              Взять из описания заявки
+            </button>
             <label>Глава ATA
               <input type="text" value={defectAta} autoComplete="off" onChange={(event) => setDefectAta(event.target.value)} />
             </label>
