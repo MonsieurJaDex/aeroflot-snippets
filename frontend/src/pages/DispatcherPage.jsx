@@ -269,6 +269,7 @@ export default function DispatcherPage() {
       }
       if (event.key === "Escape") {
         setActiveMcc(null);
+        setPlaneFilter("");
       }
     }
     window.addEventListener("keydown", onKey);
@@ -654,10 +655,11 @@ export default function DispatcherPage() {
     if (known) setPlaneId(item.planeUuid);
     setIssue(item.issue);
     setDescription(item.description);
+    if (item.serverId) setReassignId(String(item.serverId));
     setResult({
       type: "info",
       text: known
-        ? "Замечание ЦПУ подставлено, статус: не назначена. Назначьте инженера."
+        ? `Замечание ЦПУ подставлено${item.urgency === "urgent" ? " · срочно" : ""}. Назначьте инженера.`
         : "Этого борта нет в /api/aircraft. Замечание не назначено, назначить его нельзя.",
     });
   }

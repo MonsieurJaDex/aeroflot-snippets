@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AIRCRAFT_ISSUES, engineerTypeLabel, issueLabel } from "../lib/catalog.js";
 import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
+import { copyText } from "../lib/copyText.js";
 import { relativeRu } from "../lib/format.js";
 import { classifyRemark, createRemark, trainClassifier } from "../lib/mccApi.js";
 import { addMcc, clearAllMcc, clearAssignedMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
@@ -282,6 +283,18 @@ export default function MccPage() {
                   {item.serverId ? ` · сервер ${item.status}` : " · локально"}
                   {item.createdAt ? ` · ${relativeRu(item.createdAt)}` : ""}
                 </span>
+                {item.serverId ? (
+                  <button
+                    type="button"
+                    className="ghost-copy"
+                    onClick={async () => {
+                      const ok = await copyText(item.serverId);
+                      setStatus(ok ? `Скопирован id ${String(item.serverId).slice(0, 8)}` : "Не удалось скопировать id");
+                    }}
+                  >
+                    Копировать id
+                  </button>
+                ) : null}
               </div>
             )) : <p className="mcc-empty">Пока ничего не передано.</p>}
           </div>

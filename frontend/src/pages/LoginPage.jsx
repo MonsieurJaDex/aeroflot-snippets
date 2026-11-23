@@ -177,7 +177,7 @@ export default function LoginPage() {
                     </select>
                   </label>
                 ) : null}
-                <button type="submit" disabled={pending}>Зарегистрироваться</button>
+                <button type="submit" disabled={pending}>{pending ? "Регистрация…" : "Зарегистрироваться"}</button>
               </form>
             )}
             {error ? <div className="auth-error">{error}</div> : null}
