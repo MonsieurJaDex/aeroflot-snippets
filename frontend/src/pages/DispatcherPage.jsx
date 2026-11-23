@@ -1222,8 +1222,10 @@ export default function DispatcherPage() {
               type="button"
               className="ghost-copy"
               onClick={() => {
+                if (!window.confirm("Очистить историю назначений этой вкладки?")) return;
                 sessionStorage.removeItem("oto-assign-history");
                 setAssignHistory([]);
+                softBeep(400, 80);
               }}
             >
               Очистить историю вкладки

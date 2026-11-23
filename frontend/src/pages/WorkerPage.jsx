@@ -920,7 +920,9 @@ export default function WorkerPage() {
                   {issueLabel(task.issue)}<br />
                   {task.description || ""}<br />
                   {routeText}<br />
-                  ETA: {etaClock || (minutes != null ? `${minutes} мин` : "—")}<br />
+                  ETA: {etaClock || (minutes != null ? `${minutes} мин` : "—")}
+                  {etaLeft === 0 ? " · на месте" : ""}
+                  <br />
                   {task.tools_picked ? "Инструмент получен" : "Инструмент не получен"}
                   {task.ata_chapter ? <><br />ATA {task.ata_chapter}</> : null}
                   {task.mel_category ? <><br />MEL {task.mel_category}</> : null}
