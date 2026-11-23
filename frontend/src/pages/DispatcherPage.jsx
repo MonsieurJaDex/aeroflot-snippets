@@ -1303,10 +1303,10 @@ export default function DispatcherPage() {
           <button
             id="assign-button"
             type="button"
-            disabled={pending}
+            disabled={pending || !planeId || !description.trim()}
             aria-busy={pending}
             onClick={() => {
-              if (pending) return;
+              if (pending || !planeId || !description.trim()) return;
               actions.current.assign?.();
             }}
           >
