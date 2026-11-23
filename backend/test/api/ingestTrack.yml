@@ -1,0 +1,29 @@
+info:
+  name: ingestTrack
+  type: http
+  seq: 27
+
+http:
+  method: POST
+  url: "{{HOST}}/v1/track"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "obj": "e-01",
+        "lat": 55.8312,
+        "lon": 37.6361,
+        "t": "2026-12-03T09:14:20.123Z",
+        "acc": 5,
+        "spd": 0
+      }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

@@ -17,9 +17,48 @@
         ],
         "type": "object"
       },
+      "ActiveMapResponse": {
+        "description": "Active map without the matrix.",
+        "properties": {
+          "height": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "width": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "width",
+          "height",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "AircraftEntry": {
         "description": "One aircraft currently stored in Redis.",
         "properties": {
+          "arrived_at": {
+            "description": "When the aircraft arrived on the active map. Empty for a position that has no arrival record.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "id": {
             "description": "Aircraft UUID.",
             "format": "uuid",
@@ -83,6 +122,112 @@
         ],
         "type": "object"
       },
+      "AircraftMovementListResponse": {
+        "description": "Arrival and departure records for the active map.",
+        "properties": {
+          "movements": {
+            "items": {
+              "$ref": "#/components/schemas/AircraftMovementResponse"
+            },
+            "type": "array"
+          },
+          "total": {
+            "description": "Number of rows before `limit` and `offset` are applied.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "movements",
+          "total"
+        ],
+        "type": "object"
+      },
+      "AircraftMovementResponse": {
+        "description": "One recorded stay of an aircraft on a map.",
+        "properties": {
+          "aircraft_id": {
+            "description": "Aircraft UUID.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "arrived_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "departed_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Movement row id.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "map_id": {
+            "description": "Map the aircraft arrived on.",
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/Point",
+            "description": "Stand used at arrival."
+          }
+        },
+        "required": [
+          "id",
+          "aircraft_id",
+          "map_id",
+          "point",
+          "arrived_at"
+        ],
+        "type": "object"
+      },
+      "AlertItem": {
+        "properties": {
+          "alternative_engineer_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "alternative_margin_seconds": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "message"
+        ],
+        "type": "object"
+      },
+      "AlertList": {
+        "properties": {
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/AlertItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "alerts"
+        ],
+        "type": "object"
+      },
       "AogListResponse": {
         "description": "Aircraft that currently have an AOG status in Redis.",
         "properties": {
@@ -112,6 +257,36 @@
           "aircraft",
           "total",
           "plane_uuids"
+        ],
+        "type": "object"
+      },
+      "ArriveAircraftRequest": {
+        "additionalProperties": false,
+        "description": "Body of `POST /api/aircraft/arrive`.",
+        "properties": {
+          "arrived_at": {
+            "description": "Arrival time. The server clock is used when omitted.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Aircraft UUID. Generated when omitted.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "point": {
+            "$ref": "#/components/schemas/Point",
+            "description": "Stand position on the active map."
+          }
+        },
+        "required": [
+          "point"
         ],
         "type": "object"
       },
@@ -149,6 +324,13 @@
             "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
             "format": "uuid",
             "type": "string"
+          },
+          "request_id": {
+            "description": "Existing request in status `unassigned`.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -161,6 +343,17 @@
       "AssignEngineerResponse": {
         "description": "Response payload for the `assign_engineer` endpoint.",
         "properties": {
+          "candidate_ms": {
+            "description": "Milliseconds spent building the candidate list.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentCandidate"
+            },
+            "type": "array"
+          },
           "distance": {
             "description": "Route length in map cells.",
             "format": "int64",
@@ -205,7 +398,39 @@
           "distance",
           "time",
           "time_limit_exceeded",
+          "candidates",
+          "candidate_ms",
           "route"
+        ],
+        "type": "object"
+      },
+      "AssignmentCandidate": {
+        "description": "One row of the assignment comparison.",
+        "properties": {
+          "eligible": {
+            "type": "boolean"
+          },
+          "engineer_id": {
+            "type": "string"
+          },
+          "eta_seconds": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "uses_vehicle": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "engineer_id",
+          "eligible",
+          "reason",
+          "eta_seconds",
+          "uses_vehicle"
         ],
         "type": "object"
       },
@@ -240,6 +465,58 @@
         "required": [
           "engineer_type",
           "confidence"
+        ],
+        "type": "object"
+      },
+      "CreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ata_chapter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plane_uuid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "point": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Point"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "urgency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "text"
         ],
         "type": "object"
       },
@@ -289,9 +566,23 @@
       "CurrentTaskResponse": {
         "description": "Response payload describing the engineer's current task.",
         "properties": {
+          "arrived": {
+            "type": "boolean"
+          },
+          "ata_chapter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "description": {
             "description": "Human-readable task description.",
             "type": "string"
+          },
+          "eta_seconds": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
           },
           "id": {
             "description": "Unique task identifier.",
@@ -300,6 +591,12 @@
           "issue": {
             "description": "Problem description stored with the task.",
             "type": "string"
+          },
+          "mel_category": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "plane_point": {
             "$ref": "#/components/schemas/Point",
@@ -315,6 +612,12 @@
           "route": {
             "$ref": "#/components/schemas/Route",
             "description": "Route from the engineer to the aircraft."
+          },
+          "status": {
+            "type": "string"
+          },
+          "tools_picked": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -322,7 +625,34 @@
           "description",
           "issue",
           "plane_point",
-          "route"
+          "route",
+          "status",
+          "eta_seconds",
+          "arrived",
+          "tools_picked"
+        ],
+        "type": "object"
+      },
+      "DepartAircraftRequest": {
+        "additionalProperties": false,
+        "description": "Body of `POST /api/aircraft/depart`.",
+        "properties": {
+          "departed_at": {
+            "description": "Departure time. The server clock is used when omitted.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Aircraft UUID.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
         ],
         "type": "object"
       },
@@ -344,10 +674,23 @@
                 "type": "null"
               }
             ]
+          },
+          "stale": {
+            "description": "True when the last point is older than the location stale window.",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "description": "Timestamp of the last accepted point.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
-          "id"
+          "id",
+          "stale"
         ],
         "type": "object"
       },
@@ -574,6 +917,25 @@
         ],
         "type": "object"
       },
+      "MapListResponse": {
+        "description": "Catalog of maps and the id that is active.",
+        "properties": {
+          "active_id": {
+            "type": "string"
+          },
+          "maps": {
+            "items": {
+              "$ref": "#/components/schemas/MapSummary"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "maps",
+          "active_id"
+        ],
+        "type": "object"
+      },
       "MapMatrix": {
         "description": "Rectangular airport grid. 0 — проходимо, любое другое значение — препятствие.",
         "example": [
@@ -605,9 +967,17 @@
       "MapResponse": {
         "description": "Airport map served to authenticated clients.",
         "properties": {
+          "id": {
+            "description": "File stem of the map currently being served.",
+            "type": "string"
+          },
           "matrix": {
             "$ref": "#/components/schemas/MapMatrix",
             "description": "Grid of walkable cells and obstacles."
+          },
+          "name": {
+            "description": "Display name, equal to the file stem.",
+            "type": "string"
           },
           "updated_at": {
             "description": "When this process loaded the map file.",
@@ -616,8 +986,41 @@
           }
         },
         "required": [
+          "id",
+          "name",
           "matrix",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "MapSummary": {
+        "description": "A map file discovered next to the CLI map.",
+        "properties": {
+          "active": {
+            "description": "True for the map routing and Redis positions currently use.",
+            "type": "boolean"
+          },
+          "height": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "width": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "width",
+          "height",
+          "active"
         ],
         "type": "object"
       },
@@ -658,6 +1061,40 @@
         ],
         "type": "object"
       },
+      "MelRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "defer_until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "category"
+        ],
+        "type": "object"
+      },
+      "NewDefect": {
+        "additionalProperties": false,
+        "properties": {
+          "ata_chapter": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "ata_chapter"
+        ],
+        "type": "object"
+      },
       "OAuthTokenType": {
         "description": "OAuth token type. The API only issues bearer tokens.",
         "enum": [
@@ -675,6 +1112,22 @@
         "maxItems": 2,
         "minItems": 2,
         "type": "array"
+      },
+      "ReassignRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "engineer_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engineer_id",
+          "reason"
+        ],
+        "type": "object"
       },
       "RegisterDispatcher": {
         "additionalProperties": false,
@@ -756,12 +1209,123 @@
           }
         ]
       },
+      "RequestCreated": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "type": "object"
+      },
       "Route": {
         "description": "An ordered sequence of points forming a path on the map.",
         "items": {
           "$ref": "#/components/schemas/Point"
         },
         "type": "array"
+      },
+      "SelectMapRequest": {
+        "additionalProperties": false,
+        "description": "Body of `PUT /api/maps/active`.",
+        "properties": {
+          "id": {
+            "description": "Id from `GET /api/maps`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "TrackAck": {
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "obj": {
+            "type": "string"
+          },
+          "t": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accepted",
+          "applied",
+          "obj",
+          "t"
+        ],
+        "type": "object"
+      },
+      "TrackBatch": {
+        "properties": {
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TrackPoint"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "points"
+        ],
+        "type": "object"
+      },
+      "TrackPoint": {
+        "properties": {
+          "acc": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "obj": {
+            "type": "string"
+          },
+          "spd": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "t": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "obj"
+        ],
+        "type": "object"
       },
       "TrainClassifierResponse": {
         "description": "Result of retraining the problem classifier from the dataset on disk.",
@@ -1060,6 +1624,320 @@
         "summary": "Lists every aircraft currently stored in Redis.",
         "tags": [
           "Aircraft"
+        ]
+      }
+    },
+    "/api/aircraft/arrive": {
+      "post": {
+        "description": "Adds an aircraft to the active map and stores the arrival time.",
+        "operationId": "arriveAircraft",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArriveAircraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AircraftMovementResponse"
+                }
+              }
+            },
+            "description": "Aircraft arrived"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid UUID or position outside the map"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not a dispatcher"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Aircraft is already on the active map"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Records an aircraft arrival and places it on the active map.",
+        "tags": [
+          "Aircraft"
+        ]
+      }
+    },
+    "/api/aircraft/depart": {
+      "post": {
+        "description": "Removes an aircraft from the active map and stores the departure time. Clears its AOG flag.",
+        "operationId": "departAircraft",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DepartAircraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AircraftMovementResponse"
+                }
+              }
+            },
+            "description": "Aircraft departed"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Departure is earlier than arrival"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not a dispatcher"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Aircraft is not on the active map"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Records an aircraft departure and removes it from the active map.",
+        "tags": [
+          "Aircraft"
+        ]
+      }
+    },
+    "/api/aircraft/movements": {
+      "get": {
+        "description": "Arrival and departure times recorded for the active map, newest arrival first.",
+        "operationId": "listAircraftMovements",
+        "parameters": [
+          {
+            "description": "Maximum number of items to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "format": "int64",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AircraftMovementListResponse"
+                }
+              }
+            },
+            "description": "Aircraft movements"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not a dispatcher"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Query parameters do not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Lists arrival and departure records of the active map.",
+        "tags": [
+          "Aircraft"
+        ]
+      }
+    },
+    "/api/alerts": {
+      "get": {
+        "description": "Early SLA risk for the dispatcher, with an engineer who can still make it.",
+        "operationId": "listAlerts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertList"
+                }
+              }
+            },
+            "description": "Open alerts"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Tasks"
         ]
       }
     },
@@ -1611,6 +2489,35 @@
         ]
       }
     },
+    "/api/defects": {
+      "post": {
+        "description": "Stores a new defect wording against an ATA chapter without a code change.",
+        "operationId": "createDefect",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewDefect"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Defect stored"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Classifier"
+        ]
+      }
+    },
     "/api/geo/activeEngineers": {
       "get": {
         "description": "List engineers who currently have an active task",
@@ -2063,6 +2970,25 @@
         ]
       }
     },
+    "/api/journal.csv": {
+      "get": {
+        "description": "Immutable chronological journal, one event per line.",
+        "operationId": "exportJournal",
+        "responses": {
+          "200": {
+            "description": "CSV journal"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
     "/api/map": {
       "get": {
         "operationId": "getMap",
@@ -2096,6 +3022,323 @@
         "summary": "Returns the current airport map matrix.",
         "tags": [
           "Map"
+        ]
+      }
+    },
+    "/api/maps": {
+      "get": {
+        "operationId": "listMaps",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapListResponse"
+                }
+              }
+            },
+            "description": "Maps discovered next to the CLI map"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Lists every map file the server can switch to.",
+        "tags": [
+          "Map"
+        ]
+      }
+    },
+    "/api/maps/active": {
+      "get": {
+        "operationId": "getActiveMap",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveMapResponse"
+                }
+              }
+            },
+            "description": "Active map"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Returns the id of the map routing and positions currently use.",
+        "tags": [
+          "Map"
+        ]
+      },
+      "put": {
+        "description": "Dispatcher selects a map by id. Positions and AOG of the previous map stay in Redis under that map.",
+        "operationId": "setActiveMap",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectMapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveMapResponse"
+                }
+              }
+            },
+            "description": "Active map updated"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated user is not a dispatcher"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown map id"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server-side error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Switches the map used by routing, positions and AOG.",
+        "tags": [
+          "Map"
+        ]
+      }
+    },
+    "/api/requests": {
+      "post": {
+        "description": "MCC or crew files a remark. This does not assign an engineer.",
+        "operationId": "createRequest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestCreated"
+                }
+              }
+            },
+            "description": "Remark recorded"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body does not match the schema"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/requests/{id}/queue": {
+      "post": {
+        "description": "Dispatcher accepts a crew remark into the unassigned queue.",
+        "operationId": "queueRequest",
+        "parameters": [
+          {
+            "description": "Request id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestCreated"
+                }
+              }
+            },
+            "description": "Queued"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/requests/{id}/reassign": {
+      "post": {
+        "description": "Shift lead moves an in-progress job to another engineer.",
+        "operationId": "reassignRequest",
+        "parameters": [
+          {
+            "description": "Request id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReassignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestCreated"
+                }
+              }
+            },
+            "description": "Reassigned"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Tasks"
         ]
       }
     },
@@ -2251,6 +3494,24 @@
           }
         ],
         "summary": "Fetches the currently active task for the authenticated engineer.",
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/tasks/current/accept": {
+      "post": {
+        "operationId": "acceptCurrentTask",
+        "responses": {
+          "200": {
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "tags": [
           "Tasks"
         ]
@@ -2508,6 +3769,153 @@
           "Tasks"
         ]
       }
+    },
+    "/api/tasks/current/mel": {
+      "post": {
+        "description": "Engineer sets the MEL category and optional deferral.",
+        "operationId": "setMel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "MEL stored"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/tasks/current/reject": {
+      "post": {
+        "operationId": "rejectCurrentTask",
+        "responses": {
+          "200": {
+            "description": "Rejected"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/tasks/current/tools": {
+      "post": {
+        "operationId": "pickTools",
+        "responses": {
+          "200": {
+            "description": "Tools picked up"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/tasks/current/waiting-part": {
+      "post": {
+        "description": "Engineer waits for a part and returns to the assignment pool.",
+        "operationId": "waitForPart",
+        "responses": {
+          "200": {
+            "description": "Waiting for a part"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/tasks/{id}/route": {
+      "post": {
+        "description": "Rebuilds the route from the engineer's latest position.",
+        "operationId": "refreshTaskRoute",
+        "parameters": [
+          {
+            "description": "Request id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Route refreshed"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "Route"
+        ]
+      }
+    },
+    "/api/v1/track": {
+      "post": {
+        "operationId": "ingestTrack",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackPoint"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackAck"
+                }
+              }
+            },
+            "description": "Point or batch accepted"
+          },
+          "400": {
+            "description": "lat/lon missing or not numeric"
+          }
+        },
+        "tags": [
+          "Geo"
+        ]
+      }
     }
   },
   "tags": [
@@ -2516,7 +3924,7 @@
       "name": "Auth"
     },
     {
-      "description": "Aircraft positions and AOG list",
+      "description": "Aircraft arrivals, departures, positions and AOG list",
       "name": "Aircraft"
     },
     {

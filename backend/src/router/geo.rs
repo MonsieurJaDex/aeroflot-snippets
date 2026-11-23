@@ -139,7 +139,9 @@ pub async fn update_transport_position_handler(
     ApiJson(payload): ApiJson<UpdateTransportPositionRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
     if auth_user.role != UserRole::Dispatcher {
-        return Err(forbidden("only dispatchers can update a transport position"));
+        return Err(forbidden(
+            "only dispatchers can update a transport position",
+        ));
     }
     let uuid = Uuid::parse_str(&payload.id).map_err(|_| bad_request("invalid UUID format"))?;
 
@@ -198,22 +200,27 @@ pub async fn active_engineers(
     })?;
 
     let active = active_map(&app_state)?;
-    let ids: Vec<Uuid> = schema::tasks::table
+    let ids: Vec<String> = schema::tasks::table
         .filter(schema::tasks::is_active.eq(true))
+        .filter(schema::tasks::status.eq_any(["assigned", "in_progress"]))
         .filter(
             schema::tasks::map_id
                 .is_null()
                 .or(schema::tasks::map_id.eq(active.id)),
         )
         .select(schema::tasks::assigned_engineer)
-        .load(&mut pg_conn)
+        .load::<Option<Uuid>>(&mut pg_conn)
         .map_err(|e| {
             tracing::error!(error = %e, "failed to load active engineers");
             internal_error()
-        })?;
+        })?
+        .into_iter()
+        .flatten()
+        .map(|id| id.to_string())
+        .collect();
 
     Ok(Json(ActiveEngineersResponse {
-        active_engineers: ids.into_iter().map(|u| u.to_string()).collect(),
+        active_engineers: ids,
     })
     .into_response())
 }
@@ -225,6 +232,11 @@ pub struct EngineerPositionEntry {
     pub id: Uuid,
     /// Current position, if known.
     pub position: Option<Point>,
+    /// True when the last point is older than the location stale window.
+    pub stale: bool,
+    /// Timestamp of the last accepted point.
+    #[schema(nullable, format = "date-time")]
+    pub updated_at: Option<String>,
 }
 
 /// Engineers and their positions, windowed by `limit` and `offset`.
@@ -295,6 +307,8 @@ pub async fn get_engineers_positions(
         .map(|(id, value)| EngineerPositionEntry {
             id,
             position: value.and_then(|v| Point::from_value(v).ok()),
+            stale: false,
+            updated_at: None,
         })
         .collect();
     let (engineers, total) = slice_page(result, limit, offset);
@@ -349,10 +363,11 @@ pub async fn get_transport_positions(
 
     let (limit, offset) = resolve_page(page)?;
     let active = active_map(&app_state)?;
-    let result = get_transport_from_redis(&mut redis_conn, &active.id, "*".to_string()).map_err(|e| {
-        tracing::error!(error = %e, "failed to fetch transport positions");
-        internal_error()
-    })?;
+    let result =
+        get_transport_from_redis(&mut redis_conn, &active.id, "*".to_string()).map_err(|e| {
+            tracing::error!(error = %e, "failed to fetch transport positions");
+            internal_error()
+        })?;
     let (transport, total) = slice_page(result, limit, offset);
 
     Ok(Json(TransportPositionsResponse { transport, total }).into_response())

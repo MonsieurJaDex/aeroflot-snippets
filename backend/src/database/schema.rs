@@ -55,7 +55,7 @@ diesel::table! {
         created_at -> Timestamptz,
         ends_at -> Timestamptz,
         created_by -> Uuid,
-        assigned_engineer -> Uuid,
+        assigned_engineer -> Nullable<Uuid>,
         issue_type -> Text,
         plane_x -> Int8,
         plane_y -> Int8,
@@ -64,10 +64,57 @@ diesel::table! {
         is_accepted -> Bool,
         is_active -> Bool,
         map_id -> Nullable<Text>,
+        status -> Text,
+        recorded_at -> Timestamptz,
+        ata_chapter -> Nullable<Text>,
+        defect_text -> Nullable<Text>,
+        mel_category -> Nullable<Text>,
+        mel_defer_until -> Nullable<Timestamptz>,
+        waiting_part -> Bool,
+        tools_picked -> Bool,
+        arrived_at -> Nullable<Timestamptz>,
+        source -> Nullable<Text>,
+        urgency -> Text,
+        eta_seconds -> Nullable<Integer>,
+        candidate_ms -> Nullable<Integer>,
+        sla_alerted -> Bool,
+        sla_breached -> Bool,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    journal (id) {
+        id -> Uuid,
+        at -> Timestamptz,
+        kind -> Text,
+        actor -> Nullable<Text>,
+        task_id -> Nullable<Uuid>,
+        params -> Text,
+        duration_ms -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    defect_types (id) {
+        id -> Uuid,
+        body -> Text,
+        ata_chapter -> Text,
+        created_at -> Timestamptz,
     }
 }
 
 diesel::joinable!(tasks -> dispatchers (created_by));
 diesel::joinable!(tasks -> engineers (assigned_engineer));
 
-diesel::allow_tables_to_appear_in_same_query!(aircraft_movements, dispatchers, engineers, tasks,);
+diesel::allow_tables_to_appear_in_same_query!(
+    aircraft_movements,
+    defect_types,
+    dispatchers,
+    engineers,
+    journal,
+    tasks,
+);

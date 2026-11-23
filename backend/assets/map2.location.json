@@ -1,0 +1,52 @@
+{
+  "cell_size_m": 5,
+  "origin_lat": 55.831,
+  "origin_lon": 37.636,
+  "sla_secs": 900,
+  "alert_before_secs": 300,
+  "boarding_delay_secs": 10,
+  "tool_delay_secs": 30,
+  "max_accuracy_m": 80,
+  "max_speed_mps": 12,
+  "stale_after_secs": 45,
+  "zones": [
+    { "id": "stand-1", "x": 10, "y": 10, "radius_m": 12, "label": "Стоянка 1" }
+  ],
+  "objects": [
+    { "id": "warehouse", "kind": "warehouse", "x": 4, "y": 4 },
+    { "id": "parking", "kind": "parking", "x": 8, "y": 6 }
+  ],
+  "ata": [
+    {
+      "chapter": "30",
+      "title": "Противообледенительная система",
+      "admissions": ["avionics_engineer", "aviation_technician"]
+    },
+    {
+      "chapter": "72",
+      "title": "Двигатель",
+      "admissions": ["engine_technician"]
+    },
+    {
+      "chapter": "28",
+      "title": "Топливная система",
+      "admissions": ["fueling_crew", "engine_technician"]
+    },
+    {
+      "chapter": "34",
+      "title": "Навигация",
+      "admissions": ["avionics_engineer"]
+    },
+    {
+      "chapter": "5",
+      "title": "Замечания экипажа",
+      "admissions": ["crew_remarks_handler", "aviation_technician"]
+    }
+  ],
+  "agents": [
+    { "obj": "e-01", "kind": "engineer" },
+    { "obj": "v-01", "kind": "vehicle", "vehicle_type": "fuel_truck" },
+    { "obj": "RA-73142", "kind": "aircraft" }
+  ],
+  "closed_cells": []
+}

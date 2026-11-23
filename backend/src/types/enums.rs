@@ -99,7 +99,9 @@ impl TryFrom<&str> for VehicleType {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq, Hash, Serialize, Deserialize, DbEnum, ToSchema, Default)]
+#[derive(
+    Debug, PartialEq, Clone, Copy, Eq, Hash, Serialize, Deserialize, DbEnum, ToSchema, Default,
+)]
 #[serde(rename_all = "snake_case")]
 #[ExistingTypePath = "crate::database::schema::sql_types::AircraftIssue"]
 #[DbValueStyle = "snake_case"]

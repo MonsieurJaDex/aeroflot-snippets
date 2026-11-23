@@ -35,11 +35,15 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::router::get_map;
 
 mod database;
+mod graph;
+mod journal;
+mod location;
 mod logging;
 mod maps;
 mod middleware;
 mod models;
 mod parser;
+mod rank;
 mod router;
 mod search;
 mod types;
@@ -119,15 +123,14 @@ async fn main() {
 
     // application API layer
 
-    let classifier = match crate::types::classifier::ProblemClassifier::train_from_dataset(
-        &args.dataset_path,
-    ) {
-        Ok(model) => std::sync::Arc::new(std::sync::RwLock::new(model)),
-        Err(e) => {
-            tracing::error!("failed to train problem classifier: {e:#}");
-            process::exit(1);
-        }
-    };
+    let classifier =
+        match crate::types::classifier::ProblemClassifier::train_from_dataset(&args.dataset_path) {
+            Ok(model) => std::sync::Arc::new(std::sync::RwLock::new(model)),
+            Err(e) => {
+                tracing::error!("failed to train problem classifier: {e:#}");
+                process::exit(1);
+            }
+        };
 
     let catalog_for_active = catalog.clone();
     let redis_for_active = redis_pool.clone();
@@ -186,6 +189,24 @@ async fn main() {
         .route("/maps/active", get(get_active_map).put(set_active_map))
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
+        .route("/requests", post(router::ops::create_request))
+        .route("/requests/{id}/queue", post(router::ops::queue_request))
+        .route(
+            "/requests/{id}/reassign",
+            post(router::ops::reassign_request),
+        )
+        .route("/alerts", get(router::ops::list_alerts))
+        .route("/defects", post(router::ops::create_defect))
+        .route("/journal.csv", get(router::ops::export_journal))
+        .route("/tasks/{id}/route", post(router::ops::refresh_route))
+        .route("/tasks/current/accept", post(router::ops::accept_current))
+        .route("/tasks/current/reject", post(router::ops::reject_current))
+        .route("/tasks/current/tools", post(router::ops::pick_tools))
+        .route("/tasks/current/mel", post(router::ops::set_mel))
+        .route(
+            "/tasks/current/waiting-part",
+            post(router::ops::wait_for_part),
+        )
         .route("/aircraft", get(list_aircraft))
         .route("/aircraft/arrive", post(arrive_aircraft))
         .route("/aircraft/depart", post(depart_aircraft))
@@ -230,6 +251,7 @@ async fn main() {
 
     // global API router
     let api_routes = Router::new()
+        .route("/v1/track", post(router::track::ingest))
         .nest("/auth", auth_router)
         .nest("/geo", geo_routes)
         .merge(protected_routes)

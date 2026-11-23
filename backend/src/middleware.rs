@@ -73,7 +73,7 @@ pub async fn auth_middleware(
         let id: Option<String> = conn.get(&token_key)?;
         Ok::<_, Box<dyn std::error::Error + Send + Sync>>(id)
     })
-        .await;
+    .await;
 
     let stored_user_id = match lookup {
         Ok(Ok(Some(id))) => id,

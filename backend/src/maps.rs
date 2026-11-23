@@ -17,6 +17,7 @@ use redis::TypedCommands;
 use uuid::Uuid;
 
 use crate::{
+    location::Location,
     parser,
     types::{enums::VehicleType, map::MapMatrix},
 };
@@ -48,6 +49,7 @@ pub struct ActiveMap {
     pub map: MapMatrix,
     pub road_points: HashSet<i64>,
     pub loaded_at: DateTime<Utc>,
+    pub location: std::sync::Arc<Location>,
 }
 
 impl ActiveMap {
@@ -156,12 +158,19 @@ pub fn load_active(entry: &MapCatalogEntry) -> anyhow::Result<ActiveMap> {
     let parsed = parser::parse_from_json(&entry.path.to_string_lossy())
         .map_err(|error| anyhow::anyhow!("{error}"))
         .with_context(|| format!("failed to parse map {}", entry.path.display()))?;
+    let road_points: HashSet<i64> = parsed.road.into_iter().collect();
+    let location = std::sync::Arc::new(crate::location::load_location(
+        &entry.path,
+        &parsed.map,
+        &road_points,
+    ));
     Ok(ActiveMap {
         id: entry.id.clone(),
         name: entry.name.clone(),
         map: parsed.map,
-        road_points: parsed.road.into_iter().collect(),
+        road_points,
         loaded_at: Utc::now(),
+        location,
     })
 }
 

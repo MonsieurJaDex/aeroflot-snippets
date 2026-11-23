@@ -26,5 +26,5 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 utoipa = { version = "6.0.0", features = ["uuid"] }
 utoipa-swagger-ui = { version = "10.0.2", features = ["axum"] }
-uuid = { version = "1.26.0", features = ["v4", "serde"] }
+uuid = { version = "1.26.0", features = ["v4", "v5", "serde"] }
 validator = { version = "0.21.0", features = ["derive"] }
