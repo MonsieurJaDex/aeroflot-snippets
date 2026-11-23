@@ -54,4 +54,8 @@ export function clearAllMcc() {
   save([]);
 }
 
+export function countOpenMcc() {
+  return listMcc().filter((item) => !isMccAssigned(item)).length;
+}
+
 export const MCC_QUEUE_KEY = KEY;

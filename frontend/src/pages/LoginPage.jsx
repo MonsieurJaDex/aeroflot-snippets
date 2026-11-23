@@ -88,6 +88,7 @@ export default function LoginPage() {
       if (session.role !== role) {
         clearSession();
         setError(`Этот аккаунт зарегистрирован как ${ROLE_LABELS[session.role] || session.role}.`);
+        softBeep(320, 200);
         return;
       }
       localStorage.setItem("oto-last-email", email);
