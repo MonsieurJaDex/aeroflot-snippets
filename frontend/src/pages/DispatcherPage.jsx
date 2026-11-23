@@ -1466,6 +1466,16 @@ export default function DispatcherPage() {
         <details className="request-panel">
           <summary>Координаты</summary>
           <div id="tile-info">{tileInfo}</div>
+          <button
+            type="button"
+            className="ghost-copy"
+            onClick={async () => {
+              const ok = await copyText(tileInfo);
+              setLive(ok ? "Координаты клетки скопированы" : live);
+            }}
+          >
+            Копировать
+          </button>
         </details>
         <details className="request-panel">
           <summary>Легенда</summary>
