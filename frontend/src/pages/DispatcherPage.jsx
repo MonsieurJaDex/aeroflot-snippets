@@ -767,6 +767,7 @@ export default function DispatcherPage() {
     const known = aircraft.some((plane) => plane.id === item.planeUuid);
     skipAuto.current = item.issue !== issue;
     lastAuto.current = item.description;
+    softBeep(item.urgency === "urgent" ? 780 : 560, 100);
     setActiveMcc(item.id);
     if (known) setPlaneId(item.planeUuid);
     setIssue(item.issue);
