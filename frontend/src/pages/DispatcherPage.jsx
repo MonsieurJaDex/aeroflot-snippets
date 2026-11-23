@@ -319,7 +319,13 @@ export default function DispatcherPage() {
           setMapCatalog(Array.isArray(maps.maps) ? maps.maps : []);
           setActiveMapId((prev) => prev || maps.active_id || "");
         }
-        if (!transportId && transport[0]?.id) setTransportId(transport[0].id);
+        if (!transportId && transport[0]?.id) {
+          setTransportId(transport[0].id);
+          if (transport[0].point) {
+            setTransportX(String(transport[0].point[0]));
+            setTransportY(String(transport[0].point[1]));
+          }
+        }
         setAlertsNote("");
       } catch (error) {
         console.warn("[alerts/movements]", error);
