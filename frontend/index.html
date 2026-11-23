@@ -8,14 +8,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=PT+Sans+Narrow:wght@400;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=mobile2" />
+  <link rel="stylesheet" href="style.css?v=roles" />
 </head>
 <body class="role-page">
   <main class="role-shell">
     <div class="role-hero">
       <p class="eyebrow">АЭРОФЛОТ / ОТО</p>
       <h1>Вход в систему</h1>
-      <p class="role-copy">Оперативное техническое обслуживание воздушных судов на перроне.</p>
+      <p class="role-copy">Заявка идёт по цепочке: ЦПУ фиксирует замечание, начальник смены назначает исполнителя, инженер выполняет работу.</p>
     </div>
 
     <details class="api-config">
@@ -27,16 +27,22 @@
     </details>
 
     <div class="role-grid" id="role-grid">
-      <button class="role-card" type="button" data-role="Dispatcher">
+      <button class="role-card" type="button" data-role="Mcc">
         <span class="role-card-number">01</span>
-        <h2>Диспетчер</h2>
-        <p>Заявки, сотрудники, назначение и контроль маршрута.</p>
-        <span>Войти как диспетчер</span>
+        <h2>ЦПУ</h2>
+        <p>Фиксирует замечание экипажа или сотрудника и передаёт его начальнику смены. Исполнителя не назначает.</p>
+        <span>Передать замечание</span>
+      </button>
+      <button class="role-card" type="button" data-role="Dispatcher">
+        <span class="role-card-number">02</span>
+        <h2>Начальник смены</h2>
+        <p>Принимает заявку от ЦПУ, назначает инженера и подтверждает снятие после статуса «в работе».</p>
+        <span>Войти как начальник смены</span>
       </button>
       <button class="role-card" type="button" data-role="Engineer">
-        <span class="role-card-number">02</span>
-        <h2>Инженер ОТО</h2>
-        <p>Новое задание, маршрут к воздушному судну и подтверждение.</p>
+        <span class="role-card-number">03</span>
+        <h2>Инженер</h2>
+        <p>Принимает или отклоняет заявку, меняет статус, идёт по маршруту, ставит AOG и категорию MEL.</p>
         <span>Войти как инженер</span>
       </button>
     </div>
@@ -91,7 +97,17 @@
     const registerSkillRow = document.getElementById("register-skill-row");
     let selectedRole = null;
 
+    const ROLE_LABELS = {
+      Mcc: "ЦПУ",
+      Dispatcher: "начальник смены",
+      Engineer: "инженер",
+    };
+
     function redirectForRole(role) {
+      if (role === "Mcc") {
+        window.location.href = "mcc.html";
+        return;
+      }
       window.location.href = role === "Dispatcher" ? "dispatcher.html" : "worker.html";
     }
 
@@ -101,11 +117,15 @@
     document.querySelectorAll(".role-card").forEach((card) => {
       card.addEventListener("click", () => {
         selectedRole = card.dataset.role;
+        if (selectedRole === "Mcc") {
+          redirectForRole("Mcc");
+          return;
+        }
         registerSkillRow.hidden = selectedRole !== "Engineer";
         roleGrid.hidden = true;
         authPanel.hidden = false;
         document.getElementById("auth-error").hidden = true;
-        const roleLabel = selectedRole === "Dispatcher" ? "Диспетчер" : "Инженер ОТО";
+        const roleLabel = ROLE_LABELS[selectedRole];
         document.getElementById("auth-role-badge").textContent = roleLabel;
         document.getElementById("auth-status").textContent = `Роль: ${roleLabel}`;
       });
@@ -140,7 +160,7 @@
         const password = document.getElementById("login-password").value;
         const session = await AeroAuth.login(email, password);
         if (session.role !== selectedRole) {
-          showError(`Этот аккаунт зарегистрирован как ${session.role === "Dispatcher" ? "диспетчер" : "инженер"}.`);
+          showError(`Этот аккаунт зарегистрирован как ${ROLE_LABELS[session.role] || session.role}.`);
           AeroAuth.clearSession();
           return;
         }

@@ -8,17 +8,21 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=PT+Sans+Narrow:wght@400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="style.css?v=mobile2" />
+  <link rel="stylesheet" href="style.css?v=roles" />
 </head>
 <body class="dispatcher-page">
   <div id="sidebar">
     <div class="brand-row">
-      <div><p class="eyebrow">ОТО / ПЕРРОН</p><h1>Диспетчерская карта</h1></div>
+      <div><p class="eyebrow">НАЧАЛЬНИК СМЕНЫ</p><h1>Диспетчерская карта</h1></div>
       <button id="logout-button" type="button" class="role-link">Выйти</button>
     </div>
     <div class="account-strip">
       <span id="dispatcher-name">Диспетчер</span>
     </div>
+    <section class="request-panel" id="mcc-inbox-wrap">
+      <div class="section-heading"><h2>Заявки ЦПУ</h2></div>
+      <div id="mcc-inbox" class="mcc-inbox">Нет новых замечаний.</div>
+    </section>
     <section class="request-panel">
       <div class="section-heading"><h2>Новая заявка</h2><span class="live-label">LIVE</span></div>
       <label>Воздушное судно<select id="stand-select"></select></label>
@@ -36,6 +40,7 @@
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="auth.js"></script>
+  <script src="mcc-queue.js"></script>
   <script src="walk.js"></script>
   <script src="map.js"></script>
 </body>

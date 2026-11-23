@@ -112,14 +112,14 @@ body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: 
 .auth-status { margin-top: 10px; color: var(--muted); font-size: 12px; }
 .role-page { display: block; min-height: 100%; overflow: auto; background: linear-gradient(180deg, #e6f0f8 0%, var(--bg) 280px); }
 .role-shell { width: min(980px, calc(100% - 40px)); margin: 0 auto; padding: clamp(34px, 7vh, 72px) 0 64px; }
-.role-hero { max-width: 620px; margin: 0 auto 22px; text-align: center; }
+.role-hero { max-width: 760px; margin: 0 auto 22px; text-align: center; }
 .role-shell h1 { margin: 0; font-family: "PT Sans Narrow", sans-serif; font-size: clamp(42px, 7vw, 72px); line-height: .94; letter-spacing: .015em; text-align: center; }
 .role-copy { margin: 18px auto 0; color: var(--muted); font-size: 17px; line-height: 1.5; text-align: center; }
-.role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 760px; margin: 0 auto; }
+.role-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0 auto; }
 .role-card { min-height: 190px; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); transition: border-color .2s ease, transform .2s ease, background .2s ease, box-shadow .2s ease; box-shadow: 0 10px 24px rgba(20,50,90,.08); }
 .role-card:hover { border-color: var(--blue); background: #f4f8fc; transform: translateY(-3px); box-shadow: 0 16px 32px rgba(0,82,155,.12); }
 .role-card-number { color: var(--accent); font-family: "PT Sans Narrow", sans-serif; font-size: 20px; font-weight: 700; }
-.role-card h2 { margin: auto 0 8px; font-family: "PT Sans Narrow", sans-serif; font-size: 31px; letter-spacing: .02em; }
+.role-card h2 { margin: auto 0 8px; font-family: "PT Sans Narrow", sans-serif; font-size: 26px; letter-spacing: .02em; }
 .role-card p { margin: 0 0 18px; color: var(--muted); line-height: 1.45; }
 .role-card > span:last-child { color: var(--blue); font-weight: 700; }
 .api-config { width: min(760px, 100%); margin: 0 auto 22px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
