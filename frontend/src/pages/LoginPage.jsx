@@ -178,7 +178,7 @@ export default function LoginPage() {
                   <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} />
                   Показать пароль
                 </label>
-                <button type="submit" disabled={pending}>{pending ? "Вход…" : "Войти"}</button>
+                <button type="submit" disabled={pending} aria-busy={pending}>{pending ? "Вход…" : "Войти"}</button>
               </form>
             ) : (
               <form className="auth-form" onSubmit={onRegister}>
