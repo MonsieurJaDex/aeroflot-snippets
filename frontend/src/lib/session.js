@@ -138,14 +138,20 @@ export async function register({ email, name, password, userRole, engineerType }
 }
 
 export async function hydrateProfile() {
-  const me = await apiRequest("/api/auth/me");
   const session = getSession();
   if (!session) return null;
-  session.name = me.name;
-  session.role = me.user_role;
-  session.userId = me.id;
-  session.engineerType = me.engineer_type || null;
-  session.email = me.email;
-  saveSession(session);
-  return session;
+  try {
+    const me = await apiRequest("/api/auth/me");
+    session.name = me.name;
+    session.role = me.user_role;
+    session.userId = me.id;
+    session.engineerType = me.engineer_type || null;
+    session.email = me.email;
+    saveSession(session);
+    return session;
+  } catch (error) {
+    // сессия локально есть — профиль подтянем на следующем опросе
+    console.warn("[auth] hydrate", error?.message || error);
+    return session;
+  }
 }

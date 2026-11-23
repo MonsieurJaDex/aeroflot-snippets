@@ -52,7 +52,9 @@ export default function LoginPage() {
 
   function openRole(nextRole) {
     prefetchRole(nextRole);
+    softBeep(520, 70);
     if (nextRole === "Mcc") {
+      localStorage.setItem("oto-last-role", "Mcc");
       navigate("/mcc");
       return;
     }
