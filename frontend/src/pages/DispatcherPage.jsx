@@ -679,7 +679,9 @@ export default function DispatcherPage() {
                 at: new Date().toISOString(),
                 name: assignedName,
                 plane: plane.id.slice(0, 8),
-                issue: issueLabel(issueValue),
+                planeId: plane.id,
+                issue: issueValue,
+                description: String(form.description || "").trim(),
                 minutes: Math.max(0, Math.round(Number(response.eta_seconds ?? response.time ?? 0) / 60)),
                 sla: Boolean(response.sla_exceeded ?? response.time_limit_exceeded),
               };
@@ -1117,10 +1119,24 @@ export default function DispatcherPage() {
           <summary>Недавние назначения · {assignHistory.length}</summary>
           <div className="mcc-inbox">
             {assignHistory.length ? assignHistory.map((row, index) => (
-              <div className="mcc-item" key={`${row.at}-${index}`}>
+              <button
+                type="button"
+                className="mcc-item"
+                key={`${row.at}-${index}`}
+                title="Подставить борт и описание"
+                onClick={() => {
+                  if (row.planeId) setPlaneId(row.planeId);
+                  if (row.issue && ISSUE_LABELS.has(row.issue)) setIssue(row.issue);
+                  if (row.description) {
+                    setDescription(row.description);
+                    sessionStorage.setItem("oto-disp-draft", row.description);
+                  }
+                  softBeep(520, 80);
+                }}
+              >
                 <strong>{row.name} · {row.plane}</strong>
-                <span>{row.issue} · ETA {row.minutes} мин{row.sla ? " · SLA" : ""} · {relativeRu(row.at, nowTick)}</span>
-              </div>
+                <span>{ISSUE_LABELS.get(row.issue) || row.issue} · ETA {row.minutes} мин{row.sla ? " · SLA" : ""} · {relativeRu(row.at, nowTick)}</span>
+              </button>
             )) : <p className="mcc-empty">Пока пусто в этой вкладке.</p>}
           </div>
           {assignHistory.length ? (

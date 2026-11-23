@@ -90,7 +90,7 @@ export default function WorkerPage() {
   const [selfText, setSelfText] = useState("ВЫ: НЕТ ТОЧКИ");
   const [busyAction, setBusyAction] = useState("");
   const [statusStep, setStatusStep] = useState("не назначен");
-  const [melCategory, setMelCategory] = useState("A");
+  const [melCategory, setMelCategory] = useState(() => localStorage.getItem("oto-mel-cat") || "A");
   const [deferUntil, setDeferUntil] = useState("");
   const [outboxCount, setOutboxCount] = useState(() => pendingCount());
   const [etaLeft, setEtaLeft] = useState(null);
@@ -880,7 +880,15 @@ export default function WorkerPage() {
                     </button>
                   </div>
                   <p className="section-label">MEL</p>
-                  <select aria-label="Категория MEL" value={melCategory} onChange={(event) => setMelCategory(event.target.value)}>
+                  <select
+                    aria-label="Категория MEL"
+                    value={melCategory}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setMelCategory(next);
+                      localStorage.setItem("oto-mel-cat", next);
+                    }}
+                  >
                     <option value="A">A</option>
                     <option value="B">B</option>
                     <option value="C">C</option>
@@ -938,9 +946,11 @@ export default function WorkerPage() {
             try {
               await refreshTask();
               flash("Задача обновлена");
+              softBeep(560, 90);
             } catch (error) {
               setNotice(`Не удалось обновить: ${error.message}`);
               flash("Ошибка обновления", "err");
+              softBeep(320, 200);
             } finally {
               setBusyAction("");
             }
