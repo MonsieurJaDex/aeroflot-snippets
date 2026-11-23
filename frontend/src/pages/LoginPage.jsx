@@ -124,7 +124,16 @@ export default function LoginPage() {
           <summary>Адрес сервера API</summary>
           <div className="api-config-row">
             <input value={apiBase} onChange={(event) => setApiBaseInput(event.target.value)} placeholder="http://127.0.0.1:3001" />
-            <button type="button" onClick={() => setApiBase(apiBase.trim())}>Сохранить</button>
+            <button
+              type="button"
+              onClick={() => {
+                const next = apiBase.trim();
+                setApiBase(next);
+                setStatus(`API: ${next.replace(/\/$/, "") || getApiBase()}`);
+              }}
+            >
+              Сохранить
+            </button>
             <button
               type="button"
               onClick={async () => {
