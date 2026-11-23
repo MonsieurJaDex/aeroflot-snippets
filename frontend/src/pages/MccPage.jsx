@@ -194,6 +194,7 @@ export default function MccPage() {
   }
 
   function onLogout() {
+    softBeep(360, 100);
     clearSession();
     setSessionName("");
     setStatus("Вышли. Серверные замечания снова недоступны без входа.");
