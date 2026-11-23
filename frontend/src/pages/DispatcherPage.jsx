@@ -1103,7 +1103,7 @@ export default function DispatcherPage() {
   }
 
   return (
-    <div className="dispatcher-page">
+    <div id="app-main" className="dispatcher-page" tabIndex={-1}>
       <NetBanner />
       <div id="sidebar">
         <div className="brand-row">

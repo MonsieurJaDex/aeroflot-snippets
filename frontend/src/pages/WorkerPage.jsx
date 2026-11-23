@@ -796,7 +796,7 @@ export default function WorkerPage() {
   }
 
   return (
-    <main className="worker-page">
+    <main id="app-main" className="worker-page" tabIndex={-1}>
       <NetBanner />
       <div className="worker-shell">
         <header className="worker-header">

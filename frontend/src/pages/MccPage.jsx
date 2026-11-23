@@ -246,7 +246,7 @@ export default function MccPage() {
   }
 
   return (
-    <main className="role-page">
+    <main id="app-main" className="role-page" tabIndex={-1}>
       <NetBanner />
       <div className="role-shell">
         <div className="role-hero">

@@ -17,7 +17,7 @@ export default class ErrorBoundary extends Component {
   render() {
     if (this.state.message) {
       return (
-        <main className="role-page">
+        <main id="app-main" className="role-page" tabIndex={-1}>
           <div className="role-shell">
             <div className="role-hero">
               <p className="eyebrow">СБОЙ ЭКРАНА</p>

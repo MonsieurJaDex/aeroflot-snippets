@@ -8,7 +8,7 @@ const WorkerPage = lazy(() => import("./pages/WorkerPage.jsx"));
 
 function ScreenFallback() {
   return (
-    <main className="role-page">
+    <main id="app-main" className="role-page" tabIndex={-1}>
       <div className="role-shell">
         <div className="role-hero">
           <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
