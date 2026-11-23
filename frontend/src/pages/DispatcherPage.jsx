@@ -166,9 +166,9 @@ export default function DispatcherPage() {
   const [mapNote, setMapNote] = useState("");
   const [mapPending, setMapPending] = useState(false);
   const [aogList, setAogList] = useState([]);
-  const [trackObj, setTrackObj] = useState("e-01");
-  const [trackLat, setTrackLat] = useState("55.8304");
-  const [trackLon, setTrackLon] = useState("37.6310");
+  const [trackObj, setTrackObj] = useState(() => localStorage.getItem("oto-track-obj") || "e-01");
+  const [trackLat, setTrackLat] = useState(() => localStorage.getItem("oto-track-lat") || "55.8304");
+  const [trackLon, setTrackLon] = useState(() => localStorage.getItem("oto-track-lon") || "37.6310");
   const [trackNote, setTrackNote] = useState("");
   const [trackPending, setTrackPending] = useState(false);
   const [movements, setMovements] = useState([]);
@@ -850,6 +850,9 @@ export default function DispatcherPage() {
     setTrackNote("");
     try {
       const ack = await postTrackPoint({ obj: trackObj.trim(), lat, lon });
+      localStorage.setItem("oto-track-obj", trackObj.trim());
+      localStorage.setItem("oto-track-lat", String(lat));
+      localStorage.setItem("oto-track-lon", String(lon));
       setTrackNote(`track: accepted=${ack?.accepted} applied=${ack?.applied} obj=${ack?.obj || trackObj}`);
     } catch (error) {
       setTrackNote(assignErrorMessage(error));

@@ -113,6 +113,24 @@ export default function LoginPage() {
           <div className="api-config-row">
             <input value={apiBase} onChange={(event) => setApiBaseInput(event.target.value)} placeholder="http://127.0.0.1:3001" />
             <button type="button" onClick={() => setApiBase(apiBase.trim())}>Сохранить</button>
+            <button
+              type="button"
+              onClick={async () => {
+                const base = apiBase.trim().replace(/\/$/, "") || getApiBase();
+                setApiBase(base);
+                setStatus("Проверка сервера…");
+                try {
+                  const res = await fetch(`${base}/api/aircraft`);
+                  setStatus(res.ok || res.status === 401
+                    ? `Сервер отвечает (${res.status}).`
+                    : `Сервер ответил ${res.status}.`);
+                } catch {
+                  setStatus("Сервер недоступен по этому адресу.");
+                }
+              }}
+            >
+              Проверить
+            </button>
           </div>
         </details>
 

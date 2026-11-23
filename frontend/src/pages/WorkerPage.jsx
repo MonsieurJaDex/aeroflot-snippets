@@ -565,6 +565,7 @@ export default function WorkerPage() {
       await apiRequest("/api/tasks/current/accept", { method: "POST" });
       await refreshTask();
       setToast("Задача принята");
+      try { navigator.vibrate?.(80); } catch { /* телефон */ }
     } catch (error) {
       setNotice(`Не удалось принять задачу: ${error.message}`);
     } finally {

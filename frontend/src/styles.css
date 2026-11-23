@@ -216,9 +216,9 @@ body::before {
 .account-strip { display: flex; justify-content: space-between; align-items: center; margin: 0 0 16px; padding: 10px 0 12px; border-bottom: 1px solid var(--border); color: var(--text); font-size: 13px; font-weight: 700; }
 .api-config { margin: 4px 0 24px; color: var(--muted); font-size: 12px; }
 .api-config summary { cursor: pointer; color: var(--blue); font-weight: 700; }
-.api-config-row { display: flex; gap: 8px; margin-top: 10px; max-width: 420px; }
-.api-config-row input { flex: 1; padding: 9px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--field); color: var(--text); }
-.api-config-row button { border: 1px solid var(--border); border-radius: 4px; background: var(--panel-2); color: var(--text); padding: 0 14px; cursor: pointer; font-weight: 700; }
+.api-config-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; max-width: 560px; }
+.api-config-row input { flex: 1 1 180px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--field); color: var(--text); }
+.api-config-row button { border: 1px solid var(--border); border-radius: 4px; background: var(--panel-2); color: var(--text); padding: 0 14px; min-height: 38px; cursor: pointer; font-weight: 700; }
 .role-card { background: var(--panel); border: 1px solid var(--border); font-family: inherit; text-align: left; cursor: pointer; }
 .auth-panel { max-width: 420px; margin-top: 8px; padding: 22px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
 .auth-tabs { display: flex; gap: 8px; margin-bottom: 18px; align-items: center; }
