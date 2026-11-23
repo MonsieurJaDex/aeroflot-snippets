@@ -353,6 +353,11 @@ button.mcc-item.selected::after { content: none; }
   font-weight: 700;
   border-bottom: 2px solid var(--orange);
   padding-bottom: 1px;
+  animation: step-flash .45s ease-out;
+}
+@keyframes step-flash {
+  from { background: rgba(0, 82, 155, .12); }
+  to { background: transparent; }
 }
 .status-chain-sep { color: var(--border); }
 .auth-form textarea { display: block; width: 100%; margin-top: 5px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field); color: var(--text); font: inherit; resize: vertical; }

@@ -594,6 +594,11 @@ export default function DispatcherPage() {
             setResult({ type: "info", text: "Нет воздушного судна. Борта приходят из /api/aircraft, фронт их не создаёт." });
             return;
           }
+          if (navigator.onLine === false) {
+            setResult({ type: "error", text: "Нет сети — назначение невозможно, пока не появится связь." });
+            softBeep(280, 220);
+            return;
+          }
           const issueValue = form.issue;
           const text = form.description.trim() || issueLabel(issueValue);
           const busyBefore = new Set(busyIds);

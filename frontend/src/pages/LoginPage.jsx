@@ -178,7 +178,7 @@ export default function LoginPage() {
             </div>
             {mode === "login" ? (
               <form className="auth-form" onSubmit={onLogin}>
-                <label>Email<input type="email" name="email" required autoComplete="username" defaultValue={savedEmail} /></label>
+                <label>Email<input type="email" name="email" required autoComplete="username" autoFocus defaultValue={savedEmail} /></label>
                 <label>Пароль
                   <input type={showPassword ? "text" : "password"} name="password" required autoComplete="current-password" />
                 </label>

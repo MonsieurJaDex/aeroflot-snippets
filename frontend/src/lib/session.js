@@ -53,11 +53,20 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
     headers.Authorization = `Bearer ${session.accessToken}`;
   }
 
-  const res = await fetch(`${getApiBase()}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`${getApiBase()}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    const error = new Error(navigator.onLine === false
+      ? "Нет сети. Проверьте соединение."
+      : "Сервер не отвечает. Проверьте адрес API.");
+    error.status = 0;
+    throw error;
+  }
 
   if (res.status === 401 && auth && retry) {
     const refreshed = await tryRefresh();
