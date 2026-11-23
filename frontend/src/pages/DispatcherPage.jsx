@@ -857,9 +857,11 @@ export default function DispatcherPage() {
       const name = engineerTypeLabel(data.engineer_type) || data.engineer_type;
       const pct = Number(data.confidence);
       const conf = Number.isFinite(pct) ? `${Math.round((pct <= 1 ? pct * 100 : pct))}%` : "—";
+      softBeep(720, 100);
       setClassifyHint(`${name}, уверенность ${conf}. Подсказка, не назначение.`);
     } catch (error) {
       setClassifyHint(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setClassifyPending(false);
     }
