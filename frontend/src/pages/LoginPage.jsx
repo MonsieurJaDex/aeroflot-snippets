@@ -213,6 +213,7 @@ export default function LoginPage() {
             </button>
           </div>
         )}
+        <p className="build-stamp">ОТО frontend · {import.meta.env.MODE}</p>
       </div>
     </main>
   );
