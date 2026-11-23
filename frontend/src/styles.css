@@ -406,7 +406,11 @@ button.mcc-item.selected::after { content: none; }
 .worker-status-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 16px; }
 .worker-status { display: inline-block; margin-top: 0; padding: 7px 10px; border-radius: var(--radius); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border: 1px solid transparent; }
 .worker-status.free { background: #e7f4ee; color: var(--green); border-color: #b7dcc9; }
-.worker-status.busy { background: #f8e6e7; color: var(--red); border-color: #e5b4b6; }
+.worker-status.busy { background: #fff0e8; color: var(--orange); border-color: rgba(244, 121, 32, .45); animation: busy-pulse 1.8s ease-in-out infinite; }
+@keyframes busy-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .72; }
+}
 .worker-task-badge { display: inline-block; padding: 7px 10px; border-radius: var(--radius); background: var(--blue); color: #fff; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .worker-task-badge.aog { background: var(--red); color: #fff; }
 .worker-task-badge.stale { background: var(--orange); color: #fff; }
