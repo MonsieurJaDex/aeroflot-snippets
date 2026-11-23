@@ -98,6 +98,7 @@ export default function WorkerPage() {
   const lastSelfRef = useRef(null);
   const lastPollAt = useRef(Date.now());
   const etaAnchor = useRef({ id: null, at: 0, base: null });
+  const etaArrivedBeep = useRef("");
 
   taskRef.current = task;
 
@@ -341,12 +342,19 @@ export default function WorkerPage() {
     }
     if (etaAnchor.current.id !== task.id || etaAnchor.current.base !== task.eta_seconds) {
       etaAnchor.current = { id: task.id, at: Date.now(), base: Number(task.eta_seconds) };
+      etaArrivedBeep.current = "";
     }
     const tick = () => {
       const { at, base } = etaAnchor.current;
       if (base == null) return;
       const left = Math.max(0, base - (Date.now() - at) / 1000);
       setEtaLeft(left);
+      if (left === 0 && etaArrivedBeep.current !== task.id) {
+        etaArrivedBeep.current = task.id;
+        flash("ETA: вы на месте");
+        softBeep(880, 160);
+        try { navigator.vibrate?.(100); } catch { /* телефон */ }
+      }
     };
     tick();
     const timer = window.setInterval(tick, 1000);
