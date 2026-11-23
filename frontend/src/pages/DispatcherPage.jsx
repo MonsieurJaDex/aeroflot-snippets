@@ -876,8 +876,8 @@ export default function DispatcherPage() {
         </div>
         <div className="account-strip"><span>{session.name}</span><span className="live-label">{clock}</span></div>
         <StatusChain current={dispatcherStatusStep(result, inbox, activeMcc)} />
-        <section className="request-panel">
-          <div className="section-heading"><h2>Карта локации</h2></div>
+        <details className="request-panel">
+          <summary>Карта локации</summary>
           <form onSubmit={onSelectMap}>
             <label>Активная карта
               <select value={activeMapId} onChange={(event) => setActiveMapId(event.target.value)}>
@@ -893,9 +893,9 @@ export default function DispatcherPage() {
             </button>
           </form>
           {mapNote ? <p className="fault-hint">{mapNote}</p> : null}
-        </section>
-        <section className="request-panel">
-          <div className="section-heading"><h2>AOG сейчас</h2></div>
+        </details>
+        <details className="request-panel" open={aogList.length > 0}>
+          <summary>AOG сейчас · {aogList.length}</summary>
           <div className="mcc-inbox">
             {aogList.length ? aogList.map((row) => (
               <button
@@ -909,7 +909,7 @@ export default function DispatcherPage() {
               </button>
             )) : <p className="mcc-empty">Нет AOG.</p>}
           </div>
-        </section>
+        </details>
         <section className="request-panel">
           <div className="section-heading"><h2>Риск норматива</h2></div>
           <div className="mcc-inbox">
@@ -1096,8 +1096,8 @@ export default function DispatcherPage() {
             ) : result.text}
           </div>
         </section>
-        <section className="request-panel">
-          <div className="section-heading"><h2>Имитатор track</h2></div>
+        <details className="request-panel">
+          <summary>Имитатор track</summary>
           <form onSubmit={onSendTrack}>
             <label>obj<input type="text" value={trackObj} autoComplete="off" onChange={(event) => setTrackObj(event.target.value)} /></label>
             <label>lat<input type="text" value={trackLat} autoComplete="off" onChange={(event) => setTrackLat(event.target.value)} /></label>
@@ -1105,9 +1105,9 @@ export default function DispatcherPage() {
             <button type="submit" className="shift-button" disabled={trackPending}>POST /api/v1/track</button>
           </form>
           {trackNote ? <p className="fault-hint">{trackNote}</p> : null}
-        </section>
-        <section className="request-panel">
-          <div className="section-heading"><h2>Спецтранспорт</h2></div>
+        </details>
+        <details className="request-panel">
+          <summary>Спецтранспорт</summary>
           <form onSubmit={onMoveTransport}>
             <label>Техника
               <select value={transportId} onChange={(event) => setTransportId(event.target.value)}>
@@ -1121,9 +1121,9 @@ export default function DispatcherPage() {
             <button type="submit" className="shift-button" disabled={transportPending || !fleet.length}>Сдвинуть технику</button>
           </form>
           {transportNote ? <p className="fault-hint">{transportNote}</p> : null}
-        </section>
-        <section className="request-panel">
-          <div className="section-heading"><h2>Переназначение</h2></div>
+        </details>
+        <details className="request-panel">
+          <summary>Переназначение</summary>
           <form onSubmit={submitReassign}>
             <label>Заявка
               <input type="text" value={reassignId} autoComplete="off" onChange={(event) => setReassignId(event.target.value)} />
@@ -1137,22 +1137,22 @@ export default function DispatcherPage() {
             <button type="submit" className="shift-button" disabled={reassignPending}>Переназначить</button>
           </form>
           {reassignNote ? <p className="fault-hint">{reassignNote}</p> : null}
-        </section>
-        <section>
-          <h2>Отображение</h2>
+        </details>
+        <details className="request-panel">
+          <summary>Отображение</summary>
           <div>
             <label className="layer-row"><input type="checkbox" checked={layersOn.staff} onChange={(event) => toggleLayer("staff", event.target.checked)} /> Сотрудники</label>
             <label className="layer-row"><input type="checkbox" checked={layersOn.transport} onChange={(event) => toggleLayer("transport", event.target.checked)} /> Спецтранспорт</label>
             <label className="layer-row"><input type="checkbox" checked={layersOn.stands} onChange={(event) => toggleLayer("stands", event.target.checked)} /> Воздушные суда</label>
             <label className="layer-row"><input type="checkbox" checked={layersOn.route} onChange={(event) => toggleLayer("route", event.target.checked)} /> Маршрут</label>
           </div>
-        </section>
-        <section>
-          <h2>Координаты</h2>
+        </details>
+        <details className="request-panel">
+          <summary>Координаты</summary>
           <div id="tile-info">{tileInfo}</div>
-        </section>
-        <section>
-          <h2>Легенда</h2>
+        </details>
+        <details className="request-panel">
+          <summary>Легенда</summary>
           <div>
             {LEGEND.map(([color, label]) => (
               <div className="legend-row" key={label}>
@@ -1161,7 +1161,7 @@ export default function DispatcherPage() {
               </div>
             ))}
           </div>
-        </section>
+        </details>
       </div>
       <div id="map" ref={mapNode} />
     </div>

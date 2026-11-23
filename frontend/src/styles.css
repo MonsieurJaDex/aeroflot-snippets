@@ -80,7 +80,19 @@ body::before {
 .eyebrow { color: var(--red); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 6px; }
 #sidebar h1 { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: .02em; margin: 0; color: var(--text); text-transform: uppercase; }
 .status-dot { width: 8px; height: 8px; margin-top: 6px; background: var(--green); border-radius: 0; }
-.request-panel { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; background: var(--panel-2); border-left: 3px solid var(--blue); }
+.request-panel { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; background: var(--panel-2); border-left: 3px solid var(--blue); margin-bottom: 12px; }
+.request-panel > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.request-panel > summary::-webkit-details-marker { display: none; }
+.request-panel[open] > summary { color: var(--blue); margin-bottom: 12px; }
 .section-heading { display: flex; justify-content: space-between; align-items: center; }
 .live-label { font-size: 9px; color: var(--green); font-weight: 800; letter-spacing: .12em; }
 .request-panel label { display: block; color: var(--muted); font-size: 11px; font-weight: 600; margin-top: 10px; }
