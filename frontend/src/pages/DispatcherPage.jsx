@@ -1055,7 +1055,7 @@ export default function DispatcherPage() {
                 )) : <option value="">Нет карт</option>}
               </select>
             </label>
-            <button type="submit" className="shift-button" disabled={mapPending || !mapCatalog.length}>
+            <button type="submit" className="shift-button" disabled={mapPending || !mapCatalog.length || !activeMapId}>
               {mapPending ? "Переключение…" : "Сделать активной"}
             </button>
           </form>
