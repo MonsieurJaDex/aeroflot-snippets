@@ -737,7 +737,17 @@ export default function WorkerPage() {
               <div className="account-name">{profile?.name || "—"}</div>
               <div className="account-role">{skill}{profile?.email ? ` · ${profile.email}` : ""}</div>
             </div>
-            <button type="button" className="role-link" onClick={() => { clearSession(); navigate("/"); }}>Выйти</button>
+            <button
+              type="button"
+              className="role-link"
+              onClick={() => {
+                if (task && !window.confirm("Есть активная задача. Выйти?")) return;
+                clearSession();
+                navigate("/");
+              }}
+            >
+              Выйти
+            </button>
           </div>
         </header>
 
