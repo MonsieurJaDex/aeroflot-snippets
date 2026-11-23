@@ -1389,9 +1389,41 @@ export default function DispatcherPage() {
               onClick={async () => {
                 const ok = await copyText(planeId);
                 setLive(ok ? `Скопирован UUID: ${planeId}` : live);
+                softBeep(ok ? 600 : 320, ok ? 80 : 160);
               }}
             >
               {planeId ? `Копировать UUID · ${planeId.slice(0, 8)}` : "Копировать UUID борта"}
+            </button>
+            <button
+              type="button"
+              className="shift-button"
+              onClick={async () => {
+                try {
+                  const text = (await navigator.clipboard.readText()).trim();
+                  const match = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+                  if (!match) {
+                    setLive("В буфере нет UUID борта.");
+                    softBeep(320, 160);
+                    return;
+                  }
+                  const hit = aircraft.find((plane) => plane.id.toLowerCase() === match[0].toLowerCase());
+                  if (hit) {
+                    setPlaneId(hit.id);
+                    setPlaneFilter("");
+                    setLive(`Борт из буфера: ${hit.id.slice(0, 8)}`);
+                    softBeep(640, 100);
+                  } else {
+                    setPlaneFilter(match[0]);
+                    setLive(`UUID из буфера не в /api/aircraft: ${match[0].slice(0, 8)}`);
+                    softBeep(440, 120);
+                  }
+                } catch {
+                  setLive("Нет доступа к буферу обмена.");
+                  softBeep(320, 160);
+                }
+              }}
+            >
+              Вставить UUID из буфера
             </button>
           {planeId && aogIds.has(planeId) ? <p className="fault-hint stale-live">Выбранный борт в AOG.</p> : null}
           {!aircraft.length ? <p className="fault-hint stale-live">Нет бортов в Redis. Список приходит из /api/aircraft.</p> : null}
