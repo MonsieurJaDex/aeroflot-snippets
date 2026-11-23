@@ -578,7 +578,12 @@ export default function DispatcherPage() {
               etaSeconds: row.eta_seconds,
               usesVehicle: Boolean(row.uses_vehicle),
             })));
-            candidates.sort((a, b) => Number(b.engineerId === chosenId) - Number(a.engineerId === chosenId));
+            candidates.sort((a, b) => {
+              if (a.engineerId === chosenId) return -1;
+              if (b.engineerId === chosenId) return 1;
+              if (a.eligible !== b.eligible) return Number(b.eligible) - Number(a.eligible);
+              return Number(a.etaSeconds ?? 1e9) - Number(b.etaSeconds ?? 1e9);
+            });
             // Очередь ЦПУ помечаем assigned только здесь, после успешного assign — не при выборе строки.
             if (form.activeMcc && chosenId) {
               markMccAssigned(form.activeMcc);
@@ -592,11 +597,11 @@ export default function DispatcherPage() {
               issue: issueLabel(issueValue),
               onSite: gridRoute.length < 2,
               cells: Math.max(0, gridRoute.length - 1),
-              minutes: Math.max(0, Math.round(Number(response.time || 0) / 60)),
+              minutes: Math.max(0, Math.round(Number(response.eta_seconds ?? response.time ?? 0) / 60)),
               pickup: pickup ? pickup.label : "",
               needed: pickup ? "" : (ISSUE_REQUIRED_VEHICLE[issueValue] ? vehicleLabel(ISSUE_REQUIRED_VEHICLE[issueValue]) : ""),
               skipped,
-              sla: Boolean(response.time_limit_exceeded),
+              sla: Boolean(response.sla_exceeded ?? response.time_limit_exceeded),
               chosenId,
               candidates,
               candidateMs: response.candidate_ms,
@@ -966,6 +971,9 @@ export default function DispatcherPage() {
           <div className="mcc-inbox">
             {alerts.length ? alerts.map((item, index) => {
               const minutes = marginMinutes(item.alternative_margin_seconds);
+              const alt = item.alternative_engineer_id
+                ? `Альтернатива ${String(item.alternative_engineer_id).slice(0, 8)}`
+                : null;
               return (
                 <button
                   type="button"
@@ -975,6 +983,7 @@ export default function DispatcherPage() {
                 >
                   <strong>{item.message}</strong>
                   {minutes == null ? null : <span>Запас альтернативы: {minutes} мин</span>}
+                  {alt ? <span>{alt}</span> : null}
                   <span>Заявка {item.request_id}</span>
                 </button>
               );
@@ -1127,6 +1136,24 @@ export default function DispatcherPage() {
                 {result.needed ? <><br />Для неисправности нужен: <strong>{result.needed}</strong>.</> : null}
                 {result.skipped ? <><br /><em>Занятые инженеры пропущены ({result.skipped}).</em></> : null}
                 {result.sla ? <><br /><em>Время в пути больше 15 минут.</em></> : null}
+                <button
+                  type="button"
+                  className="ghost-copy"
+                  style={{ marginTop: 8 }}
+                  onClick={async () => {
+                    const line = [
+                      result.name,
+                      `борт ${result.plane}`,
+                      result.issue,
+                      result.onSite ? "на месте" : `ETA ${result.minutes} мин`,
+                      result.sla ? "SLA превышен" : null,
+                    ].filter(Boolean).join(" · ");
+                    const ok = await copyText(line);
+                    setLive(ok ? "Итог назначения скопирован" : live);
+                  }}
+                >
+                  Копировать итог
+                </button>
                 {Array.isArray(result.candidates) && result.candidates.length ? (
                   <div className="candidates-block">
                     <p className="candidates-meta">

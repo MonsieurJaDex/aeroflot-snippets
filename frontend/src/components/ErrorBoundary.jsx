@@ -24,9 +24,14 @@ export default class ErrorBoundary extends Component {
               <h1>Аэрофлот</h1>
               <p className="role-copy">{this.state.message}</p>
             </div>
-            <button type="button" className="role-link" onClick={() => window.location.assign("/")}>
-              На вход
-            </button>
+            <div className="error-actions">
+              <button type="button" className="role-link" onClick={() => window.location.reload()}>
+                Обновить экран
+              </button>
+              <button type="button" className="role-link" onClick={() => window.location.assign("/")}>
+                На вход
+              </button>
+            </div>
           </div>
         </main>
       );

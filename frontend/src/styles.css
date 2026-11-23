@@ -79,6 +79,7 @@ body::before {
   cursor: pointer;
 }
 .ghost-copy:hover { border-color: var(--blue); }
+.error-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -300,6 +301,7 @@ button.mcc-item.selected::after { content: none; }
 .worker-status.busy { background: #f8e6e7; color: var(--red); border-color: #e5b4b6; }
 .worker-task-badge { display: inline-block; padding: 7px 10px; border-radius: var(--radius); background: var(--blue); color: #fff; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .worker-task-badge.aog { background: var(--red); color: #fff; }
+.worker-task-badge.stale { background: var(--orange); color: #fff; }
 .task-state { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .1em; }
 .task-content { color: var(--muted); line-height: 1.65; min-height: 96px; }
 .task-content strong { color: var(--text); font-size: 16px; }

@@ -92,7 +92,9 @@ export default function WorkerPage() {
   const [deferUntil, setDeferUntil] = useState("");
   const [outboxCount, setOutboxCount] = useState(() => pendingCount());
   const [etaLeft, setEtaLeft] = useState(null);
+  const [pollStale, setPollStale] = useState(false);
   const lastSelfRef = useRef(null);
+  const lastPollAt = useRef(Date.now());
   const etaAnchor = useRef({ id: null, at: 0, base: null });
 
   taskRef.current = task;
@@ -116,6 +118,8 @@ export default function WorkerPage() {
           if (normalized && sameTask(prev, normalized)) return prev;
           return normalized;
         });
+        lastPollAt.current = Date.now();
+        setPollStale(false);
         setNotice(normalized
           ? normalized.status === "assigned"
             ? "Назначение получено. Примите или отклоните задачу."
@@ -124,6 +128,8 @@ export default function WorkerPage() {
       } catch (error) {
         if (cancelled) return;
         if (error.status === 404) {
+          lastPollAt.current = Date.now();
+          setPollStale(false);
           setTask(null);
           setNotice("Ожидание назначения от диспетчера. Позиция на карте — из геоданных сервера.");
           return;
@@ -182,6 +188,9 @@ export default function WorkerPage() {
       }
     }
 
+    const staleTimer = window.setInterval(() => {
+      if (!cancelled) setPollStale(Date.now() - lastPollAt.current > 20000);
+    }, 4000);
     const stopPoll = whenVisible(() => {
       if (cancelled) return;
       loadTask();
@@ -200,6 +209,7 @@ export default function WorkerPage() {
     return () => {
       cancelled = true;
       stopPoll();
+      clearInterval(staleTimer);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("beforeunload", onLeave);
     };
@@ -691,6 +701,7 @@ export default function WorkerPage() {
           {aogOn ? <span className="worker-task-badge aog">AOG</span> : null}
           {etaClock ? <span className="worker-task-badge">ETA {etaClock}</span> : minutes != null ? <span className="worker-task-badge">ETA {minutes} мин</span> : null}
           {task?.arrived ? <span className="worker-task-badge">Прибыл</span> : null}
+          {pollStale ? <span className="worker-task-badge stale">Нет связи</span> : null}
         </div>
 
         <StatusChain current={step} />

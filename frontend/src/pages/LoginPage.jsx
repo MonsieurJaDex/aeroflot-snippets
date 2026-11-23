@@ -26,6 +26,7 @@ export default function LoginPage() {
   const [status, setStatus] = useState("");
   const [pending, setPending] = useState(false);
   const [savedEmail, setSavedEmail] = useState(() => localStorage.getItem("oto-last-email") || "");
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     document.title = "Аэрофлот ОТО · вход";
@@ -131,14 +132,26 @@ export default function LoginPage() {
             {mode === "login" ? (
               <form className="auth-form" onSubmit={onLogin}>
                 <label>Email<input type="email" name="email" required autoComplete="username" defaultValue={savedEmail} /></label>
-                <label>Пароль<input type="password" name="password" required autoComplete="current-password" /></label>
-                <button type="submit" disabled={pending}>Войти</button>
+                <label>Пароль
+                  <input type={showPassword ? "text" : "password"} name="password" required autoComplete="current-password" />
+                </label>
+                <label className="layer-row">
+                  <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} />
+                  Показать пароль
+                </label>
+                <button type="submit" disabled={pending}>{pending ? "Вход…" : "Войти"}</button>
               </form>
             ) : (
               <form className="auth-form" onSubmit={onRegister}>
                 <label>Имя<input type="text" name="name" required /></label>
                 <label>Email<input type="email" name="email" required autoComplete="username" /></label>
-                <label>Пароль<input type="password" name="password" required autoComplete="new-password" /></label>
+                <label>Пароль
+                  <input type={showPassword ? "text" : "password"} name="password" required autoComplete="new-password" />
+                </label>
+                <label className="layer-row">
+                  <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} />
+                  Показать пароль
+                </label>
                 {role === "Engineer" ? (
                   <label>Специализация
                     <select name="skill" defaultValue={ENGINEER_TYPES[0][0]}>
