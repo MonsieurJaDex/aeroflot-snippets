@@ -1513,7 +1513,11 @@ export default function DispatcherPage() {
             </ul>
           </details>
           {staleLive ? <p className="fault-hint stale-live">Карта давно не обновлялась — проверьте сеть или API.</p> : null}
-          <div className={result.type === "ok" ? "assignment-result success" : result.type === "error" ? "assignment-result error" : "assignment-result"}>
+          <div
+            className={result.type === "ok" ? "assignment-result success" : result.type === "error" ? "assignment-result error" : "assignment-result"}
+            role="status"
+            aria-live="polite"
+          >
             {result.type === "ok" ? (
               <>
                 <strong>{result.name}</strong><br />
