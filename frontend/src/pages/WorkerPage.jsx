@@ -856,6 +856,7 @@ export default function WorkerPage() {
               className="role-link"
               onClick={() => {
                 if (task && !window.confirm("Есть активная задача. Выйти?")) return;
+                softBeep(360, 100);
                 clearSession();
                 navigate("/");
               }}
