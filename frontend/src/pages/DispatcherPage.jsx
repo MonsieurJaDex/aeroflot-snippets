@@ -1364,6 +1364,18 @@ export default function DispatcherPage() {
               onChange={(event) => setPlaneFilter(event.target.value)}
             />
           </label>
+          {planeFilter ? (
+            <button
+              type="button"
+              className="ghost-copy"
+              onClick={() => {
+                setPlaneFilter("");
+                document.getElementById("plane-filter")?.focus();
+              }}
+            >
+              Сбросить фильтр
+            </button>
+          ) : null}
           <label>Воздушное судно
             <select value={planeId} disabled={!aircraft.length} onChange={(event) => setPlaneId(event.target.value)}>
               {(() => {
