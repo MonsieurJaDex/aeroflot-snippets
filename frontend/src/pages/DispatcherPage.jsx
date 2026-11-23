@@ -946,6 +946,7 @@ export default function DispatcherPage() {
     setTransportNote("");
     try {
       await updateTransportPosition(vehicle.id, vehicle.vehicle_type, [x, y]);
+      softBeep(560, 100);
       setTransportNote(`Техника ${vehicle.label}: ${x}, ${y}`);
       const next = await loadTransport();
       setFleet(next);
