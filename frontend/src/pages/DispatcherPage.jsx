@@ -733,7 +733,7 @@ export default function DispatcherPage() {
     if (item.alternative_engineer_id) setReassignEngineer(String(item.alternative_engineer_id));
     window.queueMicrotask?.(() => {
       const panel = document.getElementById("reassign-panel");
-      panel?.setAttribute("open", "");
+      if (panel) panel.open = true;
       document.getElementById("reassign-reason")?.focus();
     });
   }
