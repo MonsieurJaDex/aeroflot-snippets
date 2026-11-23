@@ -473,7 +473,7 @@ button.mcc-item.selected::after { content: none; }
   .worker-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; width: auto; margin: 0; display: flex; gap: 10px; padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--border); box-shadow: 0 -8px 24px rgba(20,50,90,.08); }
   .worker-dock:not(:has(button:not([hidden]))) { display: none; }
   .worker-page:has(.worker-dock button:not([hidden])) .worker-shell { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-  .worker-action, #complete-task, #aog-task, #accept-task, #reject-task { min-height: 56px; font-size: 17px; border-radius: 8px; }
+  .worker-action, #complete-task, #aog-task, #accept-task, #reject-task { min-height: 56px; font-size: 15px; border-radius: 8px; }
   .worker-dock { flex-wrap: wrap; }
   .worker-dock .worker-action, .worker-dock #complete-task, .worker-dock #aog-task, .worker-dock #accept-task, .worker-dock #reject-task { flex: 1 1 calc(50% - 5px); min-width: 9.5rem; }
   .worker-toast { right: 12px; left: 12px; bottom: calc(96px + env(safe-area-inset-bottom)); max-width: none; }
