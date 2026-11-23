@@ -58,6 +58,12 @@ export default function MccPage() {
   const [savedEmail, setSavedEmail] = useState(() => localStorage.getItem("oto-last-email") || "");
 
   useEffect(() => {
+    const open = items.filter((row) => !isMccAssigned(row)).length;
+    document.title = open ? `ОТО · ЦПУ · очередь ${open}` : "ОТО · ЦПУ";
+    return () => { document.title = "Аэрофлот ОТО"; };
+  }, [items]);
+
+  useEffect(() => {
     const onStorage = (event) => {
       if (event.key === MCC_QUEUE_KEY) setItems(freshList());
     };

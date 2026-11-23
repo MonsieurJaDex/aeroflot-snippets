@@ -5,6 +5,8 @@ import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { engineerTypeLabel, issueLabel } from "../lib/catalog.js";
 import { formatEta } from "../lib/format.js";
+import { softBeep } from "../lib/beep.js";
+import { copyText } from "../lib/copyText.js";
 import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
 import { updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
@@ -210,6 +212,7 @@ export default function WorkerPage() {
       setAogOn(false);
       setStatusStep("не назначен");
       setDeferUntil("");
+      softBeep(740, 220);
       try { navigator.vibrate?.(140); } catch { /* телефон */ }
     }
     seenTask.current = id;
@@ -697,6 +700,19 @@ export default function WorkerPage() {
                   {task.tools_picked ? "Инструмент получен" : "Инструмент не получен"}
                   {task.mel_category ? <><br />MEL {task.mel_category}</> : null}
                   {task.arrived ? <><br />Прибыл к воздушному судну</> : null}
+                  <div className="task-id-row">
+                    <span className="muted-id">#{String(task.id).slice(0, 8)}</span>
+                    <button
+                      type="button"
+                      className="ghost-copy"
+                      onClick={async () => {
+                        const ok = await copyText(task.id);
+                        setToast(ok ? "ID задачи скопирован" : "Не удалось скопировать");
+                      }}
+                    >
+                      Копировать ID
+                    </button>
+                  </div>
                   <p className="section-label">MEL</p>
                   <select aria-label="Категория MEL" value={melCategory} onChange={(event) => setMelCategory(event.target.value)}>
                     <option value="A">A</option>

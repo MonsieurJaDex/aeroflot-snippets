@@ -28,6 +28,11 @@ export default function LoginPage() {
   const [savedEmail, setSavedEmail] = useState(() => localStorage.getItem("oto-last-email") || "");
 
   useEffect(() => {
+    document.title = "Аэрофлот ОТО · вход";
+    return () => { document.title = "Аэрофлот ОТО"; };
+  }, []);
+
+  useEffect(() => {
     const session = getSession();
     if (session?.role === "Dispatcher" || session?.role === "Engineer") {
       navigate(homeForRole(session.role), { replace: true });

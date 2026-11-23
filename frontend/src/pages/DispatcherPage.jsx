@@ -35,6 +35,7 @@ import {
   updateTransportPosition,
 } from "../lib/live.js";
 import { classifyRemark } from "../lib/mccApi.js";
+import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
@@ -227,21 +228,7 @@ export default function DispatcherPage() {
         ]);
         if (cancelled) return;
         setAlerts(list);
-        if (list.length > alertCountRef.current) {
-          try {
-            const ctx = new window.AudioContext();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.frequency.value = 880;
-            gain.gain.value = 0.04;
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start();
-            osc.stop(ctx.currentTime + 0.18);
-          } catch {
-            // звук опционален
-          }
-        }
+        if (list.length > alertCountRef.current) softBeep(880, 180);
         alertCountRef.current = list.length;
         setMovements(moves);
         setFleet(transport);
