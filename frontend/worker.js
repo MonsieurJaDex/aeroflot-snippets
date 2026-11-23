@@ -5,6 +5,7 @@ const aogButton = document.getElementById("aog-task");
 const notice = document.getElementById("worker-notice");
 const toast = document.getElementById("worker-toast");
 const mapDistance = document.getElementById("map-distance");
+const selfPosition = document.getElementById("self-position");
 const workerMap = L.map("worker-map", { crs: L.CRS.Simple, zoomControl: false, attributionControl: false, minZoom: -1, maxZoom: 3 });
 window.addEventListener("resize", () => workerMap.invalidateSize());
 
@@ -12,6 +13,8 @@ let mapWidth = 64;
 let mapHeight = 64;
 let tileSize = 16;
 let workerMapOverlay = null;
+let selfMarker = null;
+let selfPoint = null;
 let walk = null;
 let walkFrame = 0;
 let previousTaskId = null;
@@ -83,7 +86,8 @@ async function loadWorkerMapBackground() {
 
     if (workerMapOverlay) workerMap.removeLayer(workerMapOverlay);
     workerMapOverlay = L.imageOverlay(canvas.toDataURL("image/png"), mapBounds()).addTo(workerMap);
-    if (!currentTask) workerMap.fitBounds(mapBounds());
+    if (selfPoint) placeSelfMarker();
+    focusWorkerMap();
   } catch (error) {
     console.warn("[worker] фон карты не загружен", error);
   }
@@ -132,7 +136,7 @@ function renderTask(task) {
     taskState.textContent = "ОЖИДАНИЕ";
     completeButton.hidden = true;
     aogButton.hidden = true;
-    notice.textContent = "Ожидание назначения от диспетчера. Клик по карте отправляет вашу позицию.";
+    notice.textContent = "Ожидание назначения от диспетчера. Нажатие на карту отправляет вашу позицию.";
     renderRouteMap(null);
     return;
   }
@@ -178,7 +182,7 @@ function renderRouteMap(task) {
   if (!task || route.length < 2) {
     stopWalk();
     mapDistance.textContent = task ? "УЖЕ НА МЕСТЕ" : "НЕТ МАРШРУТА";
-    if (!task) workerMap.fitBounds(mapBounds());
+    focusWorkerMap();
     return;
   }
   if (walk && walk.taskId === task.id) return;
@@ -233,6 +237,56 @@ function tickWalk(now) {
 
 function mapIcon(className) {
   return L.divIcon({ className, html: "", iconSize: [18, 18], iconAnchor: [9, 9] });
+}
+
+function placeSelfMarker() {
+  if (!selfPoint) return;
+  if (selfMarker) workerMap.removeLayer(selfMarker);
+  selfMarker = L.marker(centerLatLng([selfPoint[0] + 0.5, selfPoint[1] + 0.5]), {
+    icon: mapIcon("worker-map-self"),
+    zIndexOffset: 700,
+  })
+    .bindTooltip("Ваша точка", { permanent: true, direction: "right", className: "map-label" })
+    .addTo(workerMap);
+  selfPosition.textContent = `ВЫ: ${selfPoint[0]}, ${selfPoint[1]}`;
+}
+
+function showSelfPoint(point) {
+  const next = [Number(point[0]), Number(point[1])];
+  if (!Number.isFinite(next[0]) || !Number.isFinite(next[1])) return;
+  const same = selfPoint && selfPoint[0] === next[0] && selfPoint[1] === next[1];
+  selfPoint = next;
+  if (same && selfMarker) return;
+  placeSelfMarker();
+  if (!walk) focusWorkerMap();
+}
+
+function focusWorkerMap() {
+  const latlngs = [];
+  if (walk && walk.line) latlngs.push(...walk.line.getLatLngs());
+  if (selfMarker) latlngs.push(selfMarker.getLatLng());
+  if (latlngs.length >= 2) {
+    workerMap.fitBounds(L.latLngBounds(latlngs), { padding: [36, 36], maxZoom: 2 });
+    return;
+  }
+  if (selfMarker) {
+    workerMap.setView(selfMarker.getLatLng(), 1);
+    return;
+  }
+  workerMap.fitBounds(mapBounds());
+}
+
+async function refreshSelfPosition() {
+  if (!session || !session.userId) return;
+  try {
+    const engineers = await AeroAuth.apiRequest("/api/geo/getEngineersPositions");
+    if (!Array.isArray(engineers)) return;
+    const mine = engineers.find((entry) => String(entry.id) === String(session.userId));
+    if (!mine || !Array.isArray(mine.position)) return;
+    showSelfPoint(mine.position);
+  } catch (error) {
+    console.warn("[worker] своя позиция", error);
+  }
 }
 
 async function loadCurrentTask() {
@@ -292,6 +346,7 @@ workerMap.on("click", async (event) => {
         batch: [[[x, y], Math.floor(Date.now() / 1000)]],
       },
     });
+    showSelfPoint([x, y]);
     notice.textContent = `Позиция отправлена: ${x}, ${y}`;
   } catch (error) {
     notice.textContent = `Не удалось отправить позицию: ${error.message}`;
@@ -312,6 +367,11 @@ if (session) {
       }
       updateProfile(null);
       loadCurrentTask();
-      window.setInterval(loadCurrentTask, 5000);
+      refreshSelfPosition();
+      window.setInterval(() => {
+        loadCurrentTask();
+        refreshSelfPosition();
+      }, 5000);
+      window.requestAnimationFrame(() => workerMap.invalidateSize());
     });
 }
