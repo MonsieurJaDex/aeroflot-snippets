@@ -646,6 +646,7 @@ export default function WorkerPage() {
   }
 
   async function completeTask() {
+    if (!task?.tools_picked && !window.confirm("Инструмент ещё не отмечен. Всё равно завершить?")) return;
     if (!window.confirm("Завершить задачу? Отменить будет нельзя.")) return;
     setBusyAction("complete");
     try {

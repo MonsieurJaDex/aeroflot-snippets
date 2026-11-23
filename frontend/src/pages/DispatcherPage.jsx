@@ -1049,10 +1049,17 @@ export default function DispatcherPage() {
           <summary>Движения ВС · {movements.length}</summary>
           <div className="mcc-inbox">
             {movements.length ? movements.map((row) => (
-              <div className="mcc-item" key={row.id || `${row.aircraft_id}-${row.arrived_at}`}>
+              <button
+                type="button"
+                className="mcc-item"
+                key={row.id || `${row.aircraft_id}-${row.arrived_at}`}
+                onClick={() => {
+                  if (row.aircraft_id) setPlaneId(String(row.aircraft_id));
+                }}
+              >
                 <strong>{String(row.aircraft_id || "").slice(0, 8) || "ВС"}</strong>
                 <span>{movementLabel(row)}</span>
-              </div>
+              </button>
             )) : <p className="mcc-empty">Нет записей прибытия.</p>}
           </div>
         </details>
