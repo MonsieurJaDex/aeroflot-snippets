@@ -656,6 +656,7 @@ export default function WorkerPage() {
     try {
       await apiRequest("/api/tasks/current/complete", { method: "POST" });
       flash("Задача завершена");
+      softBeep(880, 160);
       setStatusStep("выполнено");
       setTask(null);
     } catch (error) {

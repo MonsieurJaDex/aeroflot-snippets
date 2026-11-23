@@ -1042,6 +1042,18 @@ export default function DispatcherPage() {
               </div>
             )) : <p className="mcc-empty">Пока пусто в этой вкладке.</p>}
           </div>
+          {assignHistory.length ? (
+            <button
+              type="button"
+              className="ghost-copy"
+              onClick={() => {
+                sessionStorage.removeItem("oto-assign-history");
+                setAssignHistory([]);
+              }}
+            >
+              Очистить историю вкладки
+            </button>
+          ) : null}
         </details>
         <details className="request-panel" open={alerts.length > 0}>
           <summary>Риск норматива · {alerts.length}</summary>
