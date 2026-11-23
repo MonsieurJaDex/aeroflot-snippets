@@ -1406,8 +1406,8 @@ export default function DispatcherPage() {
           <summary>Имитатор track</summary>
           <form onSubmit={onSendTrack}>
             <label>obj<input type="text" value={trackObj} autoComplete="off" onChange={(event) => setTrackObj(event.target.value)} /></label>
-            <label>lat<input type="text" value={trackLat} autoComplete="off" onChange={(event) => setTrackLat(event.target.value)} /></label>
-            <label>lon<input type="text" value={trackLon} autoComplete="off" onChange={(event) => setTrackLon(event.target.value)} /></label>
+            <label>lat<input type="text" inputMode="decimal" value={trackLat} autoComplete="off" onChange={(event) => setTrackLat(event.target.value)} /></label>
+            <label>lon<input type="text" inputMode="decimal" value={trackLon} autoComplete="off" onChange={(event) => setTrackLon(event.target.value)} /></label>
             <button type="submit" className="shift-button" disabled={trackPending}>POST /api/v1/track</button>
           </form>
           {trackNote ? <p className="fault-hint">{trackNote}</p> : null}
@@ -1433,8 +1433,8 @@ export default function DispatcherPage() {
                 )) : <option value="">Нет техники</option>}
               </select>
             </label>
-            <label>X<input type="text" value={transportX} autoComplete="off" onChange={(event) => setTransportX(event.target.value)} /></label>
-            <label>Y<input type="text" value={transportY} autoComplete="off" onChange={(event) => setTransportY(event.target.value)} /></label>
+            <label>X<input type="text" inputMode="numeric" value={transportX} autoComplete="off" onChange={(event) => setTransportX(event.target.value)} /></label>
+            <label>Y<input type="text" inputMode="numeric" value={transportY} autoComplete="off" onChange={(event) => setTransportY(event.target.value)} /></label>
             <button type="submit" className="shift-button" disabled={transportPending || !fleet.length}>Сдвинуть технику</button>
           </form>
           {transportNote ? <p className="fault-hint">{transportNote}</p> : null}
