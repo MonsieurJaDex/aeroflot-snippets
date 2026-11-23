@@ -106,6 +106,13 @@ body::before {
   }
 }
 
+@media print {
+  body::before, .net-banner, .worker-dock, .skip-link, .role-link { display: none !important; }
+  body { overflow: visible; background: #fff; }
+  .dispatcher-page, .worker-page, .role-page { height: auto; }
+  #map, #worker-map { break-inside: avoid; }
+}
+
 #sidebar {
   width: 340px;
   min-width: 340px;
