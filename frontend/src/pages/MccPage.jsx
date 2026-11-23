@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AIRCRAFT_ISSUES, engineerTypeLabel, issueLabel } from "../lib/catalog.js";
 import StatusChain from "../components/StatusChain.jsx";
-import { classifyRemark, createRemark } from "../lib/mccApi.js";
+import { classifyRemark, createRemark, trainClassifier } from "../lib/mccApi.js";
 import { addMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { clearSession, getSession, login } from "../lib/session.js";
 
@@ -53,6 +53,7 @@ export default function MccPage() {
   const [classifying, setClassifying] = useState(false);
   const [sessionName, setSessionName] = useState(() => getSession()?.name || "");
   const [authPending, setAuthPending] = useState(false);
+  const [trainPending, setTrainPending] = useState(false);
 
   useEffect(() => {
     const onStorage = (event) => {
@@ -127,6 +128,24 @@ export default function MccPage() {
     setStatus("Вышли. Серверные замечания снова недоступны без входа.");
   }
 
+  async function onTrain() {
+    setError("");
+    if (!signedIn()) {
+      setError("Нужен вход, чтобы переобучить классификатор.");
+      return;
+    }
+    setTrainPending(true);
+    try {
+      const data = await trainClassifier();
+      const acc = data?.accuracy == null ? "—" : `${Math.round(Number(data.accuracy) * 100)}%`;
+      setStatus(`Классификатор обучен: ${data?.documents ?? "?"} док. · accuracy ${acc}`);
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setTrainPending(false);
+    }
+  }
+
   async function onClassify() {
     setError("");
     const { description } = readForm();
@@ -193,8 +212,11 @@ export default function MccPage() {
             </select>
           </label>
           <label>Примечание<input name="note" type="text" placeholder="необязательно" /></label>
-          <button type="button" className="mcc-classify" onClick={onClassify} disabled={classifying || pending}>
+          <button type="button" className="mcc-classify" onClick={onClassify} disabled={classifying || pending || trainPending}>
             {classifying ? "Классификация…" : "Подсказать тип инженера"}
+          </button>
+          <button type="button" className="mcc-classify" onClick={onTrain} disabled={trainPending || pending || classifying}>
+            {trainPending ? "Обучение…" : "Переобучить классификатор"}
           </button>
           {hint ? <p className="mcc-hint">{hint}</p> : null}
           <button type="submit" disabled={pending}>{pending ? "Запись…" : "Передать начальнику смены"}</button>
