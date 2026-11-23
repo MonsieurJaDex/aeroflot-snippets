@@ -900,7 +900,7 @@ export default function WorkerPage() {
           {busyAction === "refresh" ? "…" : "Обновить задачу"}
         </button>
         <button id="push-geo" className="worker-action worker-action-secondary" type="button" disabled={busyAction === "geo"} onClick={pushSelfPosition}>
-          {outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео"}
+          {busyAction === "geo" ? "…" : outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео"}
         </button>
       </div>
       <div className={toastKind === "err" ? "worker-toast err" : "worker-toast"} role="status" aria-live="polite" hidden={!toast}>{toast}</div>
