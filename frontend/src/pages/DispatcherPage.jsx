@@ -286,6 +286,10 @@ export default function DispatcherPage() {
         setActiveMcc(null);
         setPlaneFilter("");
       }
+      if ((event.ctrlKey || event.metaKey) && (event.key === "k" || event.key === "K" || event.key === "л" || event.key === "Л")) {
+        event.preventDefault();
+        document.getElementById("plane-filter")?.focus();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1165,9 +1169,10 @@ export default function DispatcherPage() {
           <div className="section-heading"><h2>Новая заявка</h2><span className="live-label">LIVE</span></div>
           <label>Фильтр бортов
             <input
+              id="plane-filter"
               type="search"
               value={planeFilter}
-              placeholder="uuid или координата"
+              placeholder="uuid или координата · Ctrl+K"
               autoComplete="off"
               onChange={(event) => setPlaneFilter(event.target.value)}
             />
@@ -1264,6 +1269,7 @@ export default function DispatcherPage() {
             <summary>Горячие клавиши</summary>
             <ul>
               <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd> — назначить инженера</li>
+              <li><kbd>Ctrl</kbd>+<kbd>K</kbd> — фильтр бортов</li>
               <li><kbd>Esc</kbd> — снять выбор ЦПУ и фильтр бортов</li>
             </ul>
           </details>
