@@ -413,6 +413,14 @@ button.mcc-item.selected::after { content: none; }
 .task-state { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .1em; }
 .task-content { color: var(--muted); line-height: 1.65; min-height: 96px; }
 .task-content strong { color: var(--text); font-size: 16px; }
+.task-content kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  background: var(--field);
+  font: inherit;
+  font-size: 11px;
+}
 .worker-dock { display: flex; gap: 8px; width: min(960px, calc(100% - 32px)); margin: 0 auto 28px; }
 .worker-dock:not(:has(button:not([hidden]))) { display: none; }
 .worker-action, #complete-task, #aog-task, #accept-task, #reject-task { flex: 1; border: 0; border-radius: var(--radius); padding: 14px; font-weight: 700; font-size: 15px; cursor: pointer; font-family: inherit; }
