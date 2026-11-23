@@ -526,7 +526,8 @@ mod tests {
         let vehicle = graph
             .route_stops(AgentKind::Vehicle, &[Point::new(0, 0), Point::new(2, 0)])
             .expect("vehicle route");
-        let vehicle_expected = metres / vehicle_speed_mps(Point::new(0, 0), SpeedClass::VehicleApron);
+        let vehicle_expected =
+            metres / vehicle_speed_mps(Point::new(0, 0), SpeedClass::VehicleApron);
         assert!(
             (vehicle.seconds - vehicle_expected).abs() < 0.2,
             "{}",

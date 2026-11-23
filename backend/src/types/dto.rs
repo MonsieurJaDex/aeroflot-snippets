@@ -5,7 +5,7 @@
 //! sensitive material (passwords, tokens) provide a **redacted** [`Debug`]
 //! implementation to avoid accidental leakage in logs.
 
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use crate::types::{
     enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
@@ -560,3 +560,13 @@ pub struct UpdateTransportPositionRequest {
     /// New position on the map.
     pub new_point: Point,
 }
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlaneRequests {
+    pub plane_id: String,
+    pub request_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(transparent)]
+pub struct AllRequests(pub BTreeMap<String, Vec<String>>);

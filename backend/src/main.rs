@@ -189,6 +189,11 @@ async fn main() {
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
         .route("/requests", post(router::ops::create_request))
+        .route("/requests/all", get(router::ops::list_all_requests))
+        .route(
+            "/requests/{plane_id}",
+            get(router::ops::list_requests_for_plane),
+        )
         .route("/requests/{id}/queue", post(router::ops::queue_request))
         .route(
             "/requests/{id}/reassign",

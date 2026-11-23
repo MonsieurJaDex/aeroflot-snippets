@@ -105,8 +105,8 @@ pub(crate) fn forbidden(msg: impl Into<String>) -> Response<Body> {
 }
 
 /// Returns a 409 JSON error.
-pub(crate) fn conflict(msg: impl Into<String>) -> Response<Body> {
-    api_error(StatusCode::CONFLICT, "AIRCRAFT_ALREADY_ACTIVE", msg)
+pub(crate) fn conflict(code: &str, msg: impl Into<String>) -> Response<Body> {
+    api_error(StatusCode::CONFLICT, code, msg)
 }
 
 /// Returns a 404 JSON error.
@@ -710,6 +710,26 @@ pub async fn arrive_aircraft(
         internal_error()
     })?;
 
+    let cell_budy = aircraft_movements::table
+        .filter(aircraft_movements::map_id.eq(&active.id))
+        .filter(aircraft_movements::departed_at.is_null())
+        .filter(aircraft_movements::plane_x.eq(&payload.point.0))
+        .filter(aircraft_movements::plane_y.eq(&payload.point.1))
+        .select(aircraft_movements::id)
+        .first::<Uuid>(&mut pg_conn)
+        .optional()
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to look up an existing plane in cell");
+            internal_error()
+        })?;
+
+    if cell_budy.is_some() {
+        return Err(conflict(
+            "CELL_IS_BUSY",
+            "there's another plane at this cell",
+        ));
+    }
+
     let already_open = aircraft_movements::table
         .filter(aircraft_movements::aircraft_id.eq(aircraft_id))
         .filter(aircraft_movements::map_id.eq(&active.id))
@@ -722,7 +742,10 @@ pub async fn arrive_aircraft(
             internal_error()
         })?;
     if already_open.is_some() {
-        return Err(conflict("aircraft is already on the active map"));
+        return Err(conflict(
+            "AIRCRAFT_ALREADY_ACTIVE",
+            "aircraft is already on the active map",
+        ));
     }
 
     let movement = AircraftMovement {
@@ -745,7 +768,10 @@ pub async fn arrive_aircraft(
                     _
                 )
             ) {
-                return conflict("aircraft is already on the active map");
+                return conflict(
+                    "AIRCRAFT_ALREADY_ACTIVE",
+                    "aircraft is already on the active map",
+                );
             }
             tracing::error!(error = %e, "failed to store an aircraft arrival");
             internal_error()
