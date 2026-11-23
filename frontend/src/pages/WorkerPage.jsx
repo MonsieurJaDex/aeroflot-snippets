@@ -238,6 +238,9 @@ export default function WorkerPage() {
           Notification.requestPermission().catch(() => {});
         }
       } catch { /* desktop notify */ }
+      window.queueMicrotask?.(() => {
+        document.getElementById("accept-task")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
     }
     seenTask.current = id;
   }, [task?.id]);
@@ -274,11 +277,14 @@ export default function WorkerPage() {
   }
 
   useEffect(() => {
+    const out = outboxCount ? ` · гео ${outboxCount}` : "";
     document.title = task
-      ? `ОТО · задача · ETA ${formatEta(etaLeft) || "…"}`
-      : "ОТО · инженер свободен";
+      ? `ОТО · задача · ETA ${formatEta(etaLeft) || "…"}${out}`
+      : outboxCount
+        ? `ОТО · инженер · гео ${outboxCount}`
+        : "ОТО · инженер свободен";
     return () => { document.title = "Аэрофлот ОТО"; };
-  }, [task, etaLeft]);
+  }, [task, etaLeft, outboxCount]);
 
   // Экран не гаснет, пока есть активная задача на телефоне инженера.
   useEffect(() => {
