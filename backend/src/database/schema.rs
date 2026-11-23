@@ -11,6 +11,20 @@ pub mod sql_types {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+
+    aircraft_movements (id) {
+        id -> Uuid,
+        aircraft_id -> Uuid,
+        map_id -> Text,
+        plane_x -> Int8,
+        plane_y -> Int8,
+        arrived_at -> Timestamptz,
+        departed_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     dispatchers (id) {
         id -> Uuid,
         name -> Varchar,
@@ -56,4 +70,4 @@ diesel::table! {
 diesel::joinable!(tasks -> dispatchers (created_by));
 diesel::joinable!(tasks -> engineers (assigned_engineer));
 
-diesel::allow_tables_to_appear_in_same_query!(dispatchers, engineers, tasks,);
+diesel::allow_tables_to_appear_in_same_query!(aircraft_movements, dispatchers, engineers, tasks,);

@@ -2,9 +2,10 @@ use crate::{
     database::{establish_pg_connection, establish_redis_connection},
     logging::init_logger,
     router::{
-        assign_engineer, classify_problem, complete_current_task, current_task_aog,
-        current_task_aog_post, get_active_map, get_current_task, get_route, list_aircraft, list_aog,
-        list_maps, set_active_map, train_classifier,
+        arrive_aircraft, assign_engineer, classify_problem, complete_current_task,
+        current_task_aog, current_task_aog_post, depart_aircraft, get_active_map, get_current_task,
+        get_route, list_aircraft, list_aircraft_movements, list_aog, list_maps, set_active_map,
+        train_classifier,
     },
     types::{
         config::{AppConfig, AppState, Args},
@@ -186,6 +187,9 @@ async fn main() {
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
         .route("/aircraft", get(list_aircraft))
+        .route("/aircraft/arrive", post(arrive_aircraft))
+        .route("/aircraft/depart", post(depart_aircraft))
+        .route("/aircraft/movements", get(list_aircraft_movements))
         .route("/tasks/current", get(get_current_task))
         .route(
             "/tasks/current/aog",

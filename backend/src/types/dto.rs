@@ -152,6 +152,60 @@ pub struct AircraftEntry {
     pub id: uuid::Uuid,
     /// Current position on the map.
     pub point: Point,
+    /// When the aircraft arrived on the active map. Empty for a position that has no arrival record.
+    #[schema(format = "date-time", nullable)]
+    pub arrived_at: Option<String>,
+}
+
+/// Body of `POST /api/aircraft/arrive`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ArriveAircraftRequest {
+    /// Aircraft UUID. Generated when omitted.
+    #[schema(format = "uuid")]
+    pub id: Option<String>,
+    /// Stand position on the active map.
+    pub point: Point,
+    /// Arrival time. The server clock is used when omitted.
+    #[schema(format = "date-time")]
+    pub arrived_at: Option<String>,
+}
+
+/// Body of `POST /api/aircraft/depart`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DepartAircraftRequest {
+    /// Aircraft UUID.
+    #[schema(format = "uuid")]
+    pub id: String,
+    /// Departure time. The server clock is used when omitted.
+    #[schema(format = "date-time")]
+    pub departed_at: Option<String>,
+}
+
+/// One recorded stay of an aircraft on a map.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AircraftMovementResponse {
+    /// Movement row id.
+    pub id: uuid::Uuid,
+    /// Aircraft UUID.
+    pub aircraft_id: uuid::Uuid,
+    /// Map the aircraft arrived on.
+    pub map_id: String,
+    /// Stand used at arrival.
+    pub point: Point,
+    #[schema(format = "date-time")]
+    pub arrived_at: String,
+    #[schema(format = "date-time", nullable)]
+    pub departed_at: Option<String>,
+}
+
+/// Arrival and departure records for the active map.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AircraftMovementListResponse {
+    pub movements: Vec<AircraftMovementResponse>,
+    /// Number of rows before `limit` and `offset` are applied.
+    pub total: u64,
 }
 
 /// Aircraft positions visible to a dispatcher.

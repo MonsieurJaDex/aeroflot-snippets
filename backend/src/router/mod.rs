@@ -14,24 +14,26 @@ use axum::{
     response::IntoResponse,
 };
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use redis::TypedCommands;
 use uuid::Uuid;
 
 use crate::{
-    database::schema::{self, engineers, tasks},
+    database::schema::{self, aircraft_movements, engineers, tasks},
     middleware::AuthUser,
-    models::task::Task,
+    models::{aircraft_movement::AircraftMovement, task::Task},
     maps::ActiveMap,
     search::find_nearest,
     types::{
         config::AppState,
         dto::{
-            ActiveMapResponse, AircraftEntry, AircraftListResponse, AogListResponse,
+            ActiveMapResponse, AircraftEntry, AircraftListResponse, AircraftMovementListResponse,
+            AircraftMovementResponse, AogListResponse, ArriveAircraftRequest,
             AssignEngineerRequest, AssignEngineerResponse, ClassifyRequest, ClassifyResponse,
             CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse, ErrorResponse,
-            GetRouteRequest, GetRouteResponse, MapListResponse, MapResponse, MapSummary, PageQuery,
+            DepartAircraftRequest, GetRouteRequest, GetRouteResponse, MapListResponse, MapResponse,
+            MapSummary, PageQuery,
             SelectMapRequest, TrainClassifierResponse,
         },
         enums::{UserRole, VehicleType},
@@ -113,6 +115,11 @@ pub(crate) fn forbidden(msg: impl Into<String>) -> Response<Body> {
         "NOT_AN_ENGINEER"
     };
     api_error(StatusCode::FORBIDDEN, code, message)
+}
+
+/// Returns a 409 JSON error.
+pub(crate) fn conflict(msg: impl Into<String>) -> Response<Body> {
+    api_error(StatusCode::CONFLICT, "AIRCRAFT_ALREADY_ACTIVE", msg)
 }
 
 /// Returns a 404 JSON error.
@@ -604,9 +611,14 @@ pub async fn list_aog(
         internal_error()
     })?;
 
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
     let (limit, offset) = resolve_page(page)?;
     let active = active_map(&app_state)?;
-    let aircraft = load_aog_aircraft(&mut redis_conn, &active)?;
+    let mut aircraft = load_aog_aircraft(&mut redis_conn, &active)?;
+    attach_arrival_times(&mut pg_conn, &active.id, &mut aircraft)?;
     let plane_uuids: Vec<String> = aircraft.iter().map(|entry| entry.id.to_string()).collect();
     let (aircraft, total) = slice_page(aircraft, limit, offset);
     let plane_uuids = {
@@ -621,6 +633,247 @@ pub async fn list_aog(
         plane_uuids,
     })
     .into_response())
+}
+
+/// Records an aircraft arrival and places it on the active map.
+#[utoipa::path(
+    post,
+    path = "/api/aircraft/arrive",
+    tag = "Aircraft",
+    operation_id = "arriveAircraft",
+    description = "Adds an aircraft to the active map and stores the arrival time.",
+    security(("bearerAuth" = [])),
+    request_body = ArriveAircraftRequest,
+    responses(
+        (status = 200, description = "Aircraft arrived", body = AircraftMovementResponse),
+        (status = 400, description = "Invalid UUID or position outside the map", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 409, description = "Aircraft is already on the active map", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn arrive_aircraft(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<ArriveAircraftRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can register an aircraft arrival"));
+    }
+
+    let aircraft_id = match payload.id.as_deref() {
+        None | Some("") => Uuid::new_v4(),
+        Some(raw) => Uuid::from_str(raw).map_err(|_| bad_request("invalid aircraft UUID"))?,
+    };
+    let arrived_at = parse_movement_time(payload.arrived_at)?;
+    let active = active_map(&app_state)?;
+    if !active.map.in_bounds(payload.point) {
+        return Err(bad_request("aircraft position is outside of map bounds"));
+    }
+
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    let already_open = aircraft_movements::table
+        .filter(aircraft_movements::aircraft_id.eq(aircraft_id))
+        .filter(aircraft_movements::map_id.eq(&active.id))
+        .filter(aircraft_movements::departed_at.is_null())
+        .select(aircraft_movements::id)
+        .first::<Uuid>(&mut pg_conn)
+        .optional()
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to look up an open aircraft movement");
+            internal_error()
+        })?;
+    if already_open.is_some() {
+        return Err(conflict("aircraft is already on the active map"));
+    }
+
+    let movement = AircraftMovement {
+        id: Uuid::new_v4(),
+        aircraft_id,
+        map_id: active.id.clone(),
+        plane_x: payload.point.0,
+        plane_y: payload.point.1,
+        arrived_at,
+        departed_at: None,
+    };
+    diesel::insert_into(aircraft_movements::table)
+        .values(&movement)
+        .execute(&mut pg_conn)
+        .map_err(|e| {
+            if matches!(
+                e,
+                diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::UniqueViolation,
+                    _
+                )
+            ) {
+                return conflict("aircraft is already on the active map");
+            }
+            tracing::error!(error = %e, "failed to store an aircraft arrival");
+            internal_error()
+        })?;
+
+    if let Err(error) = redis_conn.set(
+        active.vehicle_position_key(&VehicleType::Aircraft, aircraft_id),
+        payload.point.as_value(),
+    ) {
+        tracing::error!(error = %error, "failed to place an arrived aircraft");
+        let _ = diesel::delete(aircraft_movements::table.find(movement.id)).execute(&mut pg_conn);
+        return Err(internal_error());
+    }
+
+    Ok(Json(movement_response(&movement)).into_response())
+}
+
+/// Records an aircraft departure and removes it from the active map.
+#[utoipa::path(
+    post,
+    path = "/api/aircraft/depart",
+    tag = "Aircraft",
+    operation_id = "departAircraft",
+    description = "Removes an aircraft from the active map and stores the departure time. Clears its AOG flag.",
+    security(("bearerAuth" = [])),
+    request_body = DepartAircraftRequest,
+    responses(
+        (status = 200, description = "Aircraft departed", body = AircraftMovementResponse),
+        (status = 400, description = "Departure is earlier than arrival", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 404, description = "Aircraft is not on the active map", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn depart_aircraft(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<DepartAircraftRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can register an aircraft departure"));
+    }
+    let aircraft_id =
+        Uuid::from_str(&payload.id).map_err(|_| bad_request("invalid aircraft UUID"))?;
+    let departed_at = parse_movement_time(payload.departed_at)?;
+    let active = active_map(&app_state)?;
+
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    let movement = aircraft_movements::table
+        .filter(aircraft_movements::aircraft_id.eq(aircraft_id))
+        .filter(aircraft_movements::map_id.eq(&active.id))
+        .filter(aircraft_movements::departed_at.is_null())
+        .select(AircraftMovement::as_select())
+        .first::<AircraftMovement>(&mut pg_conn)
+        .optional()
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load an open aircraft movement");
+            internal_error()
+        })?;
+    let Some(movement) = movement else {
+        return Err(not_found("aircraft was not found"));
+    };
+    if departed_at < movement.arrived_at {
+        return Err(bad_request("departure is earlier than arrival"));
+    }
+
+    let position_key = active.vehicle_position_key(&VehicleType::Aircraft, aircraft_id);
+    let previous_position: Option<String> = redis_conn.get(&position_key).map_err(|e| {
+        tracing::error!(error = %e, "failed to read an aircraft position");
+        internal_error()
+    })?;
+    redis_conn.del(&position_key).map_err(|e| {
+        tracing::error!(error = %e, "failed to remove a departed aircraft");
+        internal_error()
+    })?;
+    redis_conn.del(active.aog_key(aircraft_id)).map_err(|e| {
+        tracing::error!(error = %e, "failed to clear AOG of a departed aircraft");
+        internal_error()
+    })?;
+
+    let closed = AircraftMovement {
+        departed_at: Some(departed_at),
+        ..movement
+    };
+    if let Err(error) = diesel::update(aircraft_movements::table.find(closed.id))
+        .set(aircraft_movements::departed_at.eq(closed.departed_at))
+        .execute(&mut pg_conn)
+    {
+        tracing::error!(error = %error, "failed to store an aircraft departure");
+        if let Some(position) = previous_position {
+            let _ = redis_conn.set(&position_key, position);
+        }
+        return Err(internal_error());
+    }
+
+    Ok(Json(movement_response(&closed)).into_response())
+}
+
+/// Lists arrival and departure records of the active map.
+#[utoipa::path(
+    get,
+    path = "/api/aircraft/movements",
+    tag = "Aircraft",
+    operation_id = "listAircraftMovements",
+    description = "Arrival and departure times recorded for the active map, newest arrival first.",
+    security(("bearerAuth" = [])),
+    params(PageQuery),
+    responses(
+        (status = 200, description = "Aircraft movements", body = AircraftMovementListResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 422, description = "Query parameters do not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn list_aircraft_movements(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiQuery(page): ApiQuery<PageQuery>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can view aircraft movements"));
+    }
+    let active = active_map(&app_state)?;
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
+    let (limit, offset) = resolve_page(page)?;
+    let rows = aircraft_movements::table
+        .filter(aircraft_movements::map_id.eq(&active.id))
+        .order(aircraft_movements::arrived_at.desc())
+        .select(AircraftMovement::as_select())
+        .load::<AircraftMovement>(&mut pg_conn)
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to list aircraft movements");
+            internal_error()
+        })?;
+    let total = rows.len() as u64;
+    let movements = rows
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|row| movement_response(&row))
+        .collect();
+    Ok(Json(AircraftMovementListResponse { movements, total }).into_response())
 }
 
 /// Lists every aircraft currently stored in Redis.
@@ -653,9 +906,14 @@ pub async fn list_aircraft(
         internal_error()
     })?;
 
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
     let active = active_map(&app_state)?;
     let (limit, offset) = resolve_page(page)?;
-    let aircraft = load_aircraft(&mut redis_conn, &active)?;
+    let mut aircraft = load_aircraft(&mut redis_conn, &active)?;
+    attach_arrival_times(&mut pg_conn, &active.id, &mut aircraft)?;
     let (aircraft, total) = slice_page(aircraft, limit, offset);
     Ok(Json(AircraftListResponse { aircraft, total }).into_response())
 }
@@ -1027,6 +1285,55 @@ pub async fn assign_engineer(
 // ---------------------------------------------------------------------------
 
 /// Loads the current map position of an aircraft (`position:aircraft:{uuid}`).
+fn parse_movement_time(raw: Option<String>) -> Result<DateTime<Utc>, Response<Body>> {
+    match raw {
+        None => Ok(Utc::now()),
+        Some(text) => DateTime::parse_from_rfc3339(&text)
+            .map(|time| time.with_timezone(&Utc))
+            .map_err(|_| unprocessable("time must be RFC3339")),
+    }
+}
+
+fn movement_response(movement: &AircraftMovement) -> AircraftMovementResponse {
+    AircraftMovementResponse {
+        id: movement.id,
+        aircraft_id: movement.aircraft_id,
+        map_id: movement.map_id.clone(),
+        point: Point::new(movement.plane_x, movement.plane_y),
+        arrived_at: movement.arrived_at.to_rfc3339(),
+        departed_at: movement.departed_at.map(|time| time.to_rfc3339()),
+    }
+}
+
+fn attach_arrival_times(
+    pg_conn: &mut diesel::PgConnection,
+    map_id: &str,
+    aircraft: &mut [AircraftEntry],
+) -> Result<(), Response<Body>> {
+    if aircraft.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<Uuid> = aircraft.iter().map(|entry| entry.id).collect();
+    let rows: Vec<(Uuid, DateTime<Utc>)> = aircraft_movements::table
+        .filter(aircraft_movements::map_id.eq(map_id))
+        .filter(aircraft_movements::departed_at.is_null())
+        .filter(aircraft_movements::aircraft_id.eq_any(&ids))
+        .select((
+            aircraft_movements::aircraft_id,
+            aircraft_movements::arrived_at,
+        ))
+        .load(pg_conn)
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load aircraft arrival times");
+            internal_error()
+        })?;
+    let by_id: HashMap<Uuid, DateTime<Utc>> = rows.into_iter().collect();
+    for entry in aircraft {
+        entry.arrived_at = by_id.get(&entry.id).map(|time| time.to_rfc3339());
+    }
+    Ok(())
+}
+
 fn load_aircraft_position(
     redis_conn: &mut redis::Connection,
     map: &ActiveMap,
@@ -1086,7 +1393,11 @@ fn load_aircraft(
                 continue;
             }
         };
-        aircraft.push(AircraftEntry { id, point });
+        aircraft.push(AircraftEntry {
+            id,
+            point,
+            arrived_at: None,
+        });
     }
 
     aircraft.sort_by_key(|entry| entry.id);
@@ -1134,7 +1445,11 @@ fn load_aog_aircraft(
                 continue;
             }
         };
-        aircraft.push(AircraftEntry { id, point });
+        aircraft.push(AircraftEntry {
+            id,
+            point,
+            arrived_at: None,
+        });
     }
 
     aircraft.sort_by_key(|entry| entry.id);

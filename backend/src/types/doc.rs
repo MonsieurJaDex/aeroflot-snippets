@@ -13,9 +13,11 @@ use utoipa::openapi::{Deprecated, RefOr};
 use utoipa::{Modify, OpenApi};
 
 use crate::router::{
-    __path_assign_engineer, __path_classify_problem, __path_complete_current_task,
+    __path_arrive_aircraft, __path_assign_engineer, __path_classify_problem,
+    __path_complete_current_task, __path_depart_aircraft,
     __path_current_task_aog, __path_current_task_aog_post, __path_get_active_map,
-    __path_get_current_task, __path_get_map, __path_get_route, __path_list_aircraft, __path_list_aog,
+    __path_get_current_task, __path_get_map, __path_get_route, __path_list_aircraft,
+    __path_list_aircraft_movements, __path_list_aog,
     __path_list_maps, __path_set_active_map, __path_train_classifier,
     auth::{
         __path_get_engineer_name_handler, __path_login_handler, __path_me_handler,
@@ -30,7 +32,9 @@ use crate::router::{
 };
 use crate::types::{
     dto::{
-        AircraftEntry, AircraftListResponse, AogListResponse, AssignEngineerRequest,
+        AircraftEntry, AircraftListResponse, AircraftMovementListResponse,
+        AircraftMovementResponse, AogListResponse, ArriveAircraftRequest, AssignEngineerRequest,
+        DepartAircraftRequest,
         AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse,
         ClassifyRequest, ClassifyResponse, ErrorResponse, GetRouteRequest, GetRouteResponse,
         ActiveMapResponse, GetUserNameResponse, LoginRequest, LoginResponse, MapListResponse,
@@ -69,6 +73,9 @@ use crate::types::{
         classify_problem,
         train_classifier,
         list_aircraft,
+        arrive_aircraft,
+        depart_aircraft,
+        list_aircraft_movements,
         get_current_task,
         current_task_aog,
         current_task_aog_post,
@@ -112,6 +119,10 @@ use crate::types::{
         TrainClassifierResponse,
         AircraftEntry,
         AircraftListResponse,
+        ArriveAircraftRequest,
+        DepartAircraftRequest,
+        AircraftMovementResponse,
+        AircraftMovementListResponse,
         CurrentTaskResponse,
         CurrentTaskAogRequest,
         CurrentTaskAogResponse,
@@ -138,7 +149,7 @@ use crate::types::{
     )),
     tags(
         (name = "Auth", description = "Registration, login and the current profile"),
-        (name = "Aircraft", description = "Aircraft positions and AOG list"),
+        (name = "Aircraft", description = "Aircraft arrivals, departures, positions and AOG list"),
         (name = "Assign", description = "Assign an engineer to an aircraft"),
         (name = "Classifier", description = "Problem-text classification"),
         (name = "Geo", description = "Live positions of engineers and vehicles"),
