@@ -324,7 +324,11 @@ export default function MccPage() {
           </label>
           <label>Глава ATA<input name="ata" type="text" placeholder="необязательно, например 28" /></label>
           <label>Срочность
-            <select name="urgency" defaultValue="">
+            <select
+              name="urgency"
+              defaultValue={localStorage.getItem("oto-mcc-urgency") || ""}
+              onChange={(event) => localStorage.setItem("oto-mcc-urgency", event.target.value)}
+            >
               <option value="">не указана</option>
               <option value="normal">обычная</option>
               <option value="urgent">срочная</option>
