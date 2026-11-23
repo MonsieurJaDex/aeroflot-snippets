@@ -132,6 +132,7 @@ export default function MccPage() {
       sessionStorage.removeItem("oto-mcc-draft");
       setDraftText("");
       setHint("");
+      softBeep(480, 140);
       setError("Нужен вход, чтобы записать замечание на сервер. Оно осталось в локальной очереди.");
       setItems(freshList());
       return;
@@ -152,10 +153,12 @@ export default function MccPage() {
       sessionStorage.removeItem("oto-mcc-draft");
       setDraftText("");
       setHint("");
+      softBeep(720, 120);
       setStatus("Замечание записано на сервере. Инженера не назначали.");
       setItems(freshList());
     } catch (err) {
       setError(readError(err));
+      softBeep(320, 200);
     } finally {
       setPending(false);
     }
@@ -348,6 +351,27 @@ export default function MccPage() {
                   }}
                 >
                   Убрать назначенные
+                </button>
+              ) : null}
+              {items.length ? (
+                <button
+                  type="button"
+                  className="ghost-copy"
+                  onClick={() => {
+                    const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = `mcc-queue-${new Date().toISOString().slice(0, 10)}.json`;
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    URL.revokeObjectURL(url);
+                    softBeep(560, 80);
+                    setStatus("Локальная очередь ЦПУ сохранена в JSON.");
+                  }}
+                >
+                  Экспорт JSON
                 </button>
               ) : null}
               {items.length ? (
