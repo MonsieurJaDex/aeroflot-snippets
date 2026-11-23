@@ -625,6 +625,11 @@ export default function DispatcherPage() {
             });
             softBeep(response.sla_exceeded ? 420 : 880, 160);
             sessionStorage.removeItem("oto-disp-draft");
+            {
+              const nextAuto = `Обнаружена неисправность: ${issueLabel(issueValue).toLowerCase()}. Требуется осмотр и устранение.`;
+              lastAuto.current = nextAuto;
+              setDescription(nextAuto);
+            }
             if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
           } catch (error) {
             setResult({ type: "error", text: `Ошибка: ${assignErrorMessage(error)}` });
@@ -663,6 +668,7 @@ export default function DispatcherPage() {
     if (known) setPlaneId(item.planeUuid);
     setIssue(item.issue);
     setDescription(item.description);
+    sessionStorage.setItem("oto-disp-draft", item.description || "");
     if (item.serverId) setReassignId(String(item.serverId));
     setResult({
       type: "info",
