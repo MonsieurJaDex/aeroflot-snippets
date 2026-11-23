@@ -196,6 +196,26 @@ body::before {
 .fault-hint { margin-top: 8px; color: var(--blue); font-size: 11px; line-height: 1.4; }
 .fault-hint.stale-live { color: var(--red); font-weight: 700; }
 .live-label.stale { color: var(--orange); }
+.shortcut-help {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+.shortcut-help summary { cursor: pointer; font-weight: 700; color: var(--blue); }
+.shortcut-help ul { margin: 8px 0 0; padding-left: 18px; }
+.shortcut-help kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  background: var(--field);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+}
 
 #sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 20px 0 8px; }
 #sidebar section:first-of-type h2 { margin-top: 0; }

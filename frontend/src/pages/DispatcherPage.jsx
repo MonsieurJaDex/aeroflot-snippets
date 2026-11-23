@@ -176,6 +176,7 @@ export default function DispatcherPage() {
   const [planeFilter, setPlaneFilter] = useState("");
   const [staleLive, setStaleLive] = useState(false);
   const [crewNote, setCrewNote] = useState("");
+  const [pollMs, setPollMs] = useState(null);
   const lastLiveAt = useRef(Date.now());
 
   formRef.current = { issue, description, planeId, activeMcc };
@@ -474,6 +475,7 @@ export default function DispatcherPage() {
       }
 
       async function refresh() {
+        const started = performance.now();
         const staff = await loadStaff();
         if (cancelled) return;
         agents = staff.plotted;
@@ -492,6 +494,7 @@ export default function DispatcherPage() {
         const gap = staff.missing.length ? `, без координат: ${staff.missing.length}` : "";
         lastLiveAt.current = Date.now();
         setStaleLive(false);
+        setPollMs(Math.round(performance.now() - started));
         const free = agents.filter((agent) => !agent.busy).length;
         setCrewNote(`Свободно ${free} / ${agents.length}`);
         setLive(`Бортов: ${aircraftNow.length} · инженеров на карте: ${agents.length}${gap} · техники: ${fleet.length} · AOG: ${aog.size}`);
@@ -948,7 +951,9 @@ export default function DispatcherPage() {
         <div className="account-strip">
           <span>{session.name}{session.email ? ` · ${session.email}` : ""}</span>
           <span className={staleLive ? "live-label stale" : "live-label"}>
-            {crewNote ? `${crewNote} · ` : ""}{staleLive ? `STALE · ${clock}` : clock}
+            {crewNote ? `${crewNote} · ` : ""}
+            {pollMs != null ? `${pollMs} мс · ` : ""}
+            {staleLive ? `STALE · ${clock}` : clock}
           </span>
         </div>
         <StatusChain current={dispatcherStatusStep(result, inbox, activeMcc)} />
@@ -1167,7 +1172,13 @@ export default function DispatcherPage() {
           >
             {pending ? "Назначение…" : "Назначить инженера · Ctrl+Enter"}
           </button>
-          <p className="fault-hint">Esc — снять выбор заявки ЦПУ. Ctrl+Enter — назначить.</p>
+          <details className="shortcut-help">
+            <summary>Горячие клавиши</summary>
+            <ul>
+              <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd> — назначить инженера</li>
+              <li><kbd>Esc</kbd> — снять выбор ЦПУ и фильтр бортов</li>
+            </ul>
+          </details>
           {staleLive ? <p className="fault-hint stale-live">Карта давно не обновлялась — проверьте сеть или API.</p> : null}
           <div className={result.type === "ok" ? "assignment-result success" : "assignment-result"}>
             {result.type === "ok" ? (
