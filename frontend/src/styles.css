@@ -475,6 +475,12 @@ button.mcc-item.selected::after { content: none; }
   .dispatcher-page { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
   .dispatcher-page #map { order: -1; flex: 0 0 42dvh; width: 100%; height: 42dvh; min-height: 220px; }
   .dispatcher-page #sidebar { width: 100%; min-width: 0; flex: 1 1 auto; height: auto; min-height: 0; overflow-y: auto; border-right: 0; border-top: 1px solid var(--border); box-shadow: none; padding: 14px 14px calc(16px + env(safe-area-inset-bottom)); }
+  .dispatcher-page #assign-button {
+    position: sticky;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    z-index: 4;
+    box-shadow: 0 0 0 8px var(--panel);
+  }
   .dispatcher-page #sidebar h1 { font-size: 24px; }
   .dispatcher-page .brand-row { margin-bottom: 12px; gap: 10px; }
   .dispatcher-page .layer-row { min-height: 36px; }
