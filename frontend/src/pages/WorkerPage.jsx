@@ -348,6 +348,10 @@ export default function WorkerPage() {
           document.getElementById("waiting-part")?.click();
         }
       }
+      if (event.key === "g" || event.key === "G" || event.key === "п" || event.key === "П") {
+        event.preventDefault();
+        document.getElementById("push-geo")?.click();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -859,6 +863,7 @@ export default function WorkerPage() {
             <li><kbd>T</kbd> — инструмент получен</li>
             <li><kbd>C</kbd> — завершить</li>
             <li><kbd>W</kbd> — ожидание запчасти</li>
+            <li><kbd>G</kbd> — отправить гео</li>
             <li><kbd>Esc</kbd> — закрыть тост</li>
           </ul>
         </details>
@@ -1000,8 +1005,8 @@ export default function WorkerPage() {
         >
           {busyAction === "refresh" ? "…" : "Обновить задачу"}
         </button>
-        <button id="push-geo" className="worker-action worker-action-secondary" type="button" disabled={busyAction === "geo"} onClick={pushSelfPosition}>
-          {busyAction === "geo" ? "…" : outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео"}
+        <button id="push-geo" className="worker-action worker-action-secondary" type="button" disabled={busyAction === "geo"} onClick={pushSelfPosition} title="G">
+          {busyAction === "geo" ? "…" : outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео · G"}
         </button>
       </div>
       <div
