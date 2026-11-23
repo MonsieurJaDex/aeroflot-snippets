@@ -979,6 +979,7 @@ export default function DispatcherPage() {
       setMapNote("Выберите карту.");
       return;
     }
+    if (!window.confirm("Сделать эту карту активной для всех?")) return;
     setMapPending(true);
     setMapNote("");
     try {
