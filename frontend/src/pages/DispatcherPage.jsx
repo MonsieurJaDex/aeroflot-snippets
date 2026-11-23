@@ -266,7 +266,7 @@ export default function DispatcherPage() {
   }, [allowed]);
 
   useEffect(() => {
-    const q = planeFilter.trim().toLowerCase();
+    const q = deferredPlaneFilter.trim().toLowerCase();
     if (!q || !aircraft.length) return;
     const list = aircraft.filter((plane) => {
       const hay = `${plane.id} ${plane.point?.[0]} ${plane.point?.[1]}`.toLowerCase();
@@ -275,7 +275,7 @@ export default function DispatcherPage() {
     if (list.length && !list.some((plane) => plane.id === planeId)) {
       setPlaneId(list[0].id);
     }
-  }, [planeFilter, aircraft, planeId]);
+  }, [deferredPlaneFilter, aircraft, planeId]);
 
   useEffect(() => {
     const bits = ["ОТО · смена"];
