@@ -1440,7 +1440,9 @@ export default function DispatcherPage() {
             <label>obj<input type="text" value={trackObj} autoComplete="off" onChange={(event) => setTrackObj(event.target.value)} /></label>
             <label>lat<input type="text" inputMode="decimal" value={trackLat} autoComplete="off" onChange={(event) => setTrackLat(event.target.value)} /></label>
             <label>lon<input type="text" inputMode="decimal" value={trackLon} autoComplete="off" onChange={(event) => setTrackLon(event.target.value)} /></label>
-            <button type="submit" className="shift-button" disabled={trackPending}>POST /api/v1/track</button>
+            <button type="submit" className="shift-button" disabled={trackPending}>
+              {trackPending ? "Отправка…" : "POST /api/v1/track"}
+            </button>
           </form>
           {trackNote ? <p className="fault-hint">{trackNote}</p> : null}
         </details>
@@ -1467,7 +1469,9 @@ export default function DispatcherPage() {
             </label>
             <label>X<input type="text" inputMode="numeric" value={transportX} autoComplete="off" onChange={(event) => setTransportX(event.target.value)} /></label>
             <label>Y<input type="text" inputMode="numeric" value={transportY} autoComplete="off" onChange={(event) => setTransportY(event.target.value)} /></label>
-            <button type="submit" className="shift-button" disabled={transportPending || !fleet.length}>Сдвинуть технику</button>
+            <button type="submit" className="shift-button" disabled={transportPending || !fleet.length}>
+              {transportPending ? "Сдвиг…" : "Сдвинуть технику"}
+            </button>
           </form>
           {transportNote ? <p className="fault-hint">{transportNote}</p> : null}
         </details>
