@@ -1309,6 +1309,7 @@ export default function DispatcherPage() {
             type="button"
             disabled={pending || !planeId || !description.trim()}
             aria-busy={pending}
+            title={!planeId ? "Выберите борт" : !description.trim() ? "Нужно описание" : "Ctrl+Enter"}
             onClick={() => {
               if (pending || !planeId || !description.trim()) return;
               actions.current.assign?.();
