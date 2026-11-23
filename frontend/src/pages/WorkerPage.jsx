@@ -352,6 +352,12 @@ export default function WorkerPage() {
         event.preventDefault();
         document.getElementById("push-geo")?.click();
       }
+      if (event.key === "m" || event.key === "M" || event.key === "ь" || event.key === "Ь") {
+        if (taskRef.current) {
+          event.preventDefault();
+          document.getElementById("save-mel")?.click();
+        }
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -864,6 +870,7 @@ export default function WorkerPage() {
             <li><kbd>C</kbd> — завершить</li>
             <li><kbd>W</kbd> — ожидание запчасти</li>
             <li><kbd>G</kbd> — отправить гео</li>
+            <li><kbd>M</kbd> — сохранить MEL</li>
             <li><kbd>Esc</kbd> — закрыть тост</li>
           </ul>
         </details>
@@ -965,8 +972,8 @@ export default function WorkerPage() {
         <button id="reject-task" className="worker-action worker-action-danger" type="button" hidden={!canDecide} disabled={busyAction === "reject"} onClick={rejectTask} title="R">
           {busyAction === "reject" ? "…" : "Отклонить · R"}
         </button>
-        <button id="save-mel" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "mel"} onClick={saveMel}>
-          {busyAction === "mel" ? "…" : "Сохранить MEL"}
+        <button id="save-mel" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "mel"} onClick={saveMel} title="M">
+          {busyAction === "mel" ? "…" : "Сохранить MEL · M"}
         </button>
         <button id="tools-task" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={!task || task.tools_picked || busyAction === "tools"} onClick={pickTools} title="T">
           {task?.tools_picked ? "Инструмент ✓" : busyAction === "tools" ? "…" : "Инструмент получен"}
