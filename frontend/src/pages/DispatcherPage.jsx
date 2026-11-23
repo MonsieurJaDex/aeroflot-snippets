@@ -781,9 +781,11 @@ export default function DispatcherPage() {
     setReassignNote("");
     try {
       const data = await reassignRequest(id, engineerId, reason);
+      softBeep(760, 120);
       setReassignNote(`Переназначено: ${data?.id || id}${data?.status ? ` · ${data.status}` : ""}`);
     } catch (error) {
       setReassignNote(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setReassignPending(false);
     }
