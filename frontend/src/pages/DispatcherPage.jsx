@@ -1103,12 +1103,13 @@ export default function DispatcherPage() {
             <select value={planeId} disabled={!aircraft.length} onChange={(event) => setPlaneId(event.target.value)}>
               {(() => {
                 const q = planeFilter.trim().toLowerCase();
-                const list = q
+                const filtered = q
                   ? aircraft.filter((plane) => {
                     const hay = `${plane.id} ${plane.point?.[0]} ${plane.point?.[1]}`.toLowerCase();
                     return hay.includes(q);
                   })
                   : aircraft;
+                const list = filtered.slice().sort((a, b) => Number(aogIds.has(b.id)) - Number(aogIds.has(a.id)));
                 if (!list.length) return <option value="">Нет совпадений</option>;
                 return list.map((plane) => (
                   <option key={plane.id} value={plane.id}>
