@@ -162,9 +162,11 @@ export default function MccPage() {
       localStorage.setItem("oto-last-email", email);
       setSavedEmail(email);
       setSessionName(session?.name || "");
+      softBeep(680, 100);
       setStatus(`Вход: ${session?.name || "ок"}. Можно писать замечания на сервер.`);
     } catch (err) {
       setError(readError(err));
+      softBeep(320, 200);
     } finally {
       setAuthPending(false);
     }
