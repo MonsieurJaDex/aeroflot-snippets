@@ -978,7 +978,13 @@ export default function WorkerPage() {
                     onChange={(event) => setDeferUntil(event.target.value)}
                   />
                 </>
-              ) : "Новых заявок нет."}
+              ) : (
+                <>
+                  Новых заявок нет.<br />
+                  Опрос идёт автоматически — экран можно не трогать.<br />
+                  <kbd>F</kbd> — принудительно обновить · <kbd>G</kbd> — отправить гео.
+                </>
+              )}
             </div>
           </article>
         </section>
