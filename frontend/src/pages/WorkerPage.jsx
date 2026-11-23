@@ -358,6 +358,12 @@ export default function WorkerPage() {
           document.getElementById("save-mel")?.click();
         }
       }
+      if (event.key === "o" || event.key === "O" || event.key === "щ" || event.key === "Щ") {
+        if (taskRef.current?.plane_uuid) {
+          event.preventDefault();
+          document.getElementById("aog-task")?.click();
+        }
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -871,6 +877,7 @@ export default function WorkerPage() {
             <li><kbd>W</kbd> — ожидание запчасти</li>
             <li><kbd>G</kbd> — отправить гео</li>
             <li><kbd>M</kbd> — сохранить MEL</li>
+            <li><kbd>O</kbd> — AOG</li>
             <li><kbd>Esc</kbd> — закрыть тост</li>
           </ul>
         </details>
@@ -984,8 +991,8 @@ export default function WorkerPage() {
         <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask} title="C">
           {busyAction === "complete" ? "…" : "Завершить задачу"}
         </button>
-        <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog}>
-          {busyAction === "aog" ? "…" : aogOn ? "Снять AOG" : "Поставить AOG"}
+        <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog} title="O">
+          {busyAction === "aog" ? "…" : aogOn ? "Снять AOG · O" : "Поставить AOG · O"}
         </button>
         <button id="refresh-route" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "route"} onClick={refreshRouteFromServer}>
           {busyAction === "route" ? "…" : "Обновить маршрут"}
