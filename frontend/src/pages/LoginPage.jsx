@@ -20,7 +20,10 @@ function homeForRole(role) {
 export default function LoginPage() {
   const navigate = useNavigate();
   const [apiBase, setApiBaseInput] = useState(getApiBase);
-  const [role, setRole] = useState(null);
+  const [role, setRole] = useState(() => {
+    const saved = localStorage.getItem("oto-last-role");
+    return saved === "Dispatcher" || saved === "Engineer" ? saved : null;
+  });
   const [mode, setMode] = useState("login");
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -52,6 +55,7 @@ export default function LoginPage() {
       navigate("/mcc");
       return;
     }
+    localStorage.setItem("oto-last-role", nextRole);
     setRole(nextRole);
     setError("");
     setStatus(`Роль: ${ROLE_LABELS[nextRole]}`);
