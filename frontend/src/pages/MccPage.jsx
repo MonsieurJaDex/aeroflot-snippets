@@ -258,6 +258,7 @@ export default function MccPage() {
               name="description"
               rows={3}
               required
+              enterKeyHint="done"
               placeholder="Что сообщил экипаж или сотрудник"
               value={draftText}
               onChange={(event) => {
