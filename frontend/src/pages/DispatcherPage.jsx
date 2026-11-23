@@ -1211,7 +1211,7 @@ export default function DispatcherPage() {
             </button>
           </form>
           {defectNote ? <p className="fault-hint">{defectNote}</p> : null}
-          <button type="button" className="shift-button" disabled={trainPending} onClick={onTrainClassifier}>
+          <button type="button" className="shift-button" disabled={trainPending || defectPending} onClick={onTrainClassifier}>
             {trainPending ? "Обучение…" : "Переобучить классификатор"}
           </button>
           {trainNote ? <p className="fault-hint">{trainNote}</p> : null}
