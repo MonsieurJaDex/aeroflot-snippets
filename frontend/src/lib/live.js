@@ -119,13 +119,15 @@ export async function loadAlerts() {
 }
 
 export async function downloadJournalCsv() {
-  // Журнал — CSV, сохраняем blob как journal.csv.
+  // BOM чтобы Excel открыл кириллицу; имя с датой для сдачи жюри.
   const csv = await apiRequest("/api/journal.csv");
-  const blob = new Blob([typeof csv === "string" ? csv : ""], { type: "text/csv;charset=utf-8" });
+  const text = typeof csv === "string" ? csv : "";
+  const blob = new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "journal.csv";
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  link.download = `journal-${stamp}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -176,6 +178,14 @@ export async function updateEngineerPosition(id, batch) {
     method: "POST",
     auth: false,
     body: { id, batch },
+  });
+}
+
+export async function updateTransportPosition(id, vehicleType, newPoint) {
+  return apiRequest("/api/geo/updateTransportPosition", {
+    method: "POST",
+    auth: false,
+    body: { id, vehicle_type: vehicleType, new_point: newPoint },
   });
 }
 
