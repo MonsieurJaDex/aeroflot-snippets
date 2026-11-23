@@ -1016,7 +1016,24 @@ export default function DispatcherPage() {
           <button type="button" className="role-link" onClick={logout}>Выйти</button>
         </div>
         <div className="account-strip">
-          <span>{session.name}{session.email ? ` · ${session.email}` : ""}</span>
+          <span>
+            {session.name}{session.email ? ` · ${session.email}` : ""}
+            {session.userId ? (
+              <>
+                {" · "}
+                <button
+                  type="button"
+                  className="ghost-copy"
+                  onClick={async () => {
+                    const ok = await copyText(session.userId);
+                    setLive(ok ? "UUID диспетчера скопирован" : live);
+                  }}
+                >
+                  {String(session.userId).slice(0, 8)}
+                </button>
+              </>
+            ) : null}
+          </span>
           <span className={staleLive ? "live-label stale" : "live-label"}>
             {crewNote ? `${crewNote} · ` : ""}
             {pollMs != null ? `${pollMs} мс · ` : ""}
