@@ -10,8 +10,11 @@ function ScreenFallback() {
   return (
     <main className="role-page">
       <div className="role-shell">
-        <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
-        <h1>Загрузка…</h1>
+        <div className="role-hero">
+          <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
+          <h1>Аэрофлот</h1>
+          <p className="role-copy">Загрузка экрана…</p>
+        </div>
       </div>
     </main>
   );
