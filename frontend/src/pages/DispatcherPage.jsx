@@ -40,6 +40,7 @@ import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
+import { whenVisible } from "../lib/visibility.js";
 import { pointAt, WALK_MPS } from "../lib/walk.js";
 import {
   buildTileGrid,
@@ -249,11 +250,12 @@ export default function DispatcherPage() {
         if (!cancelled) setAlertsNote("Список рисков или движений недоступен.");
       }
     }
-    pullSide();
-    const timer = window.setInterval(pullSide, 15000);
+    const stop = whenVisible(() => {
+      if (!cancelled) pullSide();
+    }, 15000);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stop();
     };
   }, [allowed]);
 

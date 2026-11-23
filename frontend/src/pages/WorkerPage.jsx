@@ -8,6 +8,7 @@ import { formatEta } from "../lib/format.js";
 import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
 import { updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
+import { whenVisible } from "../lib/visibility.js";
 import { CELL_METERS, pointAt, totalMeters, WALK_MPS } from "../lib/walk.js";
 import {
   buildTileGrid,
@@ -179,19 +180,26 @@ export default function WorkerPage() {
       }
     }
 
-    flushOutbox();
-    const timer = window.setInterval(() => {
+    const stopPoll = whenVisible(() => {
+      if (cancelled) return;
       loadTask();
       refreshSelf();
       flushOutbox();
       pushLiveGeo();
     }, 5000);
     const onOnline = () => flushOutbox();
+    const onLeave = (event) => {
+      if (!pendingCount()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
     window.addEventListener("online", onOnline);
+    window.addEventListener("beforeunload", onLeave);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stopPoll();
       window.removeEventListener("online", onOnline);
+      window.removeEventListener("beforeunload", onLeave);
     };
   }, [allowed]);
 
