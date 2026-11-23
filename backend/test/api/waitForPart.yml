@@ -1,0 +1,28 @@
+info:
+  name: waitForPart
+  type: http
+  seq: 44
+
+http:
+  method: POST
+  url: "{{HOST}}/tasks/current/waiting-part"
+  auth:
+    type: bearer
+    token: "{{engineer_token}}"
+
+docs:
+  content: |-
+    in_progress → waiting_part, инженер снимается с заявки.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

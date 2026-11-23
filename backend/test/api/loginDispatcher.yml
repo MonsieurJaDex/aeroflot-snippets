@@ -1,0 +1,39 @@
+info:
+  name: loginDispatcher
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{HOST}}/auth/login"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "email": "dispatcher-{{run_id}}@aeroflot.example",
+        "password": "password"
+      }
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.access_token
+      operator: isString
+  scripts:
+    - type: after-response
+      code: |-
+        bru.setVar("dispatcher_token", res.body.access_token);
+        bru.setVar("dispatcher_refresh", res.body.refresh_token);
+        bru.setVar("dispatcher_id", res.body.id);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

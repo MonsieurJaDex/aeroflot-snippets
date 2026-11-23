@@ -1,0 +1,28 @@
+info:
+  name: rejectCurrent
+  type: http
+  seq: 39
+
+http:
+  method: POST
+  url: "{{HOST}}/tasks/current/reject"
+  auth:
+    type: bearer
+    token: "{{engineer_token}}"
+
+docs:
+  content: |-
+    assigned → rejected. Заявку после этого не продолжают.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

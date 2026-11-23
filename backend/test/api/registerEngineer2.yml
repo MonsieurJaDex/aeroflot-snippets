@@ -1,0 +1,46 @@
+info:
+  name: registerEngineer2
+  type: http
+  seq: 3
+
+http:
+  method: POST
+  url: "{{HOST}}/auth/register"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "email": "engineer2-{{run_id}}@aeroflot.example",
+        "name": "Petr Petrov",
+        "password": "password",
+        "user_role": "Engineer",
+        "engineer_type": "aviation_technician"
+      }
+
+docs:
+  content: |-
+    Второй техник для переназначения. Позицию получает только перед этим шагом.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.access_token
+      operator: isString
+  scripts:
+    - type: after-response
+      code: |-
+        bru.setVar("engineer2_token", res.body.access_token);
+        bru.setVar("engineer2_refresh", res.body.refresh_token);
+        bru.setVar("engineer2_id", res.body.id);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

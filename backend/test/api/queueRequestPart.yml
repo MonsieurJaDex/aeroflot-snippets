@@ -1,0 +1,27 @@
+info:
+  name: queueRequestPart
+  type: http
+  seq: 41
+
+http:
+  method: POST
+  url: "{{HOST}}/requests/{{part_id}}/queue"
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.status
+      operator: eq
+      value: "unassigned"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

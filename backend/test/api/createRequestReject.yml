@@ -1,0 +1,50 @@
+info:
+  name: createRequestReject
+  type: http
+  seq: 36
+
+http:
+  method: POST
+  url: "{{HOST}}/requests"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "text": "заклинило клапан ПОС",
+        "note": "Замечание экипажа",
+        "plane_uuid": "{{aircraft_id}}",
+        "point": [10, 10],
+        "ata_chapter": "30",
+        "urgency": "aog",
+        "source": "mcc"
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Отдельная заявка: инженер отклоняет назначение.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.status
+      operator: eq
+      value: "crew_remark"
+  scripts:
+    - type: after-response
+      code: |-
+        bru.setVar("reject_id", res.body.id);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

@@ -1,0 +1,50 @@
+info:
+  name: assignReject
+  type: http
+  seq: 38
+
+http:
+  method: POST
+  url: "{{HOST}}/assign"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "issue": "other",
+        "classifier_text": "заклинило клапан ПОС",
+        "note": "Замечание экипажа",
+        "plane_uuid": "{{aircraft_id}}",
+        "request_id": "{{reject_id}}"
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Назначение идёт по request_id заявки в статусе unassigned.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.engineer_uuid
+      operator: isString
+
+  scripts:
+    - type: tests
+      code: |-
+        test("assigns the nearer admitted engineer", function () {
+          expect(res.body.engineer_uuid).to.equal(bru.getVar("engineer_id"));
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

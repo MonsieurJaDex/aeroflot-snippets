@@ -1,0 +1,41 @@
+info:
+  name: reassignRequest
+  type: http
+  seq: 50
+
+http:
+  method: POST
+  url: "{{HOST}}/requests/{{reassign_id}}/reassign"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "engineer_id": "{{engineer2_id}}",
+        "reason": "первый инженер занят на другом борту"
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Только из in_progress. Заявка возвращается в assigned уже на второго инженера.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.status
+      operator: eq
+      value: "assigned"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

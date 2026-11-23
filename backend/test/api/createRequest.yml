@@ -1,7 +1,7 @@
 info:
   name: createRequest
   type: http
-  seq: 28
+  seq: 23
 
 http:
   method: POST
@@ -15,6 +15,7 @@ http:
       {
         "text": "заклинило клапан ПОС",
         "note": "Замечание экипажа",
+        "plane_uuid": "{{aircraft_id}}",
         "point": [10, 10],
         "ata_chapter": "30",
         "urgency": "aog",
@@ -22,7 +23,24 @@ http:
       }
   auth:
     type: bearer
-    token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxNjdmNTMwYy0wNzVmLTRjY2EtYjQ0NS03YWNiN2Y4MWYzMDMiLCJyb2xlIjoiRGlzcGF0Y2hlciIsImV4cCI6MTc5NDUyOTU3NSwidG9rZW5fdHlwZSI6IkFjY2VzcyJ9.goWaio-UYaCTQsfYzbZkWdvvLNy6oJunA6ERclHtdck
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Замечание экипажа. Инженера ещё не назначает.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.status
+      operator: eq
+      value: "crew_remark"
+  scripts:
+    - type: after-response
+      code: |-
+        bru.setVar("request_id", res.body.id);
 
 settings:
   encodeUrl: true

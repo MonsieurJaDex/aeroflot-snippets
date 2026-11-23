@@ -1,7 +1,7 @@
 info:
-  name: update_access
+  name: updateAccess
   type: http
-  seq: 4
+  seq: 6
 
 http:
   method: POST
@@ -13,8 +13,25 @@ http:
     type: json
     data: |-
       {
-        "refresh_token": "paste-refresh-token-from-login"
+        "refresh_token": "{{dispatcher_refresh}}"
       }
+
+docs:
+  content: |-
+    Старый refresh после этого запроса больше не действует.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.access_token
+      operator: isString
+  scripts:
+    - type: after-response
+      code: |-
+        bru.setVar("dispatcher_token", res.body.access_token);
+        bru.setVar("dispatcher_refresh", res.body.refresh_token);
 
 settings:
   encodeUrl: true
