@@ -814,7 +814,13 @@ export default function WorkerPage() {
                     <option value="D">D</option>
                   </select>
                   <p className="section-label">Отложить до</p>
-                  <input aria-label="Отложить до" type="datetime-local" value={deferUntil} onChange={(event) => setDeferUntil(event.target.value)} />
+                  <input
+                    aria-label="Отложить до"
+                    type="datetime-local"
+                    min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                    value={deferUntil}
+                    onChange={(event) => setDeferUntil(event.target.value)}
+                  />
                 </>
               ) : "Новых заявок нет."}
             </div>
