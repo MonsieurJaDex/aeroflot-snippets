@@ -1206,7 +1206,9 @@ export default function DispatcherPage() {
             <label>Глава ATA
               <input type="text" value={defectAta} autoComplete="off" onChange={(event) => setDefectAta(event.target.value)} />
             </label>
-            <button type="submit" className="shift-button" disabled={defectPending}>Добавить дефект</button>
+            <button type="submit" className="shift-button" disabled={defectPending || !defectText.trim() || !defectAta.trim()}>
+              {defectPending ? "Запись…" : "Добавить дефект"}
+            </button>
           </form>
           {defectNote ? <p className="fault-hint">{defectNote}</p> : null}
           <button type="button" className="shift-button" disabled={trainPending} onClick={onTrainClassifier}>
