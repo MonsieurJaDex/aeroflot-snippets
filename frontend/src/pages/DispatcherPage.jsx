@@ -1288,7 +1288,7 @@ export default function DispatcherPage() {
               }}
             />
           </label>
-          <button type="button" className="shift-button" disabled={classifyPending || pending} onClick={onClassifyDescription}>
+          <button type="button" className="shift-button" disabled={classifyPending || pending || !description.trim()} onClick={onClassifyDescription}>
             {classifyPending ? "Классификация…" : "Подсказать тип инженера"}
           </button>
           {classifyHint ? <p className="fault-hint">{classifyHint}</p> : null}
