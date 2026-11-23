@@ -156,9 +156,9 @@ export default function MccPage() {
     <main className="role-page">
       <div className="role-shell">
         <div className="role-hero">
-          <p className="eyebrow">ЦПУ / MCC</p>
-          <h1>Фиксация замечания</h1>
-          <p className="role-copy">ЦПУ передаёт замечание начальнику смены. Исполнителя здесь не назначают.</p>
+          <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
+          <h1>ЦПУ</h1>
+          <p className="role-copy">Фиксация замечания без назначения инженера. Для записи на сервер нужен вход.</p>
         </div>
         <p className="mcc-back"><Link className="role-link" to="/">К ролям</Link></p>
         <StatusChain current={items.some((item) => !isMccAssigned(item)) ? "не назначен" : items.length ? "назначен" : "замечание"} />

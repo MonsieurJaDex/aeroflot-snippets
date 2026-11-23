@@ -568,7 +568,7 @@ export default function WorkerPage() {
       <div className="worker-shell">
         <header className="worker-header">
           <div>
-            <p className="eyebrow">ИНЖЕНЕР / ТЕХНИК</p>
+            <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
             <h1>Инженер</h1>
           </div>
           <div className="worker-account">
