@@ -1300,7 +1300,7 @@ export default function DispatcherPage() {
             {departPending ? "Фиксация…" : "Зафиксировать вылет борта"}
           </button>
           {departNote ? <p className="fault-hint">{departNote}</p> : null}
-          <button type="button" className="shift-button" disabled={routePending || !planeId || pending} onClick={onPreviewRoute}>
+          <button type="button" className="shift-button" disabled={routePending || !planeId || pending || arrivePending || departPending} onClick={onPreviewRoute}>
             {routePending ? "Считаем…" : "Проба маршрута getRoute"}
           </button>
           {routeNote ? <p className="fault-hint">{routeNote}</p> : null}
