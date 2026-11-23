@@ -692,8 +692,11 @@ export default function WorkerPage() {
       await apiRequest(`/api/tasks/${encodeURIComponent(task.id)}/route`, { method: "POST" });
       await refreshTask();
       flash("Маршрут пересчитан на сервере");
+      softBeep(600, 100);
     } catch (error) {
       setNotice(`Не удалось обновить маршрут: ${error.message}`);
+      flash("Ошибка маршрута", "err");
+      softBeep(320, 200);
     } finally {
       setBusyAction("");
     }
