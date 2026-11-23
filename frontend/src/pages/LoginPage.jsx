@@ -25,6 +25,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [pending, setPending] = useState(false);
+  const [savedEmail, setSavedEmail] = useState(() => localStorage.getItem("oto-last-email") || "");
 
   useEffect(() => {
     const session = getSession();
@@ -50,12 +51,15 @@ export default function LoginPage() {
     setPending(true);
     const form = new FormData(event.currentTarget);
     try {
-      const session = await login(String(form.get("email") || "").trim(), String(form.get("password") || ""));
+      const email = String(form.get("email") || "").trim();
+      const session = await login(email, String(form.get("password") || ""));
       if (session.role !== role) {
         clearSession();
         setError(`Этот аккаунт зарегистрирован как ${ROLE_LABELS[session.role] || session.role}.`);
         return;
       }
+      localStorage.setItem("oto-last-email", email);
+      setSavedEmail(email);
       navigate(homeForRole(session.role));
     } catch (err) {
       setError(err.message);
@@ -70,13 +74,16 @@ export default function LoginPage() {
     setPending(true);
     const form = new FormData(event.currentTarget);
     try {
+      const email = String(form.get("email") || "").trim();
       const session = await register({
         name: String(form.get("name") || "").trim(),
-        email: String(form.get("email") || "").trim(),
+        email,
         password: String(form.get("password") || ""),
         userRole: role,
         engineerType: role === "Engineer" ? String(form.get("skill") || "") : undefined,
       });
+      localStorage.setItem("oto-last-email", email);
+      setSavedEmail(email);
       navigate(homeForRole(session.role));
     } catch (err) {
       setError(err.message);
@@ -118,7 +125,7 @@ export default function LoginPage() {
             </div>
             {mode === "login" ? (
               <form className="auth-form" onSubmit={onLogin}>
-                <label>Email<input type="email" name="email" required autoComplete="username" /></label>
+                <label>Email<input type="email" name="email" required autoComplete="username" defaultValue={savedEmail} /></label>
                 <label>Пароль<input type="password" name="password" required autoComplete="current-password" /></label>
                 <button type="submit" disabled={pending}>Войти</button>
               </form>

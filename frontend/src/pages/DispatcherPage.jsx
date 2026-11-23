@@ -38,7 +38,7 @@ import { classifyRemark } from "../lib/mccApi.js";
 import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
-import { apiRequest, clearSession, getSession } from "../lib/session.js";
+import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { pointAt, WALK_MPS } from "../lib/walk.js";
 import {
   buildTileGrid,
@@ -89,6 +89,7 @@ export default function DispatcherPage() {
   const layersRef = useRef({ staff: true, transport: true, stands: true, route: true });
   const lastAuto = useRef("");
   const skipAuto = useRef(false);
+  const alertCountRef = useRef(0);
 
   const [aircraft, setAircraft] = useState([]);
   const [aogIds, setAogIds] = useState(() => new Set());
@@ -177,6 +178,14 @@ export default function DispatcherPage() {
 
   useEffect(() => {
     if (!allowed) return undefined;
+    const timer = window.setInterval(() => {
+      hydrateProfile().catch(() => {});
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [allowed]);
+
+  useEffect(() => {
+    if (!allowed) return undefined;
     let cancelled = false;
     // Риск норматива и прибытия ВС, пока диспетчер на экране.
     async function pullSide() {
@@ -190,12 +199,28 @@ export default function DispatcherPage() {
         ]);
         if (cancelled) return;
         setAlerts(list);
+        if (list.length > alertCountRef.current) {
+          try {
+            const ctx = new window.AudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.value = 880;
+            gain.gain.value = 0.04;
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.18);
+          } catch {
+            // звук опционален
+          }
+        }
+        alertCountRef.current = list.length;
         setMovements(moves);
         setFleet(transport);
         setAogList(aog);
         if (maps) {
           setMapCatalog(Array.isArray(maps.maps) ? maps.maps : []);
-          setActiveMapId(maps.active_id || "");
+          setActiveMapId((prev) => prev || maps.active_id || "");
         }
         if (!transportId && transport[0]?.id) setTransportId(transport[0].id);
         setAlertsNote("");

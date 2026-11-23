@@ -4,6 +4,7 @@ import L from "leaflet";
 import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { engineerTypeLabel, issueLabel } from "../lib/catalog.js";
+import { formatEta } from "../lib/format.js";
 import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
 import { updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
@@ -87,7 +88,9 @@ export default function WorkerPage() {
   const [melCategory, setMelCategory] = useState("A");
   const [deferUntil, setDeferUntil] = useState("");
   const [outboxCount, setOutboxCount] = useState(() => pendingCount());
+  const [etaLeft, setEtaLeft] = useState(null);
   const lastSelfRef = useRef(null);
+  const etaAnchor = useRef({ id: null, at: 0, base: null });
 
   taskRef.current = task;
 
@@ -217,6 +220,26 @@ export default function WorkerPage() {
     const timer = window.setTimeout(() => setToast(""), 4500);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (!task || task.eta_seconds == null) {
+      setEtaLeft(null);
+      etaAnchor.current = { id: null, at: 0, base: null };
+      return undefined;
+    }
+    if (etaAnchor.current.id !== task.id || etaAnchor.current.base !== task.eta_seconds) {
+      etaAnchor.current = { id: task.id, at: Date.now(), base: Number(task.eta_seconds) };
+    }
+    const tick = () => {
+      const { at, base } = etaAnchor.current;
+      if (base == null) return;
+      const left = Math.max(0, base - (Date.now() - at) / 1000);
+      setEtaLeft(left);
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [task]);
 
   useEffect(() => {
     if (!allowed) return undefined;
@@ -441,6 +464,7 @@ export default function WorkerPage() {
   const routeText = !task ? "" : route.length < 2 ? "Вы уже у воздушного судна." : `Маршрут: ${Math.max(0, route.length - 1)} клеток`;
   const step = chainStep(task, statusStep);
   const minutes = task ? etaMinutes(task.eta_seconds) : null;
+  const etaClock = formatEta(etaLeft);
   const canDecide = task?.status === "assigned";
 
   async function refreshTask() {
@@ -621,7 +645,7 @@ export default function WorkerPage() {
           <span className={task ? "worker-status busy" : "worker-status free"}>{task ? "Занят" : "Свободен"}</span>
           <span className="worker-task-badge">{task ? step : "Ожидание"}</span>
           {aogOn ? <span className="worker-task-badge aog">AOG</span> : null}
-          {minutes != null ? <span className="worker-task-badge">ETA {minutes} мин</span> : null}
+          {etaClock ? <span className="worker-task-badge">ETA {etaClock}</span> : minutes != null ? <span className="worker-task-badge">ETA {minutes} мин</span> : null}
           {task?.arrived ? <span className="worker-task-badge">Прибыл</span> : null}
         </div>
 
@@ -653,7 +677,7 @@ export default function WorkerPage() {
                   {issueLabel(task.issue)}<br />
                   {task.description || ""}<br />
                   {routeText}<br />
-                  ETA: {minutes} мин<br />
+                  ETA: {etaClock || (minutes != null ? `${minutes} мин` : "—")}<br />
                   {task.tools_picked ? "Инструмент получен" : "Инструмент не получен"}
                   {task.mel_category ? <><br />MEL {task.mel_category}</> : null}
                   {task.arrived ? <><br />Прибыл к воздушному судну</> : null}
