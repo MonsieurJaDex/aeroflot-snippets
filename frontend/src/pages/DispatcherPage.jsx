@@ -28,6 +28,7 @@ import {
   queueRequest,
   reassignRequest,
   trainClassifier,
+  updateTransportPosition,
 } from "../lib/live.js";
 import { classifyRemark } from "../lib/mccApi.js";
 import StatusChain from "../components/StatusChain.jsx";
@@ -121,6 +122,12 @@ export default function DispatcherPage() {
   const [arrivePending, setArrivePending] = useState(false);
   const [routeNote, setRouteNote] = useState("");
   const [routePending, setRoutePending] = useState(false);
+  const [fleet, setFleet] = useState([]);
+  const [transportId, setTransportId] = useState("");
+  const [transportX, setTransportX] = useState("");
+  const [transportY, setTransportY] = useState("");
+  const [transportNote, setTransportNote] = useState("");
+  const [transportPending, setTransportPending] = useState(false);
   const [movements, setMovements] = useState([]);
   const [layersOn, setLayersOn] = useState(layersRef.current);
 
@@ -159,10 +166,12 @@ export default function DispatcherPage() {
     // Риск норматива и прибытия ВС, пока диспетчер на экране.
     async function pullSide() {
       try {
-        const [list, moves] = await Promise.all([loadAlerts(), loadMovements(12)]);
+        const [list, moves, transport] = await Promise.all([loadAlerts(), loadMovements(12), loadTransport()]);
         if (cancelled) return;
         setAlerts(list);
         setMovements(moves);
+        setFleet(transport);
+        if (!transportId && transport[0]?.id) setTransportId(transport[0].id);
         setAlertsNote("");
       } catch (error) {
         console.warn("[alerts/movements]", error);
@@ -672,6 +681,29 @@ export default function DispatcherPage() {
     }
   }
 
+  async function onMoveTransport(event) {
+    event.preventDefault();
+    const vehicle = fleet.find((item) => item.id === transportId);
+    const x = Number(transportX);
+    const y = Number(transportY);
+    if (!vehicle || !Number.isFinite(x) || !Number.isFinite(y)) {
+      setTransportNote("Нужны техника и клетка x/y.");
+      return;
+    }
+    setTransportPending(true);
+    setTransportNote("");
+    try {
+      await updateTransportPosition(vehicle.id, vehicle.vehicle_type, [x, y]);
+      setTransportNote(`Техника ${vehicle.label}: ${x}, ${y}`);
+      const next = await loadTransport();
+      setFleet(next);
+    } catch (error) {
+      setTransportNote(assignErrorMessage(error));
+    } finally {
+      setTransportPending(false);
+    }
+  }
+
   async function onPreviewRoute() {
     const plane = aircraft.find((item) => item.id === planeId);
     if (!plane?.point) {
@@ -903,6 +935,22 @@ export default function DispatcherPage() {
               </>
             ) : result.text}
           </div>
+        </section>
+        <section className="request-panel">
+          <div className="section-heading"><h2>Спецтранспорт</h2></div>
+          <form onSubmit={onMoveTransport}>
+            <label>Техника
+              <select value={transportId} onChange={(event) => setTransportId(event.target.value)}>
+                {fleet.length ? fleet.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label} · {item.id.slice(0, 8)}</option>
+                )) : <option value="">Нет техники</option>}
+              </select>
+            </label>
+            <label>X<input type="text" value={transportX} autoComplete="off" onChange={(event) => setTransportX(event.target.value)} /></label>
+            <label>Y<input type="text" value={transportY} autoComplete="off" onChange={(event) => setTransportY(event.target.value)} /></label>
+            <button type="submit" className="shift-button" disabled={transportPending || !fleet.length}>Сдвинуть технику</button>
+          </form>
+          {transportNote ? <p className="fault-hint">{transportNote}</p> : null}
         </section>
         <section className="request-panel">
           <div className="section-heading"><h2>Переназначение</h2></div>
