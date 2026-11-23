@@ -801,8 +801,15 @@ export default function DispatcherPage() {
   }
 
   function takeAlert(item) {
-    setReassignId(String(item.request_id || ""));
-    if (item.alternative_engineer_id) setReassignEngineer(String(item.alternative_engineer_id));
+    const id = String(item.request_id || "");
+    const eng = item.alternative_engineer_id ? String(item.alternative_engineer_id) : "";
+    setReassignId(id);
+    sessionStorage.setItem("oto-reassign-id", id);
+    if (eng) {
+      setReassignEngineer(eng);
+      sessionStorage.setItem("oto-reassign-eng", eng);
+    }
+    softBeep(700, 100);
     window.queueMicrotask?.(() => {
       const panel = document.getElementById("reassign-panel");
       if (panel) panel.open = true;
