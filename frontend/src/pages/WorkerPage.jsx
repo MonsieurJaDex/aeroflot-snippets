@@ -808,6 +808,7 @@ export default function WorkerPage() {
                   onClick={async () => {
                     const ok = await copyText(profile.userId);
                     flash(ok ? "UUID скопирован" : "Не удалось скопировать", ok ? "ok" : "err");
+                    softBeep(ok ? 600 : 320, ok ? 80 : 160);
                   }}
                 >
                   UUID · {String(profile.userId).slice(0, 8)}

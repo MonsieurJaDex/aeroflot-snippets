@@ -419,6 +419,7 @@ button.mcc-item.selected::after { content: none; }
 .worker-action:disabled, #complete-task:disabled, #aog-task:disabled, #accept-task:disabled, #reject-task:disabled { opacity: .55; cursor: default; }
 .worker-dock .worker-action { touch-action: manipulation; }
 .notice-card { margin-top: 16px; color: var(--muted); }
+.notice-card[role="alert"] { border-color: var(--red); color: var(--red); background: #f8e6e7; }
 .worker-toast { position: fixed; right: 24px; bottom: 24px; z-index: 1000; max-width: min(360px, calc(100% - 32px)); padding: 12px 14px; border: 1px solid var(--green); border-radius: var(--radius); background: #e7f6ef; color: var(--green); font-weight: 700; cursor: pointer; animation: toast-in .2s ease-out; }
 .worker-toast.err { border-color: var(--red); background: #f8e6e7; color: var(--red); }
 @keyframes toast-in {
