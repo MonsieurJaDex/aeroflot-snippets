@@ -204,6 +204,7 @@ export default function DispatcherPage() {
     setDescription((current) => {
       if (!current.trim() || current === lastAuto.current) {
         lastAuto.current = nextAuto;
+        sessionStorage.setItem("oto-disp-draft", nextAuto);
         return nextAuto;
       }
       return current;
@@ -628,6 +629,7 @@ export default function DispatcherPage() {
             {
               const nextAuto = `Обнаружена неисправность: ${issueLabel(issueValue).toLowerCase()}. Требуется осмотр и устранение.`;
               lastAuto.current = nextAuto;
+              sessionStorage.setItem("oto-disp-draft", nextAuto);
               setDescription(nextAuto);
             }
             if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
