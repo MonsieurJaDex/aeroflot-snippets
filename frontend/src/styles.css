@@ -214,7 +214,7 @@ body::before {
 .candidates-table tr.candidate-chosen strong { color: var(--blue-deep); }
 .candidates-table tr.candidate-skip td { color: var(--muted); opacity: .78; }
 .candidate-id { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; font-weight: 600; }
-.candidate-badge { display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: var(--radius); background: var(--red); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.candidate-badge { display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: var(--radius); background: var(--blue); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .fault-hint { margin-top: 8px; color: var(--blue); font-size: 11px; line-height: 1.4; }
 .fault-hint.stale-live { color: var(--red); font-weight: 700; }
 .live-label.stale { color: var(--orange); }
