@@ -98,9 +98,13 @@ body::before {
   cursor: pointer;
 }
 .ghost-copy:hover { border-color: var(--blue); }
-.mcc-item.urgent { border-color: var(--red); }
+.mcc-item.urgent { border-color: var(--red); animation: urgent-pulse 1.6s ease-in-out infinite; }
 .mcc-item.urgent strong { color: var(--red); }
-.mcc-item.selected.urgent { box-shadow: inset 3px 0 0 var(--red); }
+.mcc-item.selected.urgent { box-shadow: inset 3px 0 0 var(--red); animation: none; }
+@keyframes urgent-pulse {
+  0%, 100% { background: var(--field); }
+  50% { background: #f8e6e7; }
+}
 .mcc-list-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .error-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 
