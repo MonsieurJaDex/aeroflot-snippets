@@ -190,6 +190,7 @@ export default function MccPage() {
       setStatus(`Классификатор обучен: ${data?.documents ?? "?"} док. · accuracy ${acc}`);
     } catch (err) {
       setError(readError(err));
+      softBeep(320, 200);
     } finally {
       setTrainPending(false);
     }
@@ -216,6 +217,7 @@ export default function MccPage() {
     } catch (err) {
       setHint("");
       setError(readError(err));
+      softBeep(320, 200);
     } finally {
       setClassifying(false);
     }
