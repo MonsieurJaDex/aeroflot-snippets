@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import NetBanner from "../components/NetBanner.jsx";
+import { softBeep } from "../lib/beep.js";
 import { ENGINEER_TYPES } from "../lib/catalog.js";
 import { clearSession, getApiBase, getSession, login, register, setApiBase } from "../lib/session.js";
 
@@ -77,9 +78,11 @@ export default function LoginPage() {
       }
       localStorage.setItem("oto-last-email", email);
       setSavedEmail(email);
+      softBeep(680, 100);
       navigate(homeForRole(session.role));
     } catch (err) {
       setError(err.message);
+      softBeep(320, 200);
     } finally {
       setPending(false);
     }
@@ -101,9 +104,11 @@ export default function LoginPage() {
       });
       localStorage.setItem("oto-last-email", email);
       setSavedEmail(email);
+      softBeep(680, 100);
       navigate(homeForRole(session.role));
     } catch (err) {
       setError(err.message);
+      softBeep(320, 200);
     } finally {
       setPending(false);
     }
