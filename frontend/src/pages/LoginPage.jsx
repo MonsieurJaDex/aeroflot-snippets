@@ -44,6 +44,18 @@ export default function LoginPage() {
     }
   }, [navigate]);
 
+  useEffect(() => {
+    if (role) return undefined;
+    function onKey(event) {
+      if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+      if (event.key === "1") { event.preventDefault(); openRole("Mcc"); }
+      if (event.key === "2") { event.preventDefault(); openRole("Dispatcher"); }
+      if (event.key === "3") { event.preventDefault(); openRole("Engineer"); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [role]);
+
   function prefetchRole(nextRole) {
     if (nextRole === "Mcc") import("./MccPage.jsx");
     if (nextRole === "Dispatcher") import("./DispatcherPage.jsx");
@@ -216,20 +228,20 @@ export default function LoginPage() {
           </section>
         ) : (
           <div className="role-grid">
-            <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Mcc")} onFocus={() => prefetchRole("Mcc")} onClick={() => openRole("Mcc")}>
-              <span className="role-card-number">01</span>
+            <button className="role-card" type="button" title="Клавиша 1" onMouseEnter={() => prefetchRole("Mcc")} onFocus={() => prefetchRole("Mcc")} onClick={() => openRole("Mcc")}>
+              <span className="role-card-number">01 · 1</span>
               <h2>ЦПУ</h2>
               <p>Фиксирует замечание экипажа или сотрудника и передаёт его начальнику смены. Исполнителя не назначает.</p>
               <span>Передать замечание</span>
             </button>
-            <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Dispatcher")} onFocus={() => prefetchRole("Dispatcher")} onClick={() => openRole("Dispatcher")}>
-              <span className="role-card-number">02</span>
+            <button className="role-card" type="button" title="Клавиша 2" onMouseEnter={() => prefetchRole("Dispatcher")} onFocus={() => prefetchRole("Dispatcher")} onClick={() => openRole("Dispatcher")}>
+              <span className="role-card-number">02 · 2</span>
               <h2>Начальник смены</h2>
               <p>Принимает заявку от ЦПУ, назначает инженера и подтверждает снятие после статуса «в работе».</p>
               <span>Войти как начальник смены</span>
             </button>
-            <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Engineer")} onFocus={() => prefetchRole("Engineer")} onClick={() => openRole("Engineer")}>
-              <span className="role-card-number">03</span>
+            <button className="role-card" type="button" title="Клавиша 3" onMouseEnter={() => prefetchRole("Engineer")} onFocus={() => prefetchRole("Engineer")} onClick={() => openRole("Engineer")}>
+              <span className="role-card-number">03 · 3</span>
               <h2>Инженер</h2>
               <p>Принимает или отклоняет заявку, меняет статус, идёт по маршруту, ставит AOG и категорию MEL.</p>
               <span>Войти как инженер</span>
