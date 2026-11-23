@@ -141,8 +141,8 @@ export default function DispatcherPage() {
   const [reassignPending, setReassignPending] = useState(false);
   const [queueNote, setQueueNote] = useState("");
   const [queuePending, setQueuePending] = useState("");
-  const [defectText, setDefectText] = useState("");
-  const [defectAta, setDefectAta] = useState("");
+  const [defectText, setDefectText] = useState(() => sessionStorage.getItem("oto-defect-text") || "");
+  const [defectAta, setDefectAta] = useState(() => sessionStorage.getItem("oto-defect-ata") || "");
   const [defectNote, setDefectNote] = useState("");
   const [defectPending, setDefectPending] = useState(false);
   const [classifyHint, setClassifyHint] = useState("");
@@ -828,6 +828,8 @@ export default function DispatcherPage() {
       softBeep(640, 100);
       setDefectText("");
       setDefectAta("");
+      sessionStorage.removeItem("oto-defect-text");
+      sessionStorage.removeItem("oto-defect-ata");
       setDefectNote("Дефект добавлен в классификатор.");
     } catch (error) {
       setDefectNote(assignErrorMessage(error));
@@ -1213,18 +1215,40 @@ export default function DispatcherPage() {
           <summary>Классификатор</summary>
           <form onSubmit={submitDefect}>
             <label>Текст дефекта
-              <input type="text" value={defectText} autoComplete="off" onChange={(event) => setDefectText(event.target.value)} />
+              <input
+                type="text"
+                value={defectText}
+                autoComplete="off"
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setDefectText(next);
+                  sessionStorage.setItem("oto-defect-text", next);
+                }}
+              />
             </label>
             <button
               type="button"
               className="shift-button"
               disabled={!description.trim()}
-              onClick={() => setDefectText(description.trim())}
+              onClick={() => {
+                const next = description.trim();
+                setDefectText(next);
+                sessionStorage.setItem("oto-defect-text", next);
+              }}
             >
               Взять из описания заявки
             </button>
             <label>Глава ATA
-              <input type="text" value={defectAta} autoComplete="off" onChange={(event) => setDefectAta(event.target.value)} />
+              <input
+                type="text"
+                value={defectAta}
+                autoComplete="off"
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setDefectAta(next);
+                  sessionStorage.setItem("oto-defect-ata", next);
+                }}
+              />
             </label>
             <button type="submit" className="shift-button" disabled={defectPending || !defectText.trim() || !defectAta.trim()}>
               {defectPending ? "Запись…" : "Добавить дефект"}

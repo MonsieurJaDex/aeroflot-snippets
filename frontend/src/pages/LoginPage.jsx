@@ -147,11 +147,14 @@ export default function LoginPage() {
                 setStatus("Проверка сервера…");
                 try {
                   const res = await fetch(`${base}/api/aircraft`);
-                  setStatus(res.ok || res.status === 401
+                  const ok = res.ok || res.status === 401;
+                  setStatus(ok
                     ? `Сервер отвечает (${res.status}).`
                     : `Сервер ответил ${res.status}.`);
+                  softBeep(ok ? 720 : 380, ok ? 100 : 180);
                 } catch {
                   setStatus("Сервер недоступен по этому адресу.");
+                  softBeep(280, 220);
                 }
               }}
             >

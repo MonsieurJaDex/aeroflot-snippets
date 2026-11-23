@@ -86,6 +86,17 @@ export default function MccPage() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
+  useEffect(() => {
+    function onKey(event) {
+      if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") return;
+      if (!formRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return;
+      event.preventDefault();
+      formRef.current?.requestSubmit();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   function readForm() {
     const form = new FormData(formRef.current);
     return {
@@ -288,8 +299,8 @@ export default function MccPage() {
             {trainPending ? "Обучение…" : "Переобучить классификатор"}
           </button>
           {hint ? <p className="mcc-hint">{hint}</p> : null}
-          <button type="submit" disabled={pending || !draftText.trim()} aria-busy={pending}>
-            {pending ? "Запись…" : "Передать начальнику смены"}
+          <button type="submit" disabled={pending || !draftText.trim()} aria-busy={pending} title="Ctrl+Enter">
+            {pending ? "Запись…" : "Передать начальнику смены · Ctrl+Enter"}
           </button>
           {error ? <div className="auth-error">{error}</div> : null}
           <div className="auth-status">{status}</div>
