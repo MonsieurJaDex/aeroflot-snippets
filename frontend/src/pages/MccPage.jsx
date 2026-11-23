@@ -99,6 +99,10 @@ export default function MccPage() {
     setStatus("");
     const draft = readForm();
     if (!draft.description) return;
+    if (draft.planeUuid && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(draft.planeUuid)) {
+      setError("UUID борта выглядит неверно. Оставьте пустым или вставьте полный uuid.");
+      return;
+    }
     if (!signedIn()) {
       addMcc(draft);
       form.reset();
