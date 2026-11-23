@@ -4,7 +4,7 @@ info:
   seq: 16
 
 http:
-  method: POST
+  method: PUT
   url: "{{HOST}}/tasks/current/aog"
   headers:
     - name: content-type
@@ -13,7 +13,7 @@ http:
     type: json
     data: |-
       {
-        "toggle": true
+        "aog": true
       }
   auth:
     type: bearer

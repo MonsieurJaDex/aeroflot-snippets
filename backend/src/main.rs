@@ -2,9 +2,10 @@ use crate::{
     database::{establish_pg_connection, establish_redis_connection},
     logging::init_logger,
     router::{
-        assign_engineer, classify_problem, complete_current_task, current_task_aog,
-        current_task_aog_post,
-        get_current_task, get_route, list_aircraft, list_aog, train_classifier,
+        arrive_aircraft, assign_engineer, classify_problem, complete_current_task,
+        current_task_aog, current_task_aog_post, depart_aircraft, get_active_map, get_current_task,
+        get_route, list_aircraft, list_aircraft_movements, list_aog, list_maps, set_active_map,
+        train_classifier,
     },
     types::{
         config::{AppConfig, AppState, Args},
@@ -13,7 +14,7 @@ use crate::{
 };
 use clap::Parser;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use std::{collections::HashSet, process, sync::Arc, time::Duration};
+use std::{process, sync::Arc, time::Duration};
 use utoipa::OpenApi;
 
 use axum::{
@@ -34,10 +35,15 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::router::get_map;
 
 mod database;
+mod graph;
+mod journal;
+mod location;
 mod logging;
+mod maps;
 mod middleware;
 mod models;
 mod parser;
+mod rank;
 mod router;
 mod search;
 mod types;
@@ -65,19 +71,14 @@ async fn main() {
         process::exit(1);
     }
 
-    // loading map
-    tracing::info!("Loading map from JSON...");
-
-    // parsing map and roads from json config file
-    let (map, roads) = match parser::parse_from_json(&args.map_path) {
-        Ok(jm) => {
-            let map = jm.map;
-            let roads: HashSet<i64> = jm.road.into_iter().collect();
-            tracing::info!("Map loaded");
-            (map, roads)
+    tracing::info!("Loading map catalog from {}...", args.map_path);
+    let (catalog, cli_map_id) = match maps::load_catalog(&args.map_path) {
+        Ok(loaded) => {
+            tracing::info!(maps = loaded.0.entries.len(), "map catalog loaded");
+            loaded
         }
         Err(e) => {
-            tracing::error!("Error during parsing map: {}", e.to_string());
+            tracing::error!("Error during parsing maps: {e:#}");
             process::exit(1);
         }
     };
@@ -122,21 +123,41 @@ async fn main() {
 
     // application API layer
 
-    let classifier = match crate::types::classifier::ProblemClassifier::train_from_dataset(
-        &args.dataset_path,
-    ) {
-        Ok(model) => std::sync::Arc::new(std::sync::RwLock::new(model)),
+    let classifier =
+        match crate::types::classifier::ProblemClassifier::train_from_dataset(&args.dataset_path) {
+            Ok(model) => std::sync::Arc::new(std::sync::RwLock::new(model)),
+            Err(e) => {
+                tracing::error!("failed to train problem classifier: {e:#}");
+                process::exit(1);
+            }
+        };
+
+    let catalog_for_active = catalog.clone();
+    let redis_for_active = redis_pool.clone();
+    let active = match tokio::task::spawn_blocking(move || {
+        let mut conn = redis_for_active.get()?;
+        maps::resolve_active(&mut conn, &catalog_for_active, &cli_map_id)
+    })
+    .await
+    {
+        Ok(Ok(active)) => {
+            tracing::info!(map_id = %active.id, "active map selected");
+            std::sync::Arc::new(std::sync::RwLock::new(active))
+        }
+        Ok(Err(e)) => {
+            tracing::error!("failed to select the active map: {e:#}");
+            process::exit(1);
+        }
         Err(e) => {
-            tracing::error!("failed to train problem classifier: {e:#}");
+            tracing::error!("active map task join error: {e}");
             process::exit(1);
         }
     };
 
     // global application state
     let app_state = Arc::new(AppState {
-        road_points: roads,
-        map,
-        map_loaded_at: chrono::Utc::now(),
+        catalog,
+        active,
         db_pool,
         redis_pool,
         jwt_secret: app_config.jwt_secret.clone(),
@@ -164,9 +185,32 @@ async fn main() {
     // routes that protected with required bearer auth header
     let protected_routes = Router::new()
         .route("/map", get(get_map))
+        .route("/maps", get(list_maps))
+        .route("/maps/active", get(get_active_map).put(set_active_map))
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
+        .route("/requests", post(router::ops::create_request))
+        .route("/requests/{id}/queue", post(router::ops::queue_request))
+        .route(
+            "/requests/{id}/reassign",
+            post(router::ops::reassign_request),
+        )
+        .route("/alerts", get(router::ops::list_alerts))
+        .route("/defects", post(router::ops::create_defect))
+        .route("/journal.csv", get(router::ops::export_journal))
+        .route("/tasks/{id}/route", post(router::ops::refresh_route))
+        .route("/tasks/current/accept", post(router::ops::accept_current))
+        .route("/tasks/current/reject", post(router::ops::reject_current))
+        .route("/tasks/current/tools", post(router::ops::pick_tools))
+        .route("/tasks/current/mel", post(router::ops::set_mel))
+        .route(
+            "/tasks/current/waiting-part",
+            post(router::ops::wait_for_part),
+        )
         .route("/aircraft", get(list_aircraft))
+        .route("/aircraft/arrive", post(arrive_aircraft))
+        .route("/aircraft/depart", post(depart_aircraft))
+        .route("/aircraft/movements", get(list_aircraft_movements))
         .route("/tasks/current", get(get_current_task))
         .route(
             "/tasks/current/aog",
@@ -207,6 +251,7 @@ async fn main() {
 
     // global API router
     let api_routes = Router::new()
+        .route("/v1/track", post(router::track::ingest))
         .nest("/auth", auth_router)
         .nest("/geo", geo_routes)
         .merge(protected_routes)

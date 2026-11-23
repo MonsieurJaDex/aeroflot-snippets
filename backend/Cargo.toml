@@ -14,6 +14,7 @@ diesel = { version = "2.3.13", features = ["postgres", "uuid", "chrono", "r2d2"]
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 diesel_migrations = { version = "2.3.2", features = ["postgres"] }
 dotenvy = "0.15.7"
+geoconv = "0.8.3"
 jsonwebtoken = { version = "11.0.0", features = ["rust_crypto"] }
 redis = { version = "1.7.0", features = ["tokio-comp", "r2d2"] }
 serde = { version="1.0.229", features=["derive"] }
@@ -25,5 +26,5 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 utoipa = { version = "6.0.0", features = ["uuid"] }
 utoipa-swagger-ui = { version = "10.0.2", features = ["axum"] }
-uuid = { version = "1.26.0", features = ["v4", "serde"] }
+uuid = { version = "1.26.0", features = ["v4", "v5", "serde"] }
 validator = { version = "0.21.0", features = ["derive"] }

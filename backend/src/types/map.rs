@@ -43,18 +43,6 @@ impl MapMatrix {
         self.0.first().map_or(0, Vec::len)
     }
 
-    /// Returns the cell value at `(x, y)` if `(x, y)` is inside the matrix.
-    ///
-    /// Note: `x` indexes the column, `y` indexes the row.
-    #[must_use]
-    pub fn get(&self, x: i64, y: i64) -> Option<i64> {
-        if x < 0 || y < 0 {
-            return None;
-        }
-        let (x, y) = (usize::try_from(x).ok()?, usize::try_from(y).ok()?);
-        self.0.get(y).and_then(|row| row.get(x)).copied()
-    }
-
     /// Returns `true` if the given point lies inside the matrix bounds.
     #[must_use]
     pub fn in_bounds(&self, point: Point) -> bool {
@@ -109,12 +97,6 @@ impl Point {
 
         Ok(Self(x, y))
     }
-
-    /// Manhattan distance to another point.
-    #[must_use]
-    pub fn manhattan_distance(&self, other: &Self) -> u64 {
-        self.0.abs_diff(other.0) + self.1.abs_diff(other.1)
-    }
 }
 
 impl fmt::Display for Point {
@@ -146,22 +128,10 @@ impl Route {
         Self(path)
     }
 
-    /// Borrows the underlying path as a slice.
-    #[must_use]
-    pub fn as_slice(&self) -> &[Point] {
-        &self.0
-    }
-
     /// Returns the number of points in the route.
     #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
-    }
-
-    /// Returns `true` if the route contains no points.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 
     /// Returns a **direction-independent** hash of the route.

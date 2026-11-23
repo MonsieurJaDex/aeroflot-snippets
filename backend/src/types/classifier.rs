@@ -63,7 +63,11 @@ impl ProblemClassifier {
                 )
             })?;
             let engineer_type = parse_engineer_type(label).with_context(|| {
-                format!("{}:{}: unknown label '{label}'", path.display(), line_no + 1)
+                format!(
+                    "{}:{}: unknown label '{label}'",
+                    path.display(),
+                    line_no + 1
+                )
             })?;
             let tokens = tokenize(text);
             if tokens.is_empty() {
@@ -137,10 +141,9 @@ mod tests {
 
     #[test]
     fn classifies_inertial_drift_as_avionics() {
-        let model = ProblemClassifier::train_from_dataset(
-            "assets/problem_classification_dataset.tsv",
-        )
-        .expect("dataset should train");
+        let model =
+            ProblemClassifier::train_from_dataset("assets/problem_classification_dataset.tsv")
+                .expect("dataset should train");
         let result = model
             .classify("уход гироплатформы ИНС, курс смещается")
             .expect("text should classify");

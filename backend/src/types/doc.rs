@@ -4,18 +4,20 @@
 //! public DTOs, enums and domain types referenced by them are listed in
 //! [`components`] so the generated schema is exhaustive.
 
-use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::openapi::schema::{
-    AdditionalProperties, ArrayBuilder, ArrayItems, Discriminator, Object, ObjectBuilder, OneOfBuilder,
-    Ref, Schema, Type,
+    AdditionalProperties, ArrayBuilder, ArrayItems, Discriminator, Object, ObjectBuilder,
+    OneOfBuilder, Ref, Schema, Type,
 };
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::openapi::{Deprecated, RefOr};
 use utoipa::{Modify, OpenApi};
 
 use crate::router::{
-    __path_assign_engineer, __path_classify_problem, __path_complete_current_task,
-    __path_current_task_aog, __path_current_task_aog_post, __path_get_current_task, __path_get_map,
-    __path_get_route, __path_list_aircraft, __path_list_aog, __path_train_classifier,
+    __path_arrive_aircraft, __path_assign_engineer, __path_classify_problem,
+    __path_complete_current_task, __path_current_task_aog, __path_current_task_aog_post,
+    __path_depart_aircraft, __path_get_active_map, __path_get_current_task, __path_get_map,
+    __path_get_route, __path_list_aircraft, __path_list_aircraft_movements, __path_list_aog,
+    __path_list_maps, __path_set_active_map, __path_train_classifier,
     auth::{
         __path_get_engineer_name_handler, __path_login_handler, __path_me_handler,
         __path_register_handler, __path_update_access_token,
@@ -26,15 +28,26 @@ use crate::router::{
         ActiveEngineersResponse, EngineerPositionEntry, EngineersPositionsResponse,
         TransportPositionEntry, TransportPositionsResponse,
     },
+    ops::{
+        __path_accept_current, __path_create_defect, __path_create_request, __path_export_journal,
+        __path_list_alerts, __path_pick_tools, __path_queue_request, __path_reassign_request,
+        __path_refresh_route, __path_reject_current, __path_set_mel, __path_wait_for_part,
+        AlertItem, AlertList, CreateRequest, MelRequest, NewDefect, ReassignRequest,
+        RequestCreated,
+    },
+    track::{__path_ingest, TrackAck, TrackBatch, TrackPoint},
 };
 use crate::types::{
     dto::{
-        AircraftEntry, AircraftListResponse, AogListResponse, AssignEngineerRequest,
-        AssignEngineerResponse, CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse,
-        ClassifyRequest, ClassifyResponse, ErrorResponse, GetRouteRequest, GetRouteResponse,
-        GetUserNameResponse, LoginRequest, LoginResponse, MapResponse, MeResponse, OAuthTokenType,
-        RegisterRequest, TrainClassifierResponse, UpdateAccessRequest, UpdateAccessResponse,
-        UpdateEngineerPositionRequest, UpdateTransportPositionRequest, EngineerPositionSample,
+        ActiveMapResponse, AircraftEntry, AircraftListResponse, AircraftMovementListResponse,
+        AircraftMovementResponse, AogListResponse, ArriveAircraftRequest, AssignEngineerRequest,
+        AssignEngineerResponse, AssignmentCandidate, ClassifyRequest, ClassifyResponse,
+        CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest,
+        EngineerPositionSample, ErrorResponse, GetRouteRequest, GetRouteResponse,
+        GetUserNameResponse, LoginRequest, LoginResponse, MapListResponse, MapResponse, MapSummary,
+        MeResponse, OAuthTokenType, RegisterRequest, SelectMapRequest, TrainClassifierResponse,
+        UpdateAccessRequest, UpdateAccessResponse, UpdateEngineerPositionRequest,
+        UpdateTransportPositionRequest,
     },
     enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
     map::{MapMatrix, Point, Route},
@@ -59,11 +72,30 @@ use crate::types::{
     modifiers(&SpecPolish),
     paths(
         get_map,
+        list_maps,
+        get_active_map,
+        set_active_map,
         get_route,
         assign_engineer,
         classify_problem,
         train_classifier,
         list_aircraft,
+        arrive_aircraft,
+        depart_aircraft,
+        list_aircraft_movements,
+        create_request,
+        queue_request,
+        reassign_request,
+        accept_current,
+        reject_current,
+        pick_tools,
+        set_mel,
+        wait_for_part,
+        refresh_route,
+        list_alerts,
+        create_defect,
+        export_journal,
+        ingest,
         get_current_task,
         current_task_aog,
         current_task_aog_post,
@@ -84,6 +116,10 @@ use crate::types::{
         // --- Domain types ---
         MapMatrix,
         MapResponse,
+        MapSummary,
+        MapListResponse,
+        ActiveMapResponse,
+        SelectMapRequest,
         Point,
         Route,
         ErrorResponse,
@@ -96,6 +132,7 @@ use crate::types::{
         GetRouteRequest,
         GetRouteResponse,
         // --- DTOs: assignment ---
+        AssignmentCandidate,
         AssignEngineerRequest,
         AssignEngineerResponse,
         ClassifyRequest,
@@ -103,6 +140,10 @@ use crate::types::{
         TrainClassifierResponse,
         AircraftEntry,
         AircraftListResponse,
+        ArriveAircraftRequest,
+        DepartAircraftRequest,
+        AircraftMovementResponse,
+        AircraftMovementListResponse,
         CurrentTaskResponse,
         CurrentTaskAogRequest,
         CurrentTaskAogResponse,
@@ -126,10 +167,20 @@ use crate::types::{
         TransportPositionEntry,
         TransportPositionsResponse,
         UpdateTransportPositionRequest,
+        TrackPoint,
+        TrackBatch,
+        TrackAck,
+        CreateRequest,
+        RequestCreated,
+        ReassignRequest,
+        MelRequest,
+        AlertItem,
+        AlertList,
+        NewDefect,
     )),
     tags(
         (name = "Auth", description = "Registration, login and the current profile"),
-        (name = "Aircraft", description = "Aircraft positions and AOG list"),
+        (name = "Aircraft", description = "Aircraft arrivals, departures, positions and AOG list"),
         (name = "Assign", description = "Assign an engineer to an aircraft"),
         (name = "Classifier", description = "Problem-text classification"),
         (name = "Geo", description = "Live positions of engineers and vehicles"),
@@ -314,11 +365,11 @@ fn role_register_schema(role: &str, engineer: bool) -> Object {
     let mut builder = ObjectBuilder::new()
         .property(
             "email",
-            ObjectBuilder::new()
-                .schema_type(Type::String)
-                .format(Some(utoipa::openapi::schema::SchemaFormat::KnownFormat(
+            ObjectBuilder::new().schema_type(Type::String).format(Some(
+                utoipa::openapi::schema::SchemaFormat::KnownFormat(
                     utoipa::openapi::KnownFormat::Email,
-                ))),
+                ),
+            )),
         )
         .property("name", ObjectBuilder::new().schema_type(Type::String))
         .property("password", ObjectBuilder::new().schema_type(Type::String))

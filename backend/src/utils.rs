@@ -72,34 +72,6 @@ pub fn revoke_and_store_tokens(
     Ok(())
 }
 
-pub fn revoke_and_store_access_token(
-    redis_conn: &mut Connection,
-    user_id: Uuid,
-    access: &str,
-) -> Result<(), redis::RedisError> {
-    let old_access: Option<String> = redis_conn.get(format!("access_from_id:{}", user_id))?;
-
-    let mut pipe = redis::pipe();
-    pipe.atomic();
-    if let Some(old) = old_access.as_deref() {
-        pipe.del(format!("access:{}", old)).ignore();
-    }
-    pipe.set_ex(
-        format!("access:{}", access),
-        user_id.to_string(),
-        ACCESS_TTL_SECS as u64,
-    )
-    .ignore();
-    pipe.set_ex(
-        format!("access_from_id:{}", user_id),
-        access,
-        ACCESS_TTL_SECS as u64,
-    )
-    .ignore();
-    pipe.query::<()>(redis_conn)?;
-    Ok(())
-}
-
 pub fn hash_password(password: String) -> anyhow::Result<String> {
     let argon2 = Argon2::default();
     Ok(argon2.hash_password(password.as_bytes())?.to_string())
@@ -150,10 +122,12 @@ pub fn create_token_pair(
 }
 pub fn get_transport_from_redis(
     redis_conn: &mut Connection,
+    map_id: &str,
     transport_type: String,
 ) -> Result<Vec<TransportPositionEntry>, anyhow::Error> {
-    // Redis фильтрует по паттерну — не гоняем лишние ключи по сети
-    let pattern = format!("position:{}:*", transport_type);
+    // `map:{id}:position:{type}:{uuid}` — the extra segment keeps engineer keys out.
+    let pattern = format!("map:{map_id}:position:{transport_type}:*");
+    let prefix = format!("map:{map_id}:position:");
 
     let keys: Vec<String> = redis_conn
         .scan_match(&pattern)
@@ -164,10 +138,12 @@ pub fn get_transport_from_redis(
     let mut result = Vec::with_capacity(keys.len());
 
     for key in keys {
-        // Key shape: position:{vehicle_type}:{uuid}
-        let mut parts = key.splitn(3, ':');
-        let _prefix = parts.next();
-        let (Some(type_str), Some(uuid_str)) = (parts.next(), parts.next()) else {
+        // Key shape: map:{id}:position:{vehicle_type}:{uuid}
+        let Some(rest) = key.strip_prefix(&prefix) else {
+            tracing::warn!(%key, "transport key is outside the active map, skipped");
+            continue;
+        };
+        let Some((type_str, uuid_str)) = rest.split_once(':') else {
             tracing::warn!(%key, "malformed transport key, skipped");
             continue;
         };

@@ -27,7 +27,9 @@ use crate::{
         },
         enums::{AuthenticatedUser, UserRole},
     },
-    utils::{ACCESS_TTL_SECS, create_token_pair, hash_password, revoke_and_store_tokens, verify_password},
+    utils::{
+        ACCESS_TTL_SECS, create_token_pair, hash_password, revoke_and_store_tokens, verify_password,
+    },
 };
 
 // ---------------------------------------------------------------------------
@@ -89,9 +91,9 @@ pub async fn register_handler(
             insert_dispatcher(&mut pg_conn, &new_dispatcher)?;
         }
         UserRole::Engineer => {
-            let engineer_type = payload.engineer_type.ok_or_else(|| {
-                unprocessable("user_role = Engineer requires engineer_type")
-            })?;
+            let engineer_type = payload
+                .engineer_type
+                .ok_or_else(|| unprocessable("user_role = Engineer requires engineer_type"))?;
 
             let new_engineer = Engineer {
                 id: new_id,

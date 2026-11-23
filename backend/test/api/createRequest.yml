@@ -1,0 +1,32 @@
+info:
+  name: createRequest
+  type: http
+  seq: 28
+
+http:
+  method: POST
+  url: "{{HOST}}/requests"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "text": "заклинило клапан ПОС",
+        "note": "Замечание экипажа",
+        "point": [10, 10],
+        "ata_chapter": "30",
+        "urgency": "aog",
+        "source": "mcc"
+      }
+  auth:
+    type: bearer
+    token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxNjdmNTMwYy0wNzVmLTRjY2EtYjQ0NS03YWNiN2Y4MWYzMDMiLCJyb2xlIjoiRGlzcGF0Y2hlciIsImV4cCI6MTc5NDUyOTU3NSwidG9rZW5fdHlwZSI6IkFjY2VzcyJ9.goWaio-UYaCTQsfYzbZkWdvvLNy6oJunA6ERclHtdck
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

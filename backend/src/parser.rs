@@ -1,6 +1,6 @@
-use std::{fs::File, io::BufReader};
-use std::collections::HashSet;
 use crate::types::map::{JsonMatrix, MapMatrix};
+use std::collections::HashSet;
+use std::{fs::File, io::BufReader};
 
 #[derive(serde::Deserialize)]
 struct TiledLayer {
