@@ -1292,15 +1292,15 @@ export default function DispatcherPage() {
             {classifyPending ? "Классификация…" : "Подсказать тип инженера"}
           </button>
           {classifyHint ? <p className="fault-hint">{classifyHint}</p> : null}
-          <button type="button" className="shift-button" disabled={arrivePending || !planeId} onClick={onArrivePlane}>
+          <button type="button" className="shift-button" disabled={arrivePending || !planeId || pending} onClick={onArrivePlane}>
             {arrivePending ? "Фиксация…" : "Зафиксировать прибытие борта"}
           </button>
           {arriveNote ? <p className="fault-hint">{arriveNote}</p> : null}
-          <button type="button" className="shift-button" disabled={departPending || !planeId} onClick={onDepartPlane}>
+          <button type="button" className="shift-button" disabled={departPending || !planeId || pending} onClick={onDepartPlane}>
             {departPending ? "Фиксация…" : "Зафиксировать вылет борта"}
           </button>
           {departNote ? <p className="fault-hint">{departNote}</p> : null}
-          <button type="button" className="shift-button" disabled={routePending || !planeId} onClick={onPreviewRoute}>
+          <button type="button" className="shift-button" disabled={routePending || !planeId || pending} onClick={onPreviewRoute}>
             {routePending ? "Считаем…" : "Проба маршрута getRoute"}
           </button>
           {routeNote ? <p className="fault-hint">{routeNote}</p> : null}
