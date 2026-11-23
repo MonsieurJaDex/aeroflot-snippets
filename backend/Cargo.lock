@@ -22,6 +22,7 @@ dependencies = [
  "diesel-derive-enum",
  "diesel_migrations",
  "dotenvy",
+ "geoconv",
  "jsonwebtoken",
  "redis",
  "serde",
@@ -1004,6 +1005,12 @@ dependencies = [
  "version_check",
  "zeroize",
 ]
+
+[[package]]
+name = "geoconv"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61ed7c26bd7a6ec25bfb0dca3611273aa44dfbc3e75435440d55910588f6b50f"
 
 [[package]]
 name = "getrandom"
@@ -2626,6 +2633,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

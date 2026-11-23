@@ -5,7 +5,6 @@
 //! into an [`AppState`] that is cloned into every HTTP handler.
 
 use std::{
-    collections::HashSet,
     env,
     net::Ipv4Addr,
     path::{self, PathBuf},
@@ -14,7 +13,6 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
 use diesel::{
     PgConnection,
     r2d2::{ConnectionManager, Pool},
@@ -23,7 +21,10 @@ use diesel::{
 use clap::Parser;
 use redis::Client;
 
-use crate::types::{classifier::ProblemClassifier, map::MapMatrix};
+use crate::{
+    maps::{MapCatalog, SharedMap},
+    types::classifier::ProblemClassifier,
+};
 
 /// Command line arguments for the backend binary.
 #[derive(Debug, Parser)]
@@ -97,12 +98,10 @@ impl AppConfig {
 /// Shared application state injected into every HTTP handler.
 #[derive(Debug, Clone)]
 pub struct AppState {
-    /// Flattened set of walkable road coordinates.
-    pub road_points: HashSet<i64>,
-    /// The airport map matrix.
-    pub map: MapMatrix,
-    /// When the map file was loaded into this process.
-    pub map_loaded_at: DateTime<Utc>,
+    /// Maps that can be selected without restarting the process.
+    pub catalog: MapCatalog,
+    /// Matrix, roads and id currently used by routing and Redis keys.
+    pub active: SharedMap,
     /// PostgreSQL connection pool.
     pub db_pool: Pool<ConnectionManager<PgConnection>>,
     /// Redis connection pool.

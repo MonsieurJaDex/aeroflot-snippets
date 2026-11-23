@@ -23,11 +23,53 @@ use validator::Validate;
 #[derive(Debug, Serialize, ToSchema)]
 #[schema(description = "Airport map served to authenticated clients.")]
 pub struct MapResponse {
+    /// File stem of the map currently being served.
+    pub id: String,
+    /// Display name, equal to the file stem.
+    pub name: String,
     /// Grid of walkable cells and obstacles.
     pub matrix: crate::types::map::MapMatrix,
     /// When this process loaded the map file.
     #[schema(format = "date-time")]
     pub updated_at: String,
+}
+
+/// One map the server can switch to.
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(description = "A map file discovered next to the CLI map.")]
+pub struct MapSummary {
+    pub id: String,
+    pub name: String,
+    pub width: i64,
+    pub height: i64,
+    /// True for the map routing and Redis positions currently use.
+    pub active: bool,
+}
+
+/// Catalog of maps and the id that is active.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MapListResponse {
+    pub maps: Vec<MapSummary>,
+    pub active_id: String,
+}
+
+/// Active map without the matrix.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ActiveMapResponse {
+    pub id: String,
+    pub name: String,
+    pub width: i64,
+    pub height: i64,
+    #[schema(format = "date-time")]
+    pub updated_at: String,
+}
+
+/// Body of `PUT /api/maps/active`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SelectMapRequest {
+    /// Id from `GET /api/maps`.
+    pub id: String,
 }
 
 /// Response payload for the `get_route` endpoint.
@@ -88,19 +130,27 @@ pub struct GetRouteRequest {
 pub struct AssignEngineerRequest {
     /// Known issue category. Defaults to `other` when omitted.
     #[serde(default)]
+    #[allow(dead_code)]
     pub issue: AircraftIssue,
     /// Free-form text passed to the Bayes classifier.
     #[schema(example = "подтекание топлива из дренажных колпачков")]
+    #[allow(dead_code)]
     pub classifier_text: String,
     /// Human-readable note stored on the task.
     #[schema(example = "Обнаружены следы подтекания топлива")]
+    #[allow(dead_code)]
     pub note: Option<String>,
     /// Previous name of `note`. Accepted for one release.
     #[serde(default)]
+    #[allow(dead_code)]
     pub description: Option<String>,
     /// UUID of the aircraft.
     #[schema(format = "uuid", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
+    #[allow(dead_code)]
     pub plane_uuid: String,
+    /// Existing request in status `unassigned`.
+    #[serde(default)]
+    pub request_id: Option<String>,
 }
 
 /// One aircraft currently stored in Redis.
@@ -110,6 +160,60 @@ pub struct AircraftEntry {
     pub id: uuid::Uuid,
     /// Current position on the map.
     pub point: Point,
+    /// When the aircraft arrived on the active map. Empty for a position that has no arrival record.
+    #[schema(format = "date-time", nullable)]
+    pub arrived_at: Option<String>,
+}
+
+/// Body of `POST /api/aircraft/arrive`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ArriveAircraftRequest {
+    /// Aircraft UUID. Generated when omitted.
+    #[schema(format = "uuid")]
+    pub id: Option<String>,
+    /// Stand position on the active map.
+    pub point: Point,
+    /// Arrival time. The server clock is used when omitted.
+    #[schema(format = "date-time")]
+    pub arrived_at: Option<String>,
+}
+
+/// Body of `POST /api/aircraft/depart`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DepartAircraftRequest {
+    /// Aircraft UUID.
+    #[schema(format = "uuid")]
+    pub id: String,
+    /// Departure time. The server clock is used when omitted.
+    #[schema(format = "date-time")]
+    pub departed_at: Option<String>,
+}
+
+/// One recorded stay of an aircraft on a map.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AircraftMovementResponse {
+    /// Movement row id.
+    pub id: uuid::Uuid,
+    /// Aircraft UUID.
+    pub aircraft_id: uuid::Uuid,
+    /// Map the aircraft arrived on.
+    pub map_id: String,
+    /// Stand used at arrival.
+    pub point: Point,
+    #[schema(format = "date-time")]
+    pub arrived_at: String,
+    #[schema(format = "date-time", nullable)]
+    pub departed_at: Option<String>,
+}
+
+/// Arrival and departure records for the active map.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AircraftMovementListResponse {
+    pub movements: Vec<AircraftMovementResponse>,
+    /// Number of rows before `limit` and `offset` are applied.
+    pub total: u64,
 }
 
 /// Aircraft positions visible to a dispatcher.
@@ -139,8 +243,21 @@ pub struct AssignEngineerResponse {
     /// Previous name of `sla_exceeded`. Kept for one release.
     #[schema(deprecated)]
     pub time_limit_exceeded: bool,
+    pub candidates: Vec<AssignmentCandidate>,
+    /// Milliseconds spent building the candidate list.
+    pub candidate_ms: i32,
     /// Route the engineer must follow to reach the aircraft.
     pub route: Route,
+}
+
+/// One row of the assignment comparison.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AssignmentCandidate {
+    pub engineer_id: String,
+    pub eligible: bool,
+    pub reason: String,
+    pub eta_seconds: u64,
+    pub uses_vehicle: bool,
 }
 
 /// Response payload describing the engineer's current task.
@@ -158,6 +275,14 @@ pub struct CurrentTaskResponse {
     pub plane_uuid: Option<String>,
     /// Route from the engineer to the aircraft.
     pub route: Route,
+    pub status: String,
+    pub eta_seconds: u64,
+    #[schema(nullable)]
+    pub ata_chapter: Option<String>,
+    #[schema(nullable)]
+    pub mel_category: Option<String>,
+    pub arrived: bool,
+    pub tools_picked: bool,
 }
 
 // ---------------------------------------------------------------------------

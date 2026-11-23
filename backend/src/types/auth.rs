@@ -40,31 +40,3 @@ pub struct RefreshClaims {
     /// Distinguishes refresh tokens from access tokens.
     pub token_type: TokenType,
 }
-
-impl AccessClaims {
-    /// Returns `true` if the token has expired at the given UNIX timestamp.
-    #[must_use]
-    pub fn is_expired(&self, now_secs: usize) -> bool {
-        self.exp <= now_secs
-    }
-
-    /// Returns `true` if this token is indeed an access token.
-    #[must_use]
-    pub fn is_access(&self) -> bool {
-        matches!(self.token_type, TokenType::Access)
-    }
-}
-
-impl RefreshClaims {
-    /// Returns `true` if the token has expired at the given UNIX timestamp.
-    #[must_use]
-    pub fn is_expired(&self, now_secs: usize) -> bool {
-        self.exp <= now_secs
-    }
-
-    /// Returns `true` if this token is indeed a refresh token.
-    #[must_use]
-    pub fn is_refresh(&self) -> bool {
-        matches!(self.token_type, TokenType::Refresh)
-    }
-}
