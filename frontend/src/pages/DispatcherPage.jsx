@@ -228,6 +228,7 @@ export default function DispatcherPage() {
   }, []);
 
   const [clock, setClock] = useState(() => new Date().toLocaleTimeString("ru-RU"));
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   useEffect(() => {
     if (!allowed) return undefined;
@@ -238,7 +239,10 @@ export default function DispatcherPage() {
   }, [allowed]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setClock(new Date().toLocaleTimeString("ru-RU")), 1000);
+    const timer = window.setInterval(() => {
+      setClock(new Date().toLocaleTimeString("ru-RU"));
+      setNowTick(Date.now());
+    }, 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -1038,7 +1042,7 @@ export default function DispatcherPage() {
             {assignHistory.length ? assignHistory.map((row, index) => (
               <div className="mcc-item" key={`${row.at}-${index}`}>
                 <strong>{row.name} · {row.plane}</strong>
-                <span>{row.issue} · ETA {row.minutes} мин{row.sla ? " · SLA" : ""} · {relativeRu(row.at)}</span>
+                <span>{row.issue} · ETA {row.minutes} мин{row.sla ? " · SLA" : ""} · {relativeRu(row.at, nowTick)}</span>
               </div>
             )) : <p className="mcc-empty">Пока пусто в этой вкладке.</p>}
           </div>
@@ -1096,7 +1100,7 @@ export default function DispatcherPage() {
               >
                 <button type="button" className="mcc-item-pick" onClick={() => chooseMcc(item)}>
                   <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
-                  <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status || "не назначена"} · {relativeRu(item.createdAt)}</span>
+                  <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status || "не назначена"} · {relativeRu(item.createdAt, nowTick)}</span>
                   <span>{item.description}</span>
                 </button>
                 {item.serverId ? (

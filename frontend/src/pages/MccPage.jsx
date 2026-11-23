@@ -65,6 +65,12 @@ export default function MccPage() {
   const [savedEmail, setSavedEmail] = useState(() => localStorage.getItem("oto-last-email") || "");
   const [savedPlane, setSavedPlane] = useState(() => localStorage.getItem("oto-last-plane") || "");
   const [draftText, setDraftText] = useState(() => sessionStorage.getItem("oto-mcc-draft") || "");
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const open = items.filter((row) => !isMccAssigned(row)).length;
@@ -321,7 +327,7 @@ export default function MccPage() {
                 <span>
                   {String(item.planeUuid || "").slice(0, 8)} · {isMccAssigned(item) ? "назначена" : "не назначена"}
                   {item.serverId ? ` · сервер ${item.status}` : " · локально"}
-                  {item.createdAt ? ` · ${relativeRu(item.createdAt)}` : ""}
+                  {item.createdAt ? ` · ${relativeRu(item.createdAt, nowTick)}` : ""}
                 </span>
                 {item.serverId ? (
                   <button
