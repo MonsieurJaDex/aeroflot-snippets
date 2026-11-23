@@ -45,8 +45,16 @@ export default function LoginPage() {
   }, [navigate]);
 
   useEffect(() => {
-    if (role) return undefined;
     function onKey(event) {
+      if (event.key === "Escape" && role) {
+        event.preventDefault();
+        localStorage.removeItem("oto-last-role");
+        setRole(null);
+        setError("");
+        setStatus("");
+        return;
+      }
+      if (role) return;
       if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
       if (event.key === "1") { event.preventDefault(); openRole("Mcc"); }
       if (event.key === "2") { event.preventDefault(); openRole("Dispatcher"); }
