@@ -37,6 +37,19 @@ body::before {
   z-index: 3000;
   pointer-events: none;
 }
+.net-banner {
+  position: fixed;
+  top: 6px;
+  left: 0;
+  right: 0;
+  z-index: 2999;
+  padding: 8px 12px;
+  background: var(--red);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
 
 #sidebar {
   width: 340px;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import NetBanner from "../components/NetBanner.jsx";
 import { ENGINEER_TYPES } from "../lib/catalog.js";
 import { clearSession, getApiBase, getSession, login, register, setApiBase } from "../lib/session.js";
 
@@ -86,6 +87,7 @@ export default function LoginPage() {
 
   return (
     <main className="role-page">
+      <NetBanner />
       <div className="role-shell">
         <div className="role-hero">
           <p className="eyebrow">ОТО · ДИСПЕТЧЕРИЗАЦИЯ</p>

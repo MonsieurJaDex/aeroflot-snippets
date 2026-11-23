@@ -21,16 +21,21 @@ import {
   departAircraft,
   downloadJournalCsv,
   getRoute,
+  listMaps,
   loadAlerts,
+  loadAogAircraft,
   loadMovements,
   loadStaff,
   loadTransport,
+  postTrackPoint,
   queueRequest,
   reassignRequest,
+  setActiveMap,
   trainClassifier,
   updateTransportPosition,
 } from "../lib/live.js";
 import { classifyRemark } from "../lib/mccApi.js";
+import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { apiRequest, clearSession, getSession } from "../lib/session.js";
@@ -128,6 +133,16 @@ export default function DispatcherPage() {
   const [transportY, setTransportY] = useState("");
   const [transportNote, setTransportNote] = useState("");
   const [transportPending, setTransportPending] = useState(false);
+  const [mapCatalog, setMapCatalog] = useState([]);
+  const [activeMapId, setActiveMapId] = useState("");
+  const [mapNote, setMapNote] = useState("");
+  const [mapPending, setMapPending] = useState(false);
+  const [aogList, setAogList] = useState([]);
+  const [trackObj, setTrackObj] = useState("e-01");
+  const [trackLat, setTrackLat] = useState("55.8304");
+  const [trackLon, setTrackLon] = useState("37.6310");
+  const [trackNote, setTrackNote] = useState("");
+  const [trackPending, setTrackPending] = useState(false);
   const [movements, setMovements] = useState([]);
   const [layersOn, setLayersOn] = useState(layersRef.current);
 
@@ -166,11 +181,22 @@ export default function DispatcherPage() {
     // Риск норматива и прибытия ВС, пока диспетчер на экране.
     async function pullSide() {
       try {
-        const [list, moves, transport] = await Promise.all([loadAlerts(), loadMovements(12), loadTransport()]);
+        const [list, moves, transport, maps, aog] = await Promise.all([
+          loadAlerts(),
+          loadMovements(12),
+          loadTransport(),
+          listMaps().catch(() => null),
+          loadAogAircraft(),
+        ]);
         if (cancelled) return;
         setAlerts(list);
         setMovements(moves);
         setFleet(transport);
+        setAogList(aog);
+        if (maps) {
+          setMapCatalog(Array.isArray(maps.maps) ? maps.maps : []);
+          setActiveMapId(maps.active_id || "");
+        }
         if (!transportId && transport[0]?.id) setTransportId(transport[0].id);
         setAlertsNote("");
       } catch (error) {
@@ -681,6 +707,47 @@ export default function DispatcherPage() {
     }
   }
 
+  async function onSelectMap(event) {
+    event.preventDefault();
+    if (!activeMapId) {
+      setMapNote("Выберите карту.");
+      return;
+    }
+    setMapPending(true);
+    setMapNote("");
+    try {
+      const data = await setActiveMap(activeMapId);
+      setMapNote(`Активна: ${data?.name || activeMapId} · ${data?.width || "?"}×${data?.height || "?"}`);
+      const maps = await listMaps();
+      setMapCatalog(Array.isArray(maps.maps) ? maps.maps : []);
+      setActiveMapId(maps.active_id || activeMapId);
+    } catch (error) {
+      setMapNote(assignErrorMessage(error));
+    } finally {
+      setMapPending(false);
+    }
+  }
+
+  async function onSendTrack(event) {
+    event.preventDefault();
+    const lat = Number(trackLat);
+    const lon = Number(trackLon);
+    if (!trackObj.trim() || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+      setTrackNote("Нужны obj, lat, lon.");
+      return;
+    }
+    setTrackPending(true);
+    setTrackNote("");
+    try {
+      const ack = await postTrackPoint({ obj: trackObj.trim(), lat, lon });
+      setTrackNote(`track: accepted=${ack?.accepted} applied=${ack?.applied} obj=${ack?.obj || trackObj}`);
+    } catch (error) {
+      setTrackNote(assignErrorMessage(error));
+    } finally {
+      setTrackPending(false);
+    }
+  }
+
   async function onMoveTransport(event) {
     event.preventDefault();
     const vehicle = fleet.find((item) => item.id === transportId);
@@ -751,6 +818,7 @@ export default function DispatcherPage() {
 
   return (
     <div className="dispatcher-page">
+      <NetBanner />
       <div id="sidebar">
         <div className="brand-row">
           <div>
@@ -761,6 +829,40 @@ export default function DispatcherPage() {
         </div>
         <div className="account-strip"><span>{session.name}</span></div>
         <StatusChain current={dispatcherStatusStep(result, inbox, activeMcc)} />
+        <section className="request-panel">
+          <div className="section-heading"><h2>Карта локации</h2></div>
+          <form onSubmit={onSelectMap}>
+            <label>Активная карта
+              <select value={activeMapId} onChange={(event) => setActiveMapId(event.target.value)}>
+                {mapCatalog.length ? mapCatalog.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} · {item.width}×{item.height}{item.active ? " · active" : ""}
+                  </option>
+                )) : <option value="">Нет карт</option>}
+              </select>
+            </label>
+            <button type="submit" className="shift-button" disabled={mapPending || !mapCatalog.length}>
+              {mapPending ? "Переключение…" : "Сделать активной"}
+            </button>
+          </form>
+          {mapNote ? <p className="fault-hint">{mapNote}</p> : null}
+        </section>
+        <section className="request-panel">
+          <div className="section-heading"><h2>AOG сейчас</h2></div>
+          <div className="mcc-inbox">
+            {aogList.length ? aogList.map((row) => (
+              <button
+                type="button"
+                key={row.id}
+                className="mcc-item"
+                onClick={() => setPlaneId(row.id)}
+              >
+                <strong>{row.id.slice(0, 8)}</strong>
+                <span>{row.point ? `${row.point[0]}, ${row.point[1]}` : "без точки"}</span>
+              </button>
+            )) : <p className="mcc-empty">Нет AOG.</p>}
+          </div>
+        </section>
         <section className="request-panel">
           <div className="section-heading"><h2>Риск норматива</h2></div>
           <div className="mcc-inbox">
@@ -935,6 +1037,16 @@ export default function DispatcherPage() {
               </>
             ) : result.text}
           </div>
+        </section>
+        <section className="request-panel">
+          <div className="section-heading"><h2>Имитатор track</h2></div>
+          <form onSubmit={onSendTrack}>
+            <label>obj<input type="text" value={trackObj} autoComplete="off" onChange={(event) => setTrackObj(event.target.value)} /></label>
+            <label>lat<input type="text" value={trackLat} autoComplete="off" onChange={(event) => setTrackLat(event.target.value)} /></label>
+            <label>lon<input type="text" value={trackLon} autoComplete="off" onChange={(event) => setTrackLon(event.target.value)} /></label>
+            <button type="submit" className="shift-button" disabled={trackPending}>POST /api/v1/track</button>
+          </form>
+          {trackNote ? <p className="fault-hint">{trackNote}</p> : null}
         </section>
         <section className="request-panel">
           <div className="section-heading"><h2>Спецтранспорт</h2></div>

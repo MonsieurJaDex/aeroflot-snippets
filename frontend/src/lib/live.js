@@ -65,12 +65,47 @@ export async function loadAircraft() {
 export async function loadAogIds() {
   try {
     const data = await apiRequest("/api/tasks/aog");
+    if (Array.isArray(data?.aircraft)) {
+      return new Set(data.aircraft.map((row) => String(row.id ?? row.plane_uuid ?? "")).filter(Boolean));
+    }
     const ids = Array.isArray(data?.plane_uuids) ? data.plane_uuids : [];
     return new Set(ids.map(String));
   } catch (error) {
     console.warn("[map] не удалось загрузить AOG", error);
     return new Set();
   }
+}
+
+export async function loadAogAircraft() {
+  try {
+    const data = await apiRequest("/api/tasks/aog");
+    if (Array.isArray(data?.aircraft)) {
+      return data.aircraft.map((row) => ({
+        id: String(row.id ?? row.plane_uuid ?? ""),
+        point: asPoint(row.point),
+      })).filter((row) => row.id);
+    }
+    return (Array.isArray(data?.plane_uuids) ? data.plane_uuids : []).map((id) => ({ id: String(id), point: null }));
+  } catch (error) {
+    console.warn("[aog]", error);
+    return [];
+  }
+}
+
+export async function listMaps() {
+  return apiRequest("/api/maps");
+}
+
+export async function setActiveMap(id) {
+  return apiRequest("/api/maps/active", { method: "PUT", body: { id } });
+}
+
+export async function postTrackPoint({ obj, lat, lon, t = new Date().toISOString(), acc = null, spd = null }) {
+  return apiRequest("/api/v1/track", {
+    method: "POST",
+    auth: false,
+    body: { obj, lat, lon, t, acc, spd },
+  });
 }
 
 export async function loadBusyEngineerIds() {

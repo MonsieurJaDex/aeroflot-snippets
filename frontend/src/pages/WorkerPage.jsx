@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import L from "leaflet";
+import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { engineerTypeLabel, issueLabel } from "../lib/catalog.js";
 import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
@@ -161,11 +162,26 @@ export default function WorkerPage() {
 
     loadTask();
     refreshSelf();
+    async function pushLiveGeo() {
+      const current = getSession();
+      const point = lastSelfRef.current;
+      if (!current?.userId || !Array.isArray(point)) return;
+      const t = Math.floor(Date.now() / 1000);
+      try {
+        await updateEngineerPosition(current.userId, [[point, t]]);
+        setOutboxCount(pendingCount());
+      } catch {
+        enqueueEngineerPoint(current.userId, point, t);
+        setOutboxCount(pendingCount());
+      }
+    }
+
     flushOutbox();
     const timer = window.setInterval(() => {
       loadTask();
       refreshSelf();
       flushOutbox();
+      pushLiveGeo();
     }, 5000);
     const onOnline = () => flushOutbox();
     window.addEventListener("online", onOnline);
@@ -583,6 +599,7 @@ export default function WorkerPage() {
 
   return (
     <main className="worker-page">
+      <NetBanner />
       <div className="worker-shell">
         <header className="worker-header">
           <div>

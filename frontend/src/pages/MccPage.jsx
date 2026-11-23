@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AIRCRAFT_ISSUES, engineerTypeLabel, issueLabel } from "../lib/catalog.js";
+import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { classifyRemark, createRemark, trainClassifier } from "../lib/mccApi.js";
 import { addMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
@@ -173,6 +174,7 @@ export default function MccPage() {
 
   return (
     <main className="role-page">
+      <NetBanner />
       <div className="role-shell">
         <div className="role-hero">
           <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
