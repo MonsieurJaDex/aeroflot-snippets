@@ -5,7 +5,7 @@ import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { relativeRu } from "../lib/format.js";
 import { classifyRemark, createRemark, trainClassifier } from "../lib/mccApi.js";
-import { addMcc, clearAssignedMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
+import { addMcc, clearAllMcc, clearAssignedMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { clearSession, getSession, login } from "../lib/session.js";
 
 const ISSUES = AIRCRAFT_ISSUES.filter(([value]) => value !== "other");
@@ -243,19 +243,35 @@ export default function MccPage() {
         <section className="auth-panel mcc-filed">
           <div className="section-heading">
             <p className="section-label">Переданные замечания</p>
-            {items.some(isMccAssigned) ? (
-              <button
-                type="button"
-                className="ghost-copy"
-                onClick={() => {
-                  clearAssignedMcc();
-                  setItems(freshList());
-                  setStatus("Назначенные убраны из локального списка.");
-                }}
-              >
-                Убрать назначенные
-              </button>
-            ) : null}
+            <div className="mcc-list-actions">
+              {items.some(isMccAssigned) ? (
+                <button
+                  type="button"
+                  className="ghost-copy"
+                  onClick={() => {
+                    clearAssignedMcc();
+                    setItems(freshList());
+                    setStatus("Назначенные убраны из локального списка.");
+                  }}
+                >
+                  Убрать назначенные
+                </button>
+              ) : null}
+              {items.length ? (
+                <button
+                  type="button"
+                  className="ghost-copy"
+                  onClick={() => {
+                    if (!window.confirm("Очистить весь локальный список ЦПУ?")) return;
+                    clearAllMcc();
+                    setItems(freshList());
+                    setStatus("Локальный список очищен.");
+                  }}
+                >
+                  Очистить всё
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="mcc-inbox">
             {items.length ? items.map((item) => (

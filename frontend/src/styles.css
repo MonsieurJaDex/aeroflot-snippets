@@ -94,6 +94,7 @@ body::before {
 .mcc-item.urgent { border-color: var(--red); }
 .mcc-item.urgent strong { color: var(--red); }
 .mcc-item.selected.urgent { box-shadow: inset 3px 0 0 var(--red); }
+.mcc-list-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .error-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -339,6 +340,7 @@ button.mcc-item.selected::after { content: none; }
 .worker-dock .worker-action { touch-action: manipulation; }
 .notice-card { margin-top: 16px; color: var(--muted); }
 .worker-toast { position: fixed; right: 24px; bottom: 24px; z-index: 1000; max-width: min(360px, calc(100% - 32px)); padding: 12px 14px; border: 1px solid var(--green); border-radius: var(--radius); background: #e7f6ef; color: var(--green); font-weight: 700; }
+.worker-toast.err { border-color: var(--red); background: #f8e6e7; color: var(--red); }
 .worker-map-card { margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; border-top: 3px solid var(--blue); }
 #worker-map { height: 480px; background-color: var(--map); background-image: linear-gradient(rgba(0, 82, 155, .1) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 82, 155, .1) 1px, transparent 1px); background-size: 24px 24px; }
 .worker-map-engineer, .worker-map-stand, .worker-map-self { width: 18px; height: 18px; border: 3px solid #ffffff; border-radius: 50%; box-shadow: 0 2px 8px rgba(20,50,90,.25); }

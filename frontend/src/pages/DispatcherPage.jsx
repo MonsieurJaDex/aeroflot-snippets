@@ -1211,6 +1211,12 @@ export default function DispatcherPage() {
                                 chosen ? "candidate-chosen" : "",
                                 row.eligible ? "" : "candidate-skip",
                               ].filter(Boolean).join(" ") || undefined}
+                              title="Клик — подставить в переназначение"
+                              onClick={() => {
+                                setReassignEngineer(row.engineerId);
+                                setLive(`В переназначение: ${row.name}`);
+                              }}
+                              style={{ cursor: "pointer" }}
                             >
                               <td>
                                 <strong>{row.name}</strong>

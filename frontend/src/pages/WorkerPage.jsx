@@ -84,6 +84,7 @@ export default function WorkerPage() {
   const [aogOn, setAogOn] = useState(false);
   const [notice, setNotice] = useState("Ожидание назначения от диспетчера. Позиция на карте — из геоданных сервера.");
   const [toast, setToast] = useState("");
+  const [toastKind, setToastKind] = useState("ok");
   const [distance, setDistance] = useState("НЕТ МАРШРУТА");
   const [selfText, setSelfText] = useState("ВЫ: НЕТ ТОЧКИ");
   const [busyAction, setBusyAction] = useState("");
@@ -166,7 +167,7 @@ export default function WorkerPage() {
           await updateEngineerPosition(row.id, [[row.point, row.t]]);
         });
         setOutboxCount(pendingCount());
-        if (sent) setToast(`Дослано геоточек: ${sent}`);
+        if (sent) flash(`Дослано геоточек: ${sent}`);
       } catch (error) {
         console.warn("[worker] outbox", error);
       }
@@ -218,7 +219,7 @@ export default function WorkerPage() {
   useEffect(() => {
     const id = task?.id || null;
     if (id && id !== seenTask.current) {
-      setToast("Новое назначение получено");
+      flash("Новое назначение получено");
       setAogOn(false);
       setStatusStep("не назначен");
       setDeferUntil("");
@@ -246,9 +247,17 @@ export default function WorkerPage() {
 
   useEffect(() => {
     if (!toast) return undefined;
-    const timer = window.setTimeout(() => setToast(""), 4500);
+    const timer = window.setTimeout(() => {
+      setToast("");
+      setToastKind("ok");
+    }, 4500);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  function flash(text, kind = "ok") {
+    setToastKind(kind);
+    setToast(text);
+  }
 
   useEffect(() => {
     document.title = task
@@ -564,7 +573,7 @@ export default function WorkerPage() {
     try {
       await apiRequest("/api/tasks/current/accept", { method: "POST" });
       await refreshTask();
-      setToast("Задача принята");
+      flash("Задача принята");
       try { navigator.vibrate?.(80); } catch { /* телефон */ }
     } catch (error) {
       setNotice(`Не удалось принять задачу: ${error.message}`);
@@ -581,7 +590,7 @@ export default function WorkerPage() {
       setTask(null);
       setStatusStep("не назначен");
       setNotice("Задача отклонена. Ожидание нового назначения.");
-      setToast("Задача отклонена");
+      flash("Задача отклонена", "err");
     } catch (error) {
       setNotice(`Не удалось отклонить задачу: ${error.message}`);
     } finally {
@@ -594,7 +603,7 @@ export default function WorkerPage() {
     try {
       await apiRequest("/api/tasks/current/tools", { method: "POST" });
       setTask((prev) => (prev ? { ...prev, tools_picked: true } : prev));
-      setToast("Инструмент получен");
+      flash("Инструмент получен");
     } catch (error) {
       setNotice(`Не удалось отметить инструмент: ${error.message}`);
     } finally {
@@ -610,7 +619,7 @@ export default function WorkerPage() {
       setTask(null);
       setStatusStep("не назначен");
       setNotice("Ожидание запчасти. Задача возвращена в очередь назначения.");
-      setToast("Ожидание запчасти");
+      flash("Ожидание запчасти");
     } catch (error) {
       setNotice(`Не удалось отметить ожидание запчасти: ${error.message}`);
     } finally {
@@ -627,7 +636,7 @@ export default function WorkerPage() {
         body: { category, defer_until: deferUntilIso(deferUntil) },
       });
       setTask((prev) => (prev ? { ...prev, mel_category: category } : prev));
-      setToast(`MEL ${category} сохранён`);
+      flash(`MEL ${category} сохранён`);
     } catch (error) {
       setNotice(`Не удалось сохранить MEL: ${error.message}`);
     } finally {
@@ -640,7 +649,7 @@ export default function WorkerPage() {
     setBusyAction("complete");
     try {
       await apiRequest("/api/tasks/current/complete", { method: "POST" });
-      setToast("Задача завершена");
+      flash("Задача завершена");
       setStatusStep("выполнено");
       setTask(null);
     } catch (error) {
@@ -660,7 +669,7 @@ export default function WorkerPage() {
         body: { aog: next },
       });
       setAogOn(Boolean(data?.aog));
-      setToast(data?.aog ? "Самолёт отмечен как AOG" : "AOG снят");
+      flash(data?.aog ? "Самолёт отмечен как AOG" : "AOG снят", data?.aog ? "err" : "ok");
     } catch (error) {
       setNotice(`Не удалось обновить AOG: ${error.message}`);
     } finally {
@@ -674,7 +683,7 @@ export default function WorkerPage() {
     try {
       await apiRequest(`/api/tasks/${encodeURIComponent(task.id)}/route`, { method: "POST" });
       await refreshTask();
-      setToast("Маршрут пересчитан на сервере");
+      flash("Маршрут пересчитан на сервере");
     } catch (error) {
       setNotice(`Не удалось обновить маршрут: ${error.message}`);
     } finally {
@@ -694,7 +703,7 @@ export default function WorkerPage() {
     try {
       await updateEngineerPosition(current.userId, [[point, t]]);
       setOutboxCount(pendingCount());
-      setToast("Позиция отправлена");
+      flash("Позиция отправлена");
     } catch (error) {
       enqueueEngineerPoint(current.userId, point, t);
       setOutboxCount(pendingCount());
@@ -772,7 +781,7 @@ export default function WorkerPage() {
                       className="ghost-copy"
                       onClick={async () => {
                         const ok = await copyText(task.id);
-                        setToast(ok ? "ID задачи скопирован" : "Не удалось скопировать");
+                        flash(ok ? "ID задачи скопирован" : "Не удалось скопировать", ok ? "ok" : "err");
                       }}
                     >
                       Копировать ID
@@ -812,7 +821,7 @@ export default function WorkerPage() {
             setBusyAction("refresh");
             try {
               await refreshTask();
-              setToast("Задача обновлена");
+              flash("Задача обновлена");
             } catch (error) {
               setNotice(`Не удалось обновить: ${error.message}`);
             } finally {
@@ -826,7 +835,7 @@ export default function WorkerPage() {
           {outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео"}
         </button>
       </div>
-      <div className="worker-toast" role="status" hidden={!toast}>{toast}</div>
+      <div className={toastKind === "err" ? "worker-toast err" : "worker-toast"} role="status" hidden={!toast}>{toast}</div>
     </main>
   );
 }

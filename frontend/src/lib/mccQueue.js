@@ -50,4 +50,8 @@ export function clearAssignedMcc() {
   save(listMcc().filter((item) => item.status !== "assigned"));
 }
 
+export function clearAllMcc() {
+  save([]);
+}
+
 export const MCC_QUEUE_KEY = KEY;
