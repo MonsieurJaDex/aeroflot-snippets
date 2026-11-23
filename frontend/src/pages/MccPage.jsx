@@ -280,7 +280,7 @@ export default function MccPage() {
           <button type="button" className="mcc-classify" onClick={onClassify} disabled={classifying || pending || trainPending || !draftText.trim()}>
             {classifying ? "Классификация…" : "Подсказать тип инженера"}
           </button>
-          <button type="button" className="mcc-classify" onClick={onTrain} disabled={trainPending || pending || classifying}>
+          <button type="button" className="mcc-classify" onClick={onTrain} disabled={trainPending || pending || classifying || !sessionName}>
             {trainPending ? "Обучение…" : "Переобучить классификатор"}
           </button>
           {hint ? <p className="mcc-hint">{hint}</p> : null}
