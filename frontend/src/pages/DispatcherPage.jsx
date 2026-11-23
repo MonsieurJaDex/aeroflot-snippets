@@ -824,11 +824,13 @@ export default function DispatcherPage() {
     setDefectNote("");
     try {
       await createDefect(text, ata);
+      softBeep(640, 100);
       setDefectText("");
       setDefectAta("");
       setDefectNote("Дефект добавлен в классификатор.");
     } catch (error) {
       setDefectNote(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setDefectPending(false);
     }
