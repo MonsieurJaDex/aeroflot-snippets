@@ -668,6 +668,9 @@ export default function DispatcherPage() {
         ? `Замечание ЦПУ подставлено${item.urgency === "urgent" ? " · срочно" : ""}. Назначьте инженера.`
         : "Этого борта нет в /api/aircraft. Замечание не назначено, назначить его нельзя.",
     });
+    if (known) {
+      window.queueMicrotask?.(() => document.getElementById("assign-button")?.focus());
+    }
   }
 
   function toggleLayer(name, on) {

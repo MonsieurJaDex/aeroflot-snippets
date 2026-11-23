@@ -113,6 +113,7 @@ export default function LoginPage() {
           <p className="eyebrow">ОТО · ДИСПЕТЧЕРИЗАЦИЯ</p>
           <h1>Аэрофлот</h1>
           <p className="role-copy">ЦПУ фиксирует замечание, начальник смены назначает, инженер выполняет. Вход по роли.</p>
+          <p className="role-copy role-copy-sub">Нет учётки — откройте роль и вкладку «Регистрация». ЦПУ может писать локально без входа, на сервер нужен токен.</p>
         </div>
 
         <details className="api-config">

@@ -280,6 +280,7 @@ body::before {
 .role-hero { max-width: 760px; margin: 0 auto 28px; text-align: left; border-left: 4px solid var(--blue); padding-left: 18px; }
 .role-shell h1 { margin: 0; font-family: var(--font-display); font-size: clamp(40px, 6vw, 64px); line-height: .95; letter-spacing: .02em; text-align: left; text-transform: uppercase; color: var(--blue-deep); }
 .role-copy { margin: 14px 0 0; color: var(--muted); font-size: 16px; line-height: 1.5; text-align: left; max-width: 42rem; }
+.role-copy-sub { margin-top: 8px; font-size: 13px; }
 .role-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 auto; }
 .role-card { min-height: 180px; display: flex; flex-direction: column; justify-content: space-between; padding: 18px; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); border-top: 3px solid var(--blue); transition: border-color .15s ease, background .15s ease; }
 .role-card:hover { border-color: var(--blue); background: #f3f7fb; }
