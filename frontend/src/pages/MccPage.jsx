@@ -247,7 +247,7 @@ export default function MccPage() {
           </div>
         )}
         <form className="auth-panel auth-form" ref={formRef} onSubmit={onSubmit}>
-          <label>UUID воздушного судна<input name="plane" type="text" placeholder="необязательно, если борт ещё не известен" defaultValue={savedPlane} /></label>
+          <label>UUID воздушного судна<input name="plane" type="text" spellCheck={false} autoComplete="off" placeholder="необязательно, если борт ещё не известен" defaultValue={savedPlane} /></label>
           <label>Тип неисправности
             <select name="issue" required defaultValue={ISSUES[0][0]}>
               {ISSUES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}

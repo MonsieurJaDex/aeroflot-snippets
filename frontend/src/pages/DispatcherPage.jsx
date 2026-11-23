@@ -1415,10 +1415,10 @@ export default function DispatcherPage() {
           <summary>Переназначение</summary>
           <form onSubmit={submitReassign}>
             <label>Заявка
-              <input type="text" value={reassignId} autoComplete="off" onChange={(event) => setReassignId(event.target.value)} />
+              <input type="text" value={reassignId} autoComplete="off" spellCheck={false} onChange={(event) => setReassignId(event.target.value)} />
             </label>
             <label>Инженер
-              <input type="text" value={reassignEngineer} autoComplete="off" onChange={(event) => setReassignEngineer(event.target.value)} />
+              <input type="text" value={reassignEngineer} autoComplete="off" spellCheck={false} onChange={(event) => setReassignEngineer(event.target.value)} />
             </label>
             <label>Причина
               <input type="text" value={reassignReason} autoComplete="off" onChange={(event) => setReassignReason(event.target.value)} />
