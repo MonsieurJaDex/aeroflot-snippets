@@ -733,6 +733,7 @@ export default function DispatcherPage() {
   }
 
   function logout() {
+    if (inbox.length && !window.confirm(`В очереди ЦПУ ещё ${inbox.length}. Выйти?`)) return;
     clearSession();
     navigate("/");
   }
