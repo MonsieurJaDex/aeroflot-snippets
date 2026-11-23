@@ -281,6 +281,8 @@ export default function DispatcherPage() {
     function onKey(event) {
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault();
+        const form = formRef.current;
+        if (!form?.planeId || !String(form.description || "").trim()) return;
         actions.current.assign?.();
       }
       if (event.key === "Escape") {
