@@ -801,6 +801,7 @@ export default function DispatcherPage() {
 
   function logout() {
     if (inbox.length && !window.confirm(`В очереди ЦПУ ещё ${inbox.length}. Выйти?`)) return;
+    softBeep(360, 100);
     clearSession();
     navigate("/");
   }
