@@ -187,6 +187,7 @@ export default function DispatcherPage() {
   });
   const [urgentOnly, setUrgentOnly] = useState(() => localStorage.getItem("oto-urgent-only") === "1");
   const lastLiveAt = useRef(Date.now());
+  const staleBeepAt = useRef(0);
 
   formRef.current = { issue, description, planeId, activeMcc };
   layersRef.current = layersOn;
@@ -250,7 +251,15 @@ export default function DispatcherPage() {
   useEffect(() => {
     if (!allowed) return undefined;
     const timer = window.setInterval(() => {
-      setStaleLive(Date.now() - lastLiveAt.current > 20000);
+      const stale = Date.now() - lastLiveAt.current > 20000;
+      setStaleLive(stale);
+      if (stale) {
+        const now = Date.now();
+        if (now - staleBeepAt.current > 45000) {
+          staleBeepAt.current = now;
+          softBeep(300, 180);
+        }
+      }
     }, 4000);
     return () => clearInterval(timer);
   }, [allowed]);
@@ -989,6 +998,12 @@ export default function DispatcherPage() {
     const lon = Number(trackLon);
     if (!trackObj.trim() || !Number.isFinite(lat) || !Number.isFinite(lon)) {
       setTrackNote("Нужны obj, lat, lon.");
+      softBeep(320, 160);
+      return;
+    }
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      setTrackNote("lat −90…90, lon −180…180.");
+      softBeep(320, 160);
       return;
     }
     setTrackPending(true);
