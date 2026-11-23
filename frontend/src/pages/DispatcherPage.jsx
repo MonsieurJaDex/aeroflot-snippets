@@ -955,6 +955,7 @@ export default function DispatcherPage() {
       setDepartNote("Выберите борт.");
       return;
     }
+    if (!window.confirm(`Зафиксировать вылет ${planeId.slice(0, 8)}?`)) return;
     setDepartPending(true);
     setDepartNote("");
     try {
@@ -1082,6 +1083,7 @@ export default function DispatcherPage() {
       setArriveNote("Выберите борт со стоянкой.");
       return;
     }
+    if (!window.confirm(`Зафиксировать прибытие ${plane.id.slice(0, 8)}?`)) return;
     setArrivePending(true);
     setArriveNote("");
     try {
