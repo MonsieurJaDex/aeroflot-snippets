@@ -1,5 +1,0 @@
-name: local
-variables:
-  - name: HOST
-    value: http://127.0.0.1:3001/api
-    enabled: true
