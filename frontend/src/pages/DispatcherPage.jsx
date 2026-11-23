@@ -122,7 +122,7 @@ export default function DispatcherPage() {
     const saved = localStorage.getItem("oto-last-issue");
     return saved && ISSUE_LABELS.has(saved) ? saved : FIRST_ISSUE;
   });
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState(() => sessionStorage.getItem("oto-disp-draft") || "");
   const [hint, setHint] = useState("");
   const [live, setLive] = useState("Загрузка бортов, инженеров и техники…");
   const [result, setResult] = useState({ type: "info", text: "Выберите борт из списка и тип неисправности." });
@@ -624,6 +624,7 @@ export default function DispatcherPage() {
               candidateMs: response.candidate_ms,
             });
             softBeep(response.sla_exceeded ? 420 : 880, 160);
+            sessionStorage.removeItem("oto-disp-draft");
             if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
           } catch (error) {
             setResult({ type: "error", text: `Ошибка: ${assignErrorMessage(error)}` });
@@ -1153,7 +1154,16 @@ export default function DispatcherPage() {
           </label>
           <div className="fault-hint">{hint}</div>
           <label>Описание проблемы
-            <textarea rows={3} value={description} placeholder="Например: обнаружены следы подтекания топлива" onChange={(event) => setDescription(event.target.value)} />
+            <textarea
+              rows={3}
+              value={description}
+              placeholder="Например: обнаружены следы подтекания топлива"
+              onChange={(event) => {
+                const next = event.target.value;
+                setDescription(next);
+                sessionStorage.setItem("oto-disp-draft", next);
+              }}
+            />
           </label>
           <button type="button" className="shift-button" disabled={classifyPending || pending} onClick={onClassifyDescription}>
             {classifyPending ? "Классификация…" : "Подсказать тип инженера"}
