@@ -303,7 +303,12 @@ export default function MccPage() {
             Вставить UUID из буфера
           </button>
           <label>Тип неисправности
-            <select name="issue" required defaultValue={ISSUES[0][0]}>
+            <select
+              name="issue"
+              required
+              defaultValue={localStorage.getItem("oto-mcc-issue") || ISSUES[0][0]}
+              onChange={(event) => localStorage.setItem("oto-mcc-issue", event.target.value)}
+            >
               {ISSUES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
