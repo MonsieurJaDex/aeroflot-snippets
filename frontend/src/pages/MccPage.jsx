@@ -202,8 +202,10 @@ export default function MccPage() {
     setError("");
     if (!signedIn()) {
       setError("Нужен вход, чтобы переобучить классификатор.");
+      softBeep(320, 160);
       return;
     }
+    if (!window.confirm("Переобучить классификатор на сервере?")) return;
     setTrainPending(true);
     try {
       const data = await trainClassifier();

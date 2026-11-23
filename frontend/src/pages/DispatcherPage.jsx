@@ -944,6 +944,7 @@ export default function DispatcherPage() {
   }
 
   async function onTrainClassifier() {
+    if (!window.confirm("Переобучить классификатор на сервере?")) return;
     setTrainPending(true);
     setTrainNote("");
     try {
