@@ -11,9 +11,9 @@ window.addEventListener("resize", () => workerMap.invalidateSize());
 let mapWidth = 64;
 let mapHeight = 64;
 let tileSize = 16;
-let workerRouteLayer = null;
-let workerMarkers = null;
 let workerMapOverlay = null;
+let walk = null;
+let walkFrame = 0;
 let previousTaskId = null;
 let toastTimer = null;
 let aogOn = false;
@@ -26,11 +26,6 @@ function mapBounds() {
 }
 
 workerMap.fitBounds(mapBounds());
-
-function gridToLatLng(point) {
-  const [x, y] = point;
-  return [mapHeight * tileSize - (y + 0.5) * tileSize, (x + 0.5) * tileSize];
-}
 
 async function loadWorkerMapBackground() {
   try {
@@ -164,25 +159,76 @@ function showToast(message) {
   }, 4500);
 }
 
+function stopWalk() {
+  if (walkFrame) cancelAnimationFrame(walkFrame);
+  walkFrame = 0;
+  if (!walk) return;
+  if (walk.line) workerMap.removeLayer(walk.line);
+  if (walk.marker) workerMap.removeLayer(walk.marker);
+  if (walk.dest) workerMap.removeLayer(walk.dest);
+  walk = null;
+}
+
+function centerLatLng(center) {
+  return [mapHeight * tileSize - center[1] * tileSize, center[0] * tileSize];
+}
+
 function renderRouteMap(task) {
-  if (workerRouteLayer) workerMap.removeLayer(workerRouteLayer);
-  if (workerMarkers) workerMap.removeLayer(workerMarkers);
-  workerRouteLayer = null;
-  workerMarkers = null;
-  if (!task || !Array.isArray(task.route) || task.route.length < 2) {
+  const route = task && Array.isArray(task.route) ? task.route : [];
+  if (!task || route.length < 2) {
+    stopWalk();
     mapDistance.textContent = task ? "УЖЕ НА МЕСТЕ" : "НЕТ МАРШРУТА";
     if (!task) workerMap.fitBounds(mapBounds());
     return;
   }
+  if (walk && walk.taskId === task.id) return;
 
-  const points = task.route.map((point) => gridToLatLng(point));
-  workerRouteLayer = L.polyline(points, { color: "#e30613", weight: 5, opacity: 0.95, lineJoin: "round" }).addTo(workerMap);
-  workerMarkers = L.layerGroup([
-    L.marker(points[0], { icon: mapIcon("worker-map-engineer") }).bindTooltip("Старт", { permanent: true, direction: "top", className: "map-label" }),
-    L.marker(points.at(-1), { icon: mapIcon("worker-map-stand") }).bindTooltip(`ВС ${planeLabel(task)}`, { permanent: true, direction: "top", className: "map-label" }),
-  ]).addTo(workerMap);
-  mapDistance.textContent = `${Math.max(0, task.route.length - 1)} КЛЕТОК`;
-  workerMap.fitBounds(workerRouteLayer.getBounds(), { padding: [36, 36], maxZoom: 2 });
+  stopWalk();
+  const centers = route.map(([x, y]) => [x + 0.5, y + 0.5]);
+  walk = {
+    taskId: task.id,
+    centers,
+    startedAt: performance.now(),
+    done: false,
+    line: L.polyline(centers.map(centerLatLng), {
+      color: "#c5161c",
+      weight: 5,
+      opacity: 0.95,
+      lineJoin: "round",
+    }).addTo(workerMap),
+    marker: L.marker(centerLatLng(centers[0]), { icon: mapIcon("worker-map-engineer") })
+      .bindTooltip("Вы", { permanent: true, direction: "top", className: "map-label" })
+      .addTo(workerMap),
+    dest: L.marker(centerLatLng(centers.at(-1)), { icon: mapIcon("worker-map-stand") })
+      .bindTooltip(`ВС ${planeLabel(task)}`, { permanent: true, direction: "top", className: "map-label" })
+      .addTo(workerMap),
+  };
+  mapDistance.textContent = `${Math.max(0, route.length - 1)} КЛЕТОК`;
+  workerMap.fitBounds(walk.line.getBounds(), { padding: [36, 36], maxZoom: 2 });
+  walkFrame = requestAnimationFrame(tickWalk);
+}
+
+function tickWalk(now) {
+  walkFrame = 0;
+  if (!walk || walk.done) return;
+  const traveled = ((now - walk.startedAt) / 1000) * AeroWalk.WALK_MPS;
+  const sample = AeroWalk.pointAt(walk.centers, traveled);
+  if (!sample) return;
+  const at = centerLatLng(sample.done ? walk.centers.at(-1) : sample.point);
+  walk.marker.setLatLng(at);
+  if (sample.done) {
+    workerMap.removeLayer(walk.line);
+    walk.line = null;
+    walk.done = true;
+    mapDistance.textContent = "НА МЕСТЕ";
+    return;
+  }
+  const rest = walk.centers.slice(sample.nextIndex).map(centerLatLng);
+  walk.line.setLatLngs([at, ...rest]);
+  const leftMeters = Math.max(0, AeroWalk.totalMeters(walk.centers) - traveled);
+  const cellsLeft = Math.ceil(leftMeters / AeroWalk.CELL_METERS - 1e-6);
+  mapDistance.textContent = `${cellsLeft} КЛЕТОК`;
+  walkFrame = requestAnimationFrame(tickWalk);
 }
 
 function mapIcon(className) {

@@ -520,22 +520,92 @@ async function main() {
     }
   }
 
+  const walks = new Map();
+
+  function centerLatLng(center) {
+    return [pxHeight - center[1] * tileH, center[0] * tileW];
+  }
+
+  function routeCenters(gridRoute) {
+    return gridRoute.map(([x, y]) => [x + 0.5, y + 0.5]);
+  }
+
+  function staffMarker(latlng, busy, label) {
+    return L.marker(latlng, {
+      icon: L.divIcon({
+        className: `agent-marker ${busy ? "agent-busy" : "agent-free"}`,
+        html: "",
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      }),
+    })
+      .bindTooltip(label, { direction: "top" })
+      .addTo(staffLayer);
+  }
+
+  function stopWalk(id) {
+    const walk = walks.get(id);
+    if (!walk) return;
+    if (walk.line) map.removeLayer(walk.line);
+    if (walk.marker) staffLayer.removeLayer(walk.marker);
+    walks.delete(id);
+  }
+
+  function startWalk(id, name, gridRoute) {
+    const key = String(id);
+    stopWalk(key);
+    const centers = routeCenters(gridRoute);
+    if (centers.length < 2) return;
+    const showRoute = document.getElementById("toggle-route").checked;
+    const line = L.polyline(centers.map(centerLatLng), {
+      color: "#c5161c",
+      weight: 5,
+      opacity: 0.9,
+      dashArray: "10 8",
+    });
+    if (showRoute) line.addTo(map);
+    const marker = staffMarker(centerLatLng(centers[0]), true, `${name} · идёт к ВС`);
+    walks.set(key, { centers, startedAt: performance.now(), line, marker, name });
+  }
+
+  function tickWalks(now) {
+    for (const walk of walks.values()) {
+      if (walk.done) continue;
+      const traveled = ((now - walk.startedAt) / 1000) * AeroWalk.WALK_MPS;
+      const sample = AeroWalk.pointAt(walk.centers, traveled);
+      if (!sample) continue;
+      walk.marker.setLatLng(centerLatLng(sample.done ? walk.centers.at(-1) : sample.point));
+      if (sample.done) {
+        if (walk.line) map.removeLayer(walk.line);
+        walk.line = null;
+        walk.marker.setTooltipContent(`${walk.name} · на месте`);
+        walk.done = true;
+        continue;
+      }
+      const rest = walk.centers.slice(sample.nextIndex).map(centerLatLng);
+      walk.line.setLatLngs([centerLatLng(sample.point), ...rest]);
+    }
+    requestAnimationFrame(tickWalks);
+  }
+
+  requestAnimationFrame(tickWalks);
+
   function renderStaffMarkers() {
     applyBusyFlags();
     staffLayer.clearLayers();
+    const seen = new Set();
     for (const agent of agents) {
-      const statusClass = agent.busy ? "agent-busy" : "agent-free";
+      const walk = walks.get(String(agent.id));
+      if (walk) {
+        walk.marker.addTo(staffLayer);
+        seen.add(String(agent.id));
+        continue;
+      }
       const statusText = agent.busy ? "занят на задаче" : "свободен";
-      L.marker(agentPoint(agent), {
-        icon: L.divIcon({
-          className: `agent-marker ${statusClass}`,
-          html: "",
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
-        }),
-      })
-        .bindTooltip(`${agent.name} · ${statusText}`, { direction: "top" })
-        .addTo(staffLayer);
+      staffMarker(agentPoint(agent), agent.busy, `${agent.name} · ${statusText}`);
+    }
+    for (const [id, walk] of walks) {
+      if (!seen.has(id)) walk.marker.addTo(staffLayer);
     }
   }
 
@@ -582,7 +652,6 @@ async function main() {
   await refreshOverlayState();
   window.setInterval(refreshOverlayState, 5000);
 
-  let routeLayer = null;
   const faultSelect = document.getElementById("fault-select");
   const issueLabels = new Map(AeroAuth.AIRCRAFT_ISSUES);
   for (const [groupLabel, issueValues] of issueGroups()) {
@@ -624,8 +693,11 @@ async function main() {
     event.target.checked ? standsLayer.addTo(map) : map.removeLayer(standsLayer)
   );
   document.getElementById("toggle-route").addEventListener("change", (event) => {
-    if (routeLayer && event.target.checked) routeLayer.addTo(map);
-    if (routeLayer && !event.target.checked) map.removeLayer(routeLayer);
+    for (const walk of walks.values()) {
+      if (!walk.line) continue;
+      if (event.target.checked) walk.line.addTo(map);
+      else map.removeLayer(walk.line);
+    }
     if (event.target.checked) routeExtrasLayer.addTo(map);
     else map.removeLayer(routeExtrasLayer);
   });
@@ -659,24 +731,16 @@ async function main() {
     } catch (err) {
       result.className = "assignment-result";
       result.innerHTML = `Ошибка: ${assignErrorMessage(err)}`;
-      if (routeLayer) map.removeLayer(routeLayer);
-      routeExtrasLayer.clearLayers();
       return;
     }
 
     const gridRoute = Array.isArray(response.route) ? response.route.map(([x, y]) => [x, y]) : [];
     const distanceCells = Math.max(0, gridRoute.length - 1);
     const etaMinutes = Math.max(0, Math.round(Number(response.time || 0) / 60));
-    if (routeLayer) map.removeLayer(routeLayer);
-    routeLayer = null;
+    const assignedName = await engineerName(response.engineer_uuid);
     routeExtrasLayer.clearLayers();
-    if (gridRoute.length >= 2) {
-      const route = gridRoute.map(([col, row]) => [
-        pxHeight - (row + 0.5) * tileH,
-        (col + 0.5) * tileW,
-      ]);
-      routeLayer = L.polyline(route, { color: "#e30613", weight: 5, opacity: 0.9, dashArray: "10 8" }).addTo(map);
-    }
+    startWalk(response.engineer_uuid, assignedName, gridRoute);
+    const routeLine = walks.get(String(response.engineer_uuid))?.line || null;
 
     const pickup = findTransportOnRoute(gridRoute, fleet);
     if (pickup) {
@@ -697,15 +761,11 @@ async function main() {
         .addTo(routeExtrasLayer);
     }
 
-    if (routeLayer && !document.getElementById("toggle-route").checked) {
-      map.removeLayer(routeLayer);
-      map.removeLayer(routeExtrasLayer);
-    }
+    if (!document.getElementById("toggle-route").checked) map.removeLayer(routeExtrasLayer);
 
     await refreshOverlayState();
 
     const skippedBusy = [...busyBefore].filter((id) => id !== String(response.engineer_uuid));
-    const assignedName = await engineerName(response.engineer_uuid);
     const onSite = gridRoute.length < 2;
     const sla = response.time_limit_exceeded ? "<br><em>Время в пути больше 15 минут.</em>" : "";
     const contingencyNote = skippedBusy.length
@@ -722,7 +782,7 @@ async function main() {
 
     result.className = "assignment-result success";
     result.innerHTML = `<strong>${assignedName}</strong><br>Борт ${plane.id.slice(0, 8)} · ${AeroAuth.issueLabel(issue)}<br>${routeNote}${transportNote}${contingencyNote}${sla}`;
-    if (routeLayer) map.fitBounds(routeLayer.getBounds(), { padding: [80, 80], maxZoom: 3 });
+    if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
   });
 
   const legend = document.getElementById("legend");
