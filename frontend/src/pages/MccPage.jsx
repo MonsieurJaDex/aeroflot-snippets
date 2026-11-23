@@ -160,6 +160,7 @@ export default function MccPage() {
       setDraftText("");
       setHint("");
       softBeep(720, 120);
+      try { navigator.vibrate?.(40); } catch { /* телефон */ }
       setStatus("Замечание записано на сервере. Инженера не назначали.");
       setItems(freshList());
     } catch (err) {
