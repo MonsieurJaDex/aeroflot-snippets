@@ -39,7 +39,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     const session = getSession();
-    if (session?.role === "Dispatcher" || session?.role === "Engineer") {
+    if (session?.role === "Dispatcher" || session?.role === "Engineer" || session?.role === "Mcc") {
       navigate(homeForRole(session.role), { replace: true });
     }
   }, [navigate]);
