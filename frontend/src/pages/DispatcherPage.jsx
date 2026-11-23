@@ -873,6 +873,7 @@ export default function DispatcherPage() {
     event.stopPropagation();
     if (!item?.serverId) {
       setQueueNote("Нет serverId — сначала запись через ЦПУ на сервер.");
+      softBeep(320, 160);
       return;
     }
     setQueuePending(item.id);
