@@ -1105,7 +1105,9 @@ export default function DispatcherPage() {
             }) : <p className="mcc-empty">Нет рисков норматива.</p>}
           </div>
           {alertsNote ? <p className="fault-hint">{alertsNote}</p> : null}
-          <button type="button" className="shift-button" disabled={journalPending} onClick={downloadJournal}>Скачать журнал</button>
+          <button type="button" className="shift-button" disabled={journalPending} onClick={downloadJournal}>
+            {journalPending ? "Скачивание…" : "Скачать журнал"}
+          </button>
           {journalNote ? <p className="fault-hint">{journalNote}</p> : null}
         </details>
         <details className="request-panel" open>
@@ -1462,7 +1464,9 @@ export default function DispatcherPage() {
             <label>Причина
               <input id="reassign-reason" type="text" value={reassignReason} autoComplete="off" onChange={(event) => setReassignReason(event.target.value)} />
             </label>
-            <button type="submit" className="shift-button" disabled={reassignPending}>Переназначить</button>
+            <button type="submit" className="shift-button" disabled={reassignPending}>
+              {reassignPending ? "Переназначение…" : "Переназначить"}
+            </button>
           </form>
           {reassignNote ? <p className="fault-hint">{reassignNote}</p> : null}
         </details>
