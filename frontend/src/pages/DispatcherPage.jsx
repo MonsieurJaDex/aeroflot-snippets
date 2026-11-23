@@ -942,9 +942,11 @@ export default function DispatcherPage() {
       localStorage.setItem("oto-track-obj", trackObj.trim());
       localStorage.setItem("oto-track-lat", String(lat));
       localStorage.setItem("oto-track-lon", String(lon));
+      softBeep(ack?.applied ? 620 : 440, 120);
       setTrackNote(`track: accepted=${ack?.accepted} applied=${ack?.applied} obj=${ack?.obj || trackObj}`);
     } catch (error) {
       setTrackNote(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setTrackPending(false);
     }
