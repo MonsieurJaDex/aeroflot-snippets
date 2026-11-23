@@ -669,7 +669,11 @@ export default function DispatcherPage() {
         : "Этого борта нет в /api/aircraft. Замечание не назначено, назначить его нельзя.",
     });
     if (known) {
-      window.queueMicrotask?.(() => document.getElementById("assign-button")?.focus());
+      window.queueMicrotask?.(() => {
+        const btn = document.getElementById("assign-button");
+        btn?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        btn?.focus();
+      });
     }
   }
 

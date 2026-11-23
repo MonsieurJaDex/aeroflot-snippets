@@ -744,7 +744,9 @@ export default function WorkerPage() {
           <span className={task ? "worker-status busy" : "worker-status free"}>{task ? "Занят" : "Свободен"}</span>
           <span className="worker-task-badge">{task ? step : "Ожидание"}</span>
           {aogOn ? <span className="worker-task-badge aog">AOG</span> : null}
-          {etaClock ? <span className="worker-task-badge">ETA {etaClock}</span> : minutes != null ? <span className="worker-task-badge">ETA {minutes} мин</span> : null}
+          {etaLeft === 0 ? <span className="worker-task-badge">На месте</span>
+            : etaClock ? <span className="worker-task-badge">ETA {etaClock}</span>
+              : minutes != null ? <span className="worker-task-badge">ETA {minutes} мин</span> : null}
           {task?.arrived ? <span className="worker-task-badge">Прибыл</span> : null}
           {pollStale ? <span className="worker-task-badge stale">Нет связи</span> : null}
         </div>
