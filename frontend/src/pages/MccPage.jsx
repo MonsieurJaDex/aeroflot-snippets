@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AIRCRAFT_ISSUES, engineerTypeLabel, issueLabel } from "../lib/catalog.js";
 import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
+import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { relativeRu } from "../lib/format.js";
 import { classifyRemark, createRemark, trainClassifier } from "../lib/mccApi.js";
@@ -175,6 +176,7 @@ export default function MccPage() {
     try {
       const data = await trainClassifier();
       const acc = data?.accuracy == null ? "—" : `${Math.round(Number(data.accuracy) * 100)}%`;
+      softBeep(600, 140);
       setStatus(`Классификатор обучен: ${data?.documents ?? "?"} док. · accuracy ${acc}`);
     } catch (err) {
       setError(readError(err));
@@ -199,6 +201,7 @@ export default function MccPage() {
     try {
       const data = await classifyRemark(description);
       const name = engineerTypeLabel(data.engineer_type) || data.engineer_type;
+      softBeep(720, 100);
       setHint(`${name}, уверенность ${confidenceLabel(data.confidence)}. Подсказка, не назначение.`);
     } catch (err) {
       setHint("");
