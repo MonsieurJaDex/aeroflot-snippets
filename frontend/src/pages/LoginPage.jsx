@@ -153,7 +153,7 @@ export default function LoginPage() {
                 <div className="auth-role-badge">{ROLE_LABELS[role]}</div>
                 <div className="auth-card-title">Доступ к системе</div>
               </div>
-              <button className="auth-close" type="button" onClick={() => setRole(null)}>Назад</button>
+              <button className="auth-close" type="button" onClick={() => { localStorage.removeItem("oto-last-role"); setRole(null); }}>Назад</button>
             </div>
             <div className="auth-tabs">
               <button className={mode === "login" ? "auth-tab active" : "auth-tab"} type="button" onClick={() => setMode("login")}>Вход</button>
