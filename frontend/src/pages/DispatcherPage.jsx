@@ -807,6 +807,7 @@ export default function DispatcherPage() {
       setQueueNote(`В очереди: ${data?.id || item.serverId}${data?.status ? ` · ${data.status}` : ""}`);
     } catch (error) {
       setQueueNote(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setQueuePending("");
     }
