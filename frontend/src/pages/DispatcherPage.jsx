@@ -914,12 +914,14 @@ export default function DispatcherPage() {
     setMapNote("");
     try {
       const data = await setActiveMap(activeMapId);
+      softBeep(500, 100);
       setMapNote(`Активна: ${data?.name || activeMapId} · ${data?.width || "?"}×${data?.height || "?"}`);
       const maps = await listMaps();
       setMapCatalog(Array.isArray(maps.maps) ? maps.maps : []);
       setActiveMapId(maps.active_id || activeMapId);
     } catch (error) {
       setMapNote(assignErrorMessage(error));
+      softBeep(320, 200);
     } finally {
       setMapPending(false);
     }
