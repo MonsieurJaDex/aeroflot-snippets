@@ -855,16 +855,30 @@ export default function WorkerPage() {
         </section>
       </div>
       <div className="worker-dock" role="group" aria-label="Действия по задаче">
-        <button id="accept-task" className="worker-action worker-action-accept" type="button" hidden={!canDecide} disabled={busyAction === "accept"} onClick={acceptTask} title="A">Принять · A</button>
-        <button id="reject-task" className="worker-action worker-action-danger" type="button" hidden={!canDecide} disabled={busyAction === "reject"} onClick={rejectTask} title="R">Отклонить · R</button>
-        <button id="save-mel" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "mel"} onClick={saveMel}>Сохранить MEL</button>
+        <button id="accept-task" className="worker-action worker-action-accept" type="button" hidden={!canDecide} disabled={busyAction === "accept"} onClick={acceptTask} title="A">
+          {busyAction === "accept" ? "…" : "Принять · A"}
+        </button>
+        <button id="reject-task" className="worker-action worker-action-danger" type="button" hidden={!canDecide} disabled={busyAction === "reject"} onClick={rejectTask} title="R">
+          {busyAction === "reject" ? "…" : "Отклонить · R"}
+        </button>
+        <button id="save-mel" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "mel"} onClick={saveMel}>
+          {busyAction === "mel" ? "…" : "Сохранить MEL"}
+        </button>
         <button id="tools-task" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={!task || task.tools_picked || busyAction === "tools"} onClick={pickTools}>
           {task?.tools_picked ? "Инструмент ✓" : busyAction === "tools" ? "…" : "Инструмент получен"}
         </button>
-        <button id="waiting-part" className="worker-action worker-action-warning" type="button" hidden={!task} disabled={busyAction === "waiting"} onClick={waitForPart}>Ожидание запчасти</button>
-        <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask}>Завершить задачу</button>
-        <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog}>{aogOn ? "Снять AOG" : "Поставить AOG"}</button>
-        <button id="refresh-route" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "route"} onClick={refreshRouteFromServer}>Обновить маршрут</button>
+        <button id="waiting-part" className="worker-action worker-action-warning" type="button" hidden={!task} disabled={busyAction === "waiting"} onClick={waitForPart}>
+          {busyAction === "waiting" ? "…" : "Ожидание запчасти"}
+        </button>
+        <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask}>
+          {busyAction === "complete" ? "…" : "Завершить задачу"}
+        </button>
+        <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog}>
+          {busyAction === "aog" ? "…" : aogOn ? "Снять AOG" : "Поставить AOG"}
+        </button>
+        <button id="refresh-route" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "route"} onClick={refreshRouteFromServer}>
+          {busyAction === "route" ? "…" : "Обновить маршрут"}
+        </button>
         <button
           id="refresh-task"
           className="worker-action worker-action-secondary"
