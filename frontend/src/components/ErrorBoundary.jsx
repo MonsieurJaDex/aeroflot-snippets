@@ -25,6 +25,9 @@ export default class ErrorBoundary extends Component {
               <p className="role-copy">{this.state.message}</p>
             </div>
             <div className="error-actions">
+              <button type="button" className="role-link" onClick={() => this.setState({ message: "" })}>
+                Попробовать снова
+              </button>
               <button type="button" className="role-link" onClick={() => window.location.reload()}>
                 Обновить экран
               </button>

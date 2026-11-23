@@ -319,6 +319,12 @@ export default function WorkerPage() {
           document.getElementById("complete-task")?.click();
         }
       }
+      if (event.key === "w" || event.key === "W" || event.key === "ц" || event.key === "Ц") {
+        if (taskRef.current) {
+          event.preventDefault();
+          document.getElementById("waiting-part")?.click();
+        }
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -821,6 +827,7 @@ export default function WorkerPage() {
             <li><kbd>R</kbd> — отклонить</li>
             <li><kbd>T</kbd> — инструмент получен</li>
             <li><kbd>C</kbd> — завершить</li>
+            <li><kbd>W</kbd> — ожидание запчасти</li>
             <li><kbd>Esc</kbd> — закрыть тост</li>
           </ul>
         </details>
@@ -906,7 +913,7 @@ export default function WorkerPage() {
         <button id="tools-task" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={!task || task.tools_picked || busyAction === "tools"} onClick={pickTools} title="T">
           {task?.tools_picked ? "Инструмент ✓" : busyAction === "tools" ? "…" : "Инструмент получен"}
         </button>
-        <button id="waiting-part" className="worker-action worker-action-warning" type="button" hidden={!task} disabled={busyAction === "waiting"} onClick={waitForPart}>
+        <button id="waiting-part" className="worker-action worker-action-warning" type="button" hidden={!task} disabled={busyAction === "waiting"} onClick={waitForPart} title="W">
           {busyAction === "waiting" ? "…" : "Ожидание запчасти"}
         </button>
         <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask} title="C">

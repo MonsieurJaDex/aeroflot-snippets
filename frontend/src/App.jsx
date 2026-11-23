@@ -13,7 +13,7 @@ function ScreenFallback() {
         <div className="role-hero">
           <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
           <h1>Аэрофлот</h1>
-          <p className="role-copy">Загрузка экрана…</p>
+          <p className="role-copy screen-loading">Загрузка экрана…</p>
         </div>
       </div>
     </main>

@@ -288,6 +288,20 @@ export default function DispatcherPage() {
       if (event.key === "Escape") {
         setActiveMcc(null);
         setPlaneFilter("");
+        setHint("");
+        setRouteNote("");
+        setDepartNote("");
+        setArriveNote("");
+        setDefectNote("");
+        setTrainNote("");
+        setReassignNote("");
+        setQueueNote("");
+        setAlertsNote("");
+        setJournalNote("");
+        setTrackNote("");
+        setTransportNote("");
+        setMapNote("");
+        setClassifyHint("");
       }
       if ((event.ctrlKey || event.metaKey) && (event.key === "k" || event.key === "K" || event.key === "л" || event.key === "Л")) {
         event.preventDefault();
