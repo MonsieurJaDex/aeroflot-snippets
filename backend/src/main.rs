@@ -45,7 +45,6 @@ mod models;
 mod parser;
 mod rank;
 mod router;
-mod search;
 mod types;
 mod utils;
 

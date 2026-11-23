@@ -351,7 +351,7 @@ pub async fn set_active_map(
     path = "/api/getRoute",
     tag = "Route",
     operation_id = "getRoute",
-    description = "Classic point-to-point BFS route",
+    description = "Time-optimal route on the road graph, using per-edge speeds",
     security(("bearerAuth" = [])),
     request_body = GetRouteRequest,
     responses(
@@ -366,21 +366,19 @@ pub async fn get_route(
     State(app_state): State<Arc<AppState>>,
     ApiJson(payload): ApiJson<GetRouteRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
-    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
-        tracing::error!(error = %e, "failed to acquire redis connection");
-        internal_error()
-    })?;
-
     let active = active_map(&app_state)?;
-    let route = crate::search::bfs(
-        &active.map,
-        payload.start_point,
-        payload.end_point,
-        &active.road_points,
-        &active.id,
-        &mut redis_conn,
-    )
-    .map_err(|e| bad_request(e.to_string()))?;
+    if !active.map.in_bounds(payload.start_point) || !active.map.in_bounds(payload.end_point) {
+        return Err(bad_request("point is outside of map bounds"));
+    }
+    let planned = active
+        .location
+        .graph
+        .route_stops(
+            crate::graph::AgentKind::Engineer,
+            &[payload.start_point, payload.end_point],
+        )
+        .map_err(|error| bad_request(error.to_string()))?;
+    let route = Route::new(planned.points);
 
     let distance = route.len();
     Ok(Json(GetRouteResponse { route, distance }).into_response())
