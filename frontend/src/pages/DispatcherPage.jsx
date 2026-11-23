@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import L from "leaflet";
 import {
@@ -174,6 +174,7 @@ export default function DispatcherPage() {
   const [movements, setMovements] = useState([]);
   const [layersOn, setLayersOn] = useState(layersRef.current);
   const [planeFilter, setPlaneFilter] = useState("");
+  const deferredPlaneFilter = useDeferredValue(planeFilter);
   const [staleLive, setStaleLive] = useState(false);
   const [crewNote, setCrewNote] = useState("");
   const [pollMs, setPollMs] = useState(null);
@@ -1409,7 +1410,7 @@ export default function DispatcherPage() {
           <label>Воздушное судно
             <select value={planeId} disabled={!aircraft.length} onChange={(event) => setPlaneId(event.target.value)}>
               {(() => {
-                const q = planeFilter.trim().toLowerCase();
+                const q = deferredPlaneFilter.trim().toLowerCase();
                 const filtered = q
                   ? aircraft.filter((plane) => {
                     const hay = `${plane.id} ${plane.point?.[0]} ${plane.point?.[1]}`.toLowerCase();
