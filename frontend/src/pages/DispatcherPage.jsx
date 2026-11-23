@@ -112,7 +112,10 @@ export default function DispatcherPage() {
   const [aircraft, setAircraft] = useState([]);
   const [aogIds, setAogIds] = useState(() => new Set());
   const [planeId, setPlaneId] = useState("");
-  const [issue, setIssue] = useState(FIRST_ISSUE);
+  const [issue, setIssue] = useState(() => {
+    const saved = localStorage.getItem("oto-last-issue");
+    return saved && ISSUE_LABELS.has(saved) ? saved : FIRST_ISSUE;
+  });
   const [description, setDescription] = useState("");
   const [hint, setHint] = useState("");
   const [live, setLive] = useState("Загрузка бортов, инженеров и техники…");
@@ -181,6 +184,7 @@ export default function DispatcherPage() {
   }, [inbox.length]);
 
   useEffect(() => {
+    localStorage.setItem("oto-last-issue", issue);
     const vehicleType = ISSUE_REQUIRED_VEHICLE[issue];
     const vehicleText = vehicleType ? `Спецтранспорт: ${vehicleLabel(vehicleType)}.` : "Спецтранспорт не требуется.";
     setHint(`Нужный специалист: ${engineerTypeForIssue(issue)}. ${vehicleText}`);
@@ -997,9 +1001,16 @@ export default function DispatcherPage() {
           <summary>Заявки ЦПУ · {inbox.length}</summary>
           <div className="mcc-inbox">
             {inbox.length ? inbox.map((item) => (
-              <div key={item.id} className={item.id === activeMcc ? "mcc-item selected" : "mcc-item"}>
+              <div
+                key={item.id}
+                className={[
+                  "mcc-item",
+                  item.id === activeMcc ? "selected" : "",
+                  item.urgency === "urgent" ? "urgent" : "",
+                ].filter(Boolean).join(" ")}
+              >
                 <button type="button" className="mcc-item-pick" onClick={() => chooseMcc(item)}>
-                  <strong>{issueLabel(item.issue)}</strong>
+                  <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
                   <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status || "не назначена"} · {relativeRu(item.createdAt)}</span>
                   <span>{item.description}</span>
                 </button>

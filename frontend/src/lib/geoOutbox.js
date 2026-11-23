@@ -15,7 +15,8 @@ function write(rows) {
 }
 
 export function enqueueEngineerPoint(id, point, t = Math.floor(Date.now() / 1000)) {
-  const rows = read();
+  // В очереди достаточно последней точки на инженера — старые при восстановлении сети лишние.
+  const rows = read().filter((row) => String(row.id) !== String(id));
   rows.push({ id, point, t });
   write(rows);
 }

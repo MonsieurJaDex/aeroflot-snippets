@@ -14,13 +14,14 @@ function save(items) {
   localStorage.setItem(KEY, JSON.stringify(items));
 }
 
-export function addMcc({ issue, planeUuid, description, serverId = null, serverStatus = null }) {
+export function addMcc({ issue, planeUuid, description, serverId = null, serverStatus = null, urgency = "" }) {
   const item = {
     id: crypto.randomUUID(),
     serverId,
     issue,
     planeUuid,
     description,
+    urgency: urgency || "",
     createdAt: new Date().toISOString(),
     status: serverStatus || "new",
   };

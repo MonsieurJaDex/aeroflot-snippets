@@ -271,6 +271,27 @@ export default function WorkerPage() {
   }, [task?.id]);
 
   useEffect(() => {
+    if (!allowed) return undefined;
+    function onKey(event) {
+      if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+      if (event.key === "a" || event.key === "A" || event.key === "ф" || event.key === "Ф") {
+        if (taskRef.current?.status === "assigned") {
+          event.preventDefault();
+          document.getElementById("accept-task")?.click();
+        }
+      }
+      if (event.key === "r" || event.key === "R" || event.key === "к" || event.key === "К") {
+        if (taskRef.current?.status === "assigned") {
+          event.preventDefault();
+          document.getElementById("reject-task")?.click();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [allowed]);
+
+  useEffect(() => {
     if (!task || task.eta_seconds == null) {
       setEtaLeft(null);
       etaAnchor.current = { id: null, at: 0, base: null };
@@ -766,8 +787,8 @@ export default function WorkerPage() {
         <section className="notice-card"><div>{notice}</div></section>
       </div>
       <div className="worker-dock" role="group" aria-label="Действия по задаче">
-        <button id="accept-task" className="worker-action worker-action-accept" type="button" hidden={!canDecide} disabled={busyAction === "accept"} onClick={acceptTask}>Принять</button>
-        <button id="reject-task" className="worker-action worker-action-danger" type="button" hidden={!canDecide} disabled={busyAction === "reject"} onClick={rejectTask}>Отклонить</button>
+        <button id="accept-task" className="worker-action worker-action-accept" type="button" hidden={!canDecide} disabled={busyAction === "accept"} onClick={acceptTask} title="A">Принять · A</button>
+        <button id="reject-task" className="worker-action worker-action-danger" type="button" hidden={!canDecide} disabled={busyAction === "reject"} onClick={rejectTask} title="R">Отклонить · R</button>
         <button id="save-mel" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "mel"} onClick={saveMel}>Сохранить MEL</button>
         <button id="tools-task" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={!task || task.tools_picked || busyAction === "tools"} onClick={pickTools}>Инструмент получен</button>
         <button id="waiting-part" className="worker-action worker-action-warning" type="button" hidden={!task} disabled={busyAction === "waiting"} onClick={waitForPart}>Ожидание запчасти</button>

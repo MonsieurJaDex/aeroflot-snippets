@@ -255,8 +255,8 @@ export default function MccPage() {
           </div>
           <div className="mcc-inbox">
             {items.length ? items.map((item) => (
-              <div className="mcc-item" key={item.id}>
-                <strong>{issueLabel(item.issue)}</strong>
+              <div className={item.urgency === "urgent" ? "mcc-item urgent" : "mcc-item"} key={item.id}>
+                <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
                 <span>
                   {String(item.planeUuid || "").slice(0, 8)} · {isMccAssigned(item) ? "назначена" : "не назначена"}
                   {item.serverId ? ` · сервер ${item.status}` : " · локально"}
