@@ -100,6 +100,12 @@ export default function MccPage() {
     if (!signedIn()) {
       addMcc(draft);
       form.reset();
+      if (draft.planeUuid) {
+        localStorage.setItem("oto-last-plane", draft.planeUuid);
+        setSavedPlane(draft.planeUuid);
+        const planeInput = form.elements.namedItem("plane");
+        if (planeInput) planeInput.value = draft.planeUuid;
+      }
       setHint("");
       setError("Нужен вход, чтобы записать замечание на сервер. Оно осталось в локальной очереди.");
       setItems(freshList());
@@ -114,6 +120,10 @@ export default function MccPage() {
         setSavedPlane(draft.planeUuid);
       }
       form.reset();
+      if (draft.planeUuid) {
+        const planeInput = form.elements.namedItem("plane");
+        if (planeInput) planeInput.value = draft.planeUuid;
+      }
       setHint("");
       setStatus("Замечание записано на сервере. Инженера не назначали.");
       setItems(freshList());
