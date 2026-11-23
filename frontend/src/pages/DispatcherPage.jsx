@@ -1248,17 +1248,17 @@ export default function DispatcherPage() {
               })()}
             </select>
           </label>
-          <button
-            type="button"
-            className="shift-button"
-            disabled={!planeId}
-            onClick={async () => {
-              const ok = await copyText(planeId);
-              setLive(ok ? `Скопирован UUID: ${planeId}` : live);
-            }}
-          >
-            Копировать UUID борта
-          </button>
+            <button
+              type="button"
+              className="shift-button"
+              disabled={!planeId}
+              onClick={async () => {
+                const ok = await copyText(planeId);
+                setLive(ok ? `Скопирован UUID: ${planeId}` : live);
+              }}
+            >
+              {planeId ? `Копировать UUID · ${planeId.slice(0, 8)}` : "Копировать UUID борта"}
+            </button>
           {planeId && aogIds.has(planeId) ? <p className="fault-hint stale-live">Выбранный борт в AOG.</p> : null}
           {!aircraft.length ? <p className="fault-hint stale-live">Нет бортов в Redis. Список приходит из /api/aircraft.</p> : null}
           <p className="fault-hint">{live}</p>
