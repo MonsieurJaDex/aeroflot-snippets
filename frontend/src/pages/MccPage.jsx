@@ -88,6 +88,12 @@ export default function MccPage() {
 
   useEffect(() => {
     function onKey(event) {
+      if (event.key === "Escape") {
+        setError("");
+        setStatus("");
+        setHint("");
+        return;
+      }
       if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") return;
       if (!formRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return;
       event.preventDefault();

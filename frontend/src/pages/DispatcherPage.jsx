@@ -157,8 +157,8 @@ export default function DispatcherPage() {
   const [routePending, setRoutePending] = useState(false);
   const [fleet, setFleet] = useState([]);
   const [transportId, setTransportId] = useState("");
-  const [transportX, setTransportX] = useState("");
-  const [transportY, setTransportY] = useState("");
+  const [transportX, setTransportX] = useState(() => sessionStorage.getItem("oto-transport-x") || "");
+  const [transportY, setTransportY] = useState(() => sessionStorage.getItem("oto-transport-y") || "");
   const [transportNote, setTransportNote] = useState("");
   const [transportPending, setTransportPending] = useState(false);
   const [mapCatalog, setMapCatalog] = useState([]);
@@ -584,6 +584,8 @@ export default function DispatcherPage() {
         // Клетка клика — в форму сдвига техники (не GPS Logger).
         setTransportX(String(cell.col));
         setTransportY(String(cell.row));
+        sessionStorage.setItem("oto-transport-x", String(cell.col));
+        sessionStorage.setItem("oto-transport-y", String(cell.row));
         const cells = grid[cell.row][cell.col];
         const hintText = roadHint(cells);
         if (!cells.length) {
@@ -1645,8 +1647,8 @@ export default function DispatcherPage() {
                 )) : <option value="">Нет техники</option>}
               </select>
             </label>
-            <label>X<input type="text" inputMode="numeric" value={transportX} autoComplete="off" onChange={(event) => setTransportX(event.target.value)} /></label>
-            <label>Y<input type="text" inputMode="numeric" value={transportY} autoComplete="off" onChange={(event) => setTransportY(event.target.value)} /></label>
+            <label>X<input type="text" inputMode="numeric" value={transportX} autoComplete="off" onChange={(event) => { const next = event.target.value; setTransportX(next); sessionStorage.setItem("oto-transport-x", next); }} /></label>
+            <label>Y<input type="text" inputMode="numeric" value={transportY} autoComplete="off" onChange={(event) => { const next = event.target.value; setTransportY(next); sessionStorage.setItem("oto-transport-y", next); }} /></label>
             <button type="submit" className="shift-button" disabled={transportPending || !fleet.length}>
               {transportPending ? "Сдвиг…" : "Сдвинуть технику"}
             </button>
