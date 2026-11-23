@@ -1237,6 +1237,34 @@ export default function DispatcherPage() {
                   Копировать итог
                 </button>
                 {Array.isArray(result.candidates) && result.candidates.length ? (
+                  <button
+                    type="button"
+                    className="ghost-copy"
+                    style={{ marginTop: 8, marginLeft: 8 }}
+                    onClick={async () => {
+                      const header = "engineer_id;name;eligible;reason;eta_min;vehicle;chosen";
+                      const rows = result.candidates.map((row) => {
+                        const etaMin = row.etaSeconds == null || Number.isNaN(Number(row.etaSeconds))
+                          ? ""
+                          : String(Math.max(0, Math.round(Number(row.etaSeconds) / 60)));
+                        return [
+                          row.engineerId,
+                          row.name,
+                          row.eligible ? "1" : "0",
+                          String(row.reason || "").replace(/;/g, ","),
+                          etaMin,
+                          row.usesVehicle ? "1" : "0",
+                          row.engineerId === result.chosenId ? "1" : "0",
+                        ].join(";");
+                      });
+                      const ok = await copyText([header, ...rows].join("\n"));
+                      setLive(ok ? "Таблица кандидатов скопирована" : live);
+                    }}
+                  >
+                    Копировать кандидатов
+                  </button>
+                ) : null}
+                {Array.isArray(result.candidates) && result.candidates.length ? (
                   <div className="candidates-block">
                     <p className="candidates-meta">
                       Кандидаты{result.candidateMs != null ? ` · ${result.candidateMs} мс` : ""}
