@@ -67,6 +67,7 @@ function sameTask(prev, next) {
     && prev.arrived === next.arrived
     && prev.tools_picked === next.tools_picked
     && prev.mel_category === next.mel_category
+    && prev.ata_chapter === next.ata_chapter
     && JSON.stringify(prev.route) === JSON.stringify(next.route)
     && JSON.stringify(prev.plane_point) === JSON.stringify(next.plane_point);
 }
@@ -772,6 +773,7 @@ export default function WorkerPage() {
                   {routeText}<br />
                   ETA: {etaClock || (minutes != null ? `${minutes} мин` : "—")}<br />
                   {task.tools_picked ? "Инструмент получен" : "Инструмент не получен"}
+                  {task.ata_chapter ? <><br />ATA {task.ata_chapter}</> : null}
                   {task.mel_category ? <><br />MEL {task.mel_category}</> : null}
                   {task.arrived ? <><br />Прибыл к воздушному судну</> : null}
                   <div className="task-id-row">
