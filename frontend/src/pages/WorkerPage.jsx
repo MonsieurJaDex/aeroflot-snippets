@@ -827,7 +827,9 @@ export default function WorkerPage() {
             </div>
           </article>
         </section>
-        <section className="notice-card"><div>{notice}</div></section>
+        <section className="notice-card" role={/не удалось|нет связи|ошибк/i.test(notice) ? "alert" : "status"}>
+          <div>{notice}</div>
+        </section>
       </div>
       <div className="worker-dock" role="group" aria-label="Действия по задаче">
         <button id="accept-task" className="worker-action worker-action-accept" type="button" hidden={!canDecide} disabled={busyAction === "accept"} onClick={acceptTask} title="A">Принять · A</button>
