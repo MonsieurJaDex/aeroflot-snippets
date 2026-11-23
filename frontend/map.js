@@ -374,7 +374,7 @@ function renderCanvas(tmj, grid, tilesets) {
   canvas.height = tmj.height * tileH;
   const ctx = canvas.getContext("2d");
 
-  ctx.fillStyle = "#1b252d";
+  ctx.fillStyle = "#d7e3ee";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   for (let row = 0; row < tmj.height; row++) {
@@ -441,7 +441,9 @@ async function main() {
     minZoom: -2,
     maxZoom: 6,
     zoomSnap: 0.25,
+    attributionControl: false,
   });
+  window.addEventListener("resize", () => map.invalidateSize());
 
   let overlay = null;
   function redraw() {
@@ -725,12 +727,12 @@ async function main() {
 
   const legend = document.getElementById("legend");
   legend.innerHTML = [
-    ["#159b72", "инженер свободен"],
-    ["#e17d32", "инженер занят"],
-    ["#d4a017", "спецтранспорт"],
-    ["#1684b8", "воздушное судно"],
-    ["#e30613", "AOG"],
-    ["#e30613", "маршрут"],
+    ["#0c7a56", "инженер свободен"],
+    ["#f47920", "инженер занят"],
+    ["#f47920", "спецтранспорт"],
+    ["#00529b", "воздушное судно"],
+    ["#c5161c", "AOG"],
+    ["#c5161c", "маршрут"],
   ]
     .map(([color, label]) => `<div class="legend-row"><span class="swatch" style="background:${color}"></span>${label}</div>`)
     .join("");

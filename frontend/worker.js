@@ -6,6 +6,7 @@ const notice = document.getElementById("worker-notice");
 const toast = document.getElementById("worker-toast");
 const mapDistance = document.getElementById("map-distance");
 const workerMap = L.map("worker-map", { crs: L.CRS.Simple, zoomControl: false, attributionControl: false, minZoom: -1, maxZoom: 3 });
+window.addEventListener("resize", () => workerMap.invalidateSize());
 
 let mapWidth = 64;
 let mapHeight = 64;
@@ -58,7 +59,7 @@ async function loadWorkerMapBackground() {
     canvas.width = tmj.width * tileSize;
     canvas.height = tmj.height * tileSize;
     const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#1b252d";
+    ctx.fillStyle = "#d7e3ee";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const layer = tmj.layers.find((item) => item.type === "tilelayer");
