@@ -193,7 +193,9 @@ body::before {
 #assign-button:hover, .shift-button:hover { background: var(--accent-hover); }
 #assign-button:disabled, .shift-button:disabled { opacity: .55; cursor: default; }
 .assignment-result { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.assignment-result.success { color: var(--green); border-top-color: var(--green); }
 .assignment-result strong { color: var(--text); }
+.assignment-result.success strong { color: var(--green); }
 .candidates-block { margin-top: 12px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
 .candidates-meta { margin: 0; padding: 8px 10px; background: var(--blue); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .candidates-table { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--panel); }

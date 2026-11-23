@@ -99,6 +99,7 @@ export default function WorkerPage() {
   const lastPollAt = useRef(Date.now());
   const etaAnchor = useRef({ id: null, at: 0, base: null });
   const etaArrivedBeep = useRef("");
+  const staleBeepAt = useRef(0);
 
   taskRef.current = task;
 
@@ -258,6 +259,14 @@ export default function WorkerPage() {
     }, 4500);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (!pollStale) return;
+    const now = Date.now();
+    if (now - staleBeepAt.current < 45000) return;
+    staleBeepAt.current = now;
+    softBeep(300, 180);
+  }, [pollStale]);
 
   function flash(text, kind = "ok") {
     setToastKind(kind);
