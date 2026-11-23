@@ -941,7 +941,7 @@ export default function DispatcherPage() {
         <div className="brand-row">
           <div>
             <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
-            <h1>Начальник смены</h1>
+            <h1>Начальник смены <span className={staleLive ? "status-dot stale" : "status-dot"} title={staleLive ? "Нет свежих данных" : "LIVE"} /></h1>
           </div>
           <button type="button" className="role-link" onClick={logout}>Выйти</button>
         </div>

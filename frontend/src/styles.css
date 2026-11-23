@@ -138,7 +138,24 @@ body::before {
 #sidebar > :not(.brand-row) { margin-left: 18px; margin-right: 18px; }
 .eyebrow { color: var(--red); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 6px; }
 #sidebar h1 { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: .02em; margin: 0; color: var(--text); text-transform: uppercase; }
-.status-dot { width: 8px; height: 8px; margin-top: 6px; background: var(--green); border-radius: 0; }
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  vertical-align: middle;
+  background: #7dffa6;
+  border-radius: 0;
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+.status-dot.stale {
+  background: var(--orange);
+  animation: none;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
 .request-panel { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; background: var(--panel-2); border-left: 3px solid var(--blue); margin-bottom: 12px; }
 .request-panel > summary {
   cursor: pointer;
