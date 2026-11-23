@@ -529,6 +529,9 @@ export default function DispatcherPage() {
           setTileInfo("Клик вне карты.");
           return;
         }
+        // Клетка клика — в форму сдвига техники (не GPS Logger).
+        setTransportX(String(cell.col));
+        setTransportY(String(cell.row));
         const cells = grid[cell.row][cell.col];
         const hintText = roadHint(cells);
         if (!cells.length) {
