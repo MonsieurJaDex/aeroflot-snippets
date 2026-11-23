@@ -231,6 +231,13 @@ export default function WorkerPage() {
   }, [toast]);
 
   useEffect(() => {
+    document.title = task
+      ? `ОТО · задача · ETA ${etaClock || "…"}`
+      : "ОТО · инженер свободен";
+    return () => { document.title = "Аэрофлот ОТО"; };
+  }, [task, etaClock]);
+
+  useEffect(() => {
     if (!task || task.eta_seconds == null) {
       setEtaLeft(null);
       etaAnchor.current = { id: null, at: 0, base: null };

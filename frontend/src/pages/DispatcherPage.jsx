@@ -194,6 +194,13 @@ export default function DispatcherPage() {
   }, []);
 
   useEffect(() => {
+    document.title = alerts.length
+      ? `ОТО · риски ${alerts.length}`
+      : "ОТО · начальник смены";
+    return () => { document.title = "Аэрофлот ОТО"; };
+  }, [alerts.length]);
+
+  useEffect(() => {
     if (!allowed) return undefined;
     function onKey(event) {
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {

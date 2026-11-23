@@ -55,6 +55,7 @@ export default function MccPage() {
   const [sessionName, setSessionName] = useState(() => getSession()?.name || "");
   const [authPending, setAuthPending] = useState(false);
   const [trainPending, setTrainPending] = useState(false);
+  const [savedEmail, setSavedEmail] = useState(() => localStorage.getItem("oto-last-email") || "");
 
   useEffect(() => {
     const onStorage = (event) => {
@@ -113,7 +114,10 @@ export default function MccPage() {
     const form = new FormData(event.currentTarget);
     try {
       // Токен любой роли бэка — для POST /api/requests нужен bearer.
-      const session = await login(String(form.get("email") || "").trim(), String(form.get("password") || ""));
+      const email = String(form.get("email") || "").trim();
+      const session = await login(email, String(form.get("password") || ""));
+      localStorage.setItem("oto-last-email", email);
+      setSavedEmail(email);
       setSessionName(session?.name || "");
       setStatus(`Вход: ${session?.name || "ок"}. Можно писать замечания на сервер.`);
     } catch (err) {
@@ -186,7 +190,7 @@ export default function MccPage() {
         {!sessionName ? (
           <form className="auth-panel auth-form" onSubmit={onAuth}>
             <p className="section-label">Вход для записи на сервер</p>
-            <label>Email<input type="email" name="email" required autoComplete="username" /></label>
+            <label>Email<input type="email" name="email" required autoComplete="username" defaultValue={savedEmail} /></label>
             <label>Пароль<input type="password" name="password" required autoComplete="current-password" /></label>
             <button type="submit" disabled={authPending}>{authPending ? "Вход…" : "Войти"}</button>
           </form>
