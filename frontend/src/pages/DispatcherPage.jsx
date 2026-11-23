@@ -185,6 +185,7 @@ export default function DispatcherPage() {
       return [];
     }
   });
+  const [urgentOnly, setUrgentOnly] = useState(false);
   const lastLiveAt = useRef(Date.now());
 
   formRef.current = { issue, description, planeId, activeMcc };
@@ -1109,33 +1110,43 @@ export default function DispatcherPage() {
         </details>
         <details className="request-panel" open>
           <summary>Заявки ЦПУ · {inbox.length}</summary>
+          <label className="layer-row">
+            <input type="checkbox" checked={urgentOnly} onChange={(event) => setUrgentOnly(event.target.checked)} />
+            Только срочные
+          </label>
           <div className="mcc-inbox">
-            {inbox.length ? inbox.map((item) => (
-              <div
-                key={item.id}
-                className={[
-                  "mcc-item",
-                  item.id === activeMcc ? "selected" : "",
-                  item.urgency === "urgent" ? "urgent" : "",
-                ].filter(Boolean).join(" ")}
-              >
-                <button type="button" className="mcc-item-pick" onClick={() => chooseMcc(item)}>
-                  <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
-                  <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status || "не назначена"} · {relativeRu(item.createdAt, nowTick)}</span>
-                  <span>{item.description}</span>
-                </button>
-                {item.serverId ? (
-                  <button
-                    type="button"
-                    className="shift-button"
-                    disabled={queuePending === item.id || item.status === "unassigned"}
-                    onClick={(event) => enqueueMcc(item, event)}
-                  >
-                    {item.status === "unassigned" ? "Уже в очереди" : "В очередь назначения"}
+            {(() => {
+              const rows = urgentOnly ? inbox.filter((item) => item.urgency === "urgent") : inbox;
+              if (!rows.length) {
+                return <p className="mcc-empty">{urgentOnly ? "Нет срочных замечаний." : "Нет новых замечаний от ЦПУ."}</p>;
+              }
+              return rows.map((item) => (
+                <div
+                  key={item.id}
+                  className={[
+                    "mcc-item",
+                    item.id === activeMcc ? "selected" : "",
+                    item.urgency === "urgent" ? "urgent" : "",
+                  ].filter(Boolean).join(" ")}
+                >
+                  <button type="button" className="mcc-item-pick" onClick={() => chooseMcc(item)}>
+                    <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
+                    <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status || "не назначена"} · {relativeRu(item.createdAt, nowTick)}</span>
+                    <span>{item.description}</span>
                   </button>
-                ) : null}
-              </div>
-            )) : <p className="mcc-empty">Нет новых замечаний от ЦПУ.</p>}
+                  {item.serverId ? (
+                    <button
+                      type="button"
+                      className="shift-button"
+                      disabled={queuePending === item.id || item.status === "unassigned"}
+                      onClick={(event) => enqueueMcc(item, event)}
+                    >
+                      {item.status === "unassigned" ? "Уже в очереди" : "В очередь назначения"}
+                    </button>
+                  ) : null}
+                </div>
+              ));
+            })()}
           </div>
           {queueNote ? <p className="fault-hint">{queueNote}</p> : null}
         </details>
