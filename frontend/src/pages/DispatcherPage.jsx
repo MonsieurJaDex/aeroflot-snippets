@@ -791,6 +791,7 @@ export default function DispatcherPage() {
   function toggleLayer(name, on) {
     setLayersOn((current) => ({ ...current, [name]: on }));
     actions.current.setLayer?.(name, on);
+    softBeep(on ? 620 : 400, 70);
   }
 
   function logout() {
