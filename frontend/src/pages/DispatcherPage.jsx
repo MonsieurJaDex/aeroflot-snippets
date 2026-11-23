@@ -910,8 +910,8 @@ export default function DispatcherPage() {
             )) : <p className="mcc-empty">Нет AOG.</p>}
           </div>
         </details>
-        <section className="request-panel">
-          <div className="section-heading"><h2>Риск норматива</h2></div>
+        <details className="request-panel" open={alerts.length > 0}>
+          <summary>Риск норматива · {alerts.length}</summary>
           <div className="mcc-inbox">
             {alerts.length ? alerts.map((item, index) => {
               const minutes = marginMinutes(item.alternative_margin_seconds);
@@ -932,9 +932,9 @@ export default function DispatcherPage() {
           {alertsNote ? <p className="fault-hint">{alertsNote}</p> : null}
           <button type="button" className="shift-button" disabled={journalPending} onClick={downloadJournal}>Скачать журнал</button>
           {journalNote ? <p className="fault-hint">{journalNote}</p> : null}
-        </section>
-        <section className="request-panel">
-          <div className="section-heading"><h2>Заявки ЦПУ</h2></div>
+        </details>
+        <details className="request-panel" open>
+          <summary>Заявки ЦПУ · {inbox.length}</summary>
           <div className="mcc-inbox">
             {inbox.length ? inbox.map((item) => (
               <div key={item.id} className={item.id === activeMcc ? "mcc-item selected" : "mcc-item"}>
@@ -957,9 +957,9 @@ export default function DispatcherPage() {
             )) : <p className="mcc-empty">Нет новых замечаний от ЦПУ.</p>}
           </div>
           {queueNote ? <p className="fault-hint">{queueNote}</p> : null}
-        </section>
-        <section className="request-panel">
-          <div className="section-heading"><h2>Движения ВС</h2></div>
+        </details>
+        <details className="request-panel">
+          <summary>Движения ВС · {movements.length}</summary>
           <div className="mcc-inbox">
             {movements.length ? movements.map((row) => (
               <div className="mcc-item" key={row.id || `${row.aircraft_id}-${row.arrived_at}`}>
@@ -968,9 +968,9 @@ export default function DispatcherPage() {
               </div>
             )) : <p className="mcc-empty">Нет записей прибытия.</p>}
           </div>
-        </section>
-        <section className="request-panel">
-          <div className="section-heading"><h2>Классификатор</h2></div>
+        </details>
+        <details className="request-panel">
+          <summary>Классификатор</summary>
           <form onSubmit={submitDefect}>
             <label>Текст дефекта
               <input type="text" value={defectText} autoComplete="off" onChange={(event) => setDefectText(event.target.value)} />
@@ -985,7 +985,7 @@ export default function DispatcherPage() {
             {trainPending ? "Обучение…" : "Переобучить классификатор"}
           </button>
           {trainNote ? <p className="fault-hint">{trainNote}</p> : null}
-        </section>
+        </details>
         <section className="request-panel">
           <div className="section-heading"><h2>Новая заявка</h2><span className="live-label">LIVE</span></div>
           <label>Воздушное судно
