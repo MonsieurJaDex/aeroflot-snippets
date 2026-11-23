@@ -62,6 +62,7 @@ export default function MccPage() {
   const [authPending, setAuthPending] = useState(false);
   const [trainPending, setTrainPending] = useState(false);
   const [savedEmail, setSavedEmail] = useState(() => localStorage.getItem("oto-last-email") || "");
+  const [savedPlane, setSavedPlane] = useState(() => localStorage.getItem("oto-last-plane") || "");
 
   useEffect(() => {
     const open = items.filter((row) => !isMccAssigned(row)).length;
@@ -108,6 +109,10 @@ export default function MccPage() {
     try {
       const created = await createRemark(remarkBody(draft));
       addMcc({ ...draft, serverId: created?.id || null, serverStatus: created?.status || "crew_remark" });
+      if (draft.planeUuid) {
+        localStorage.setItem("oto-last-plane", draft.planeUuid);
+        setSavedPlane(draft.planeUuid);
+      }
       form.reset();
       setHint("");
       setStatus("Замечание записано на сервере. Инженера не назначали.");
@@ -214,7 +219,7 @@ export default function MccPage() {
           </div>
         )}
         <form className="auth-panel auth-form" ref={formRef} onSubmit={onSubmit}>
-          <label>UUID воздушного судна<input name="plane" type="text" placeholder="необязательно, если борт ещё не известен" /></label>
+          <label>UUID воздушного судна<input name="plane" type="text" placeholder="необязательно, если борт ещё не известен" defaultValue={savedPlane} /></label>
           <label>Тип неисправности
             <select name="issue" required defaultValue={ISSUES[0][0]}>
               {ISSUES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}

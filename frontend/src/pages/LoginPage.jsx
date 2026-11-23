@@ -40,7 +40,14 @@ export default function LoginPage() {
     }
   }, [navigate]);
 
+  function prefetchRole(nextRole) {
+    if (nextRole === "Mcc") import("./MccPage.jsx");
+    if (nextRole === "Dispatcher") import("./DispatcherPage.jsx");
+    if (nextRole === "Engineer") import("./WorkerPage.jsx");
+  }
+
   function openRole(nextRole) {
+    prefetchRole(nextRole);
     if (nextRole === "Mcc") {
       navigate("/mcc");
       return;
@@ -185,19 +192,19 @@ export default function LoginPage() {
           </section>
         ) : (
           <div className="role-grid">
-            <button className="role-card" type="button" onClick={() => openRole("Mcc")}>
+            <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Mcc")} onFocus={() => prefetchRole("Mcc")} onClick={() => openRole("Mcc")}>
               <span className="role-card-number">01</span>
               <h2>ЦПУ</h2>
               <p>Фиксирует замечание экипажа или сотрудника и передаёт его начальнику смены. Исполнителя не назначает.</p>
               <span>Передать замечание</span>
             </button>
-            <button className="role-card" type="button" onClick={() => openRole("Dispatcher")}>
+            <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Dispatcher")} onFocus={() => prefetchRole("Dispatcher")} onClick={() => openRole("Dispatcher")}>
               <span className="role-card-number">02</span>
               <h2>Начальник смены</h2>
               <p>Принимает заявку от ЦПУ, назначает инженера и подтверждает снятие после статуса «в работе».</p>
               <span>Войти как начальник смены</span>
             </button>
-            <button className="role-card" type="button" onClick={() => openRole("Engineer")}>
+            <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Engineer")} onFocus={() => prefetchRole("Engineer")} onClick={() => openRole("Engineer")}>
               <span className="role-card-number">03</span>
               <h2>Инженер</h2>
               <p>Принимает или отклоняет заявку, меняет статус, идёт по маршруту, ставит AOG и категорию MEL.</p>
