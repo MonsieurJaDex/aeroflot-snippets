@@ -20,6 +20,7 @@ import {
   createDefect,
   departAircraft,
   downloadJournalCsv,
+  getRoute,
   loadAlerts,
   loadMovements,
   loadStaff,
@@ -118,6 +119,8 @@ export default function DispatcherPage() {
   const [departPending, setDepartPending] = useState(false);
   const [arriveNote, setArriveNote] = useState("");
   const [arrivePending, setArrivePending] = useState(false);
+  const [routeNote, setRouteNote] = useState("");
+  const [routePending, setRoutePending] = useState(false);
   const [movements, setMovements] = useState([]);
   const [layersOn, setLayersOn] = useState(layersRef.current);
 
@@ -669,6 +672,31 @@ export default function DispatcherPage() {
     }
   }
 
+  async function onPreviewRoute() {
+    const plane = aircraft.find((item) => item.id === planeId);
+    if (!plane?.point) {
+      setRouteNote("Выберите борт.");
+      return;
+    }
+    setRoutePending(true);
+    setRouteNote("");
+    try {
+      const [staff, busy] = await Promise.all([loadStaff(), loadBusyEngineerIds()]);
+      const free = (staff.plotted || []).find((agent) => !busy.has(String(agent.id)) && Array.isArray(agent.point));
+      if (!free?.point) {
+        setRouteNote("Нет свободного инженера с координатами для пробы маршрута.");
+        return;
+      }
+      const data = await getRoute(free.point, plane.point);
+      const cells = Number(data?.distance);
+      setRouteNote(`Проба: ${free.name || "инженер"} → борт · ${Number.isFinite(cells) ? cells : "?"} клеток`);
+    } catch (error) {
+      setRouteNote(assignErrorMessage(error));
+    } finally {
+      setRoutePending(false);
+    }
+  }
+
   async function onArrivePlane() {
     const plane = aircraft.find((item) => item.id === planeId);
     if (!plane?.point) {
@@ -818,6 +846,10 @@ export default function DispatcherPage() {
             {departPending ? "Фиксация…" : "Зафиксировать вылет борта"}
           </button>
           {departNote ? <p className="fault-hint">{departNote}</p> : null}
+          <button type="button" className="shift-button" disabled={routePending || !planeId} onClick={onPreviewRoute}>
+            {routePending ? "Считаем…" : "Проба маршрута getRoute"}
+          </button>
+          {routeNote ? <p className="fault-hint">{routeNote}</p> : null}
           <button id="assign-button" type="button" disabled={pending} onClick={() => actions.current.assign?.()}>Назначить инженера</button>
           <div className={result.type === "ok" ? "assignment-result success" : "assignment-result"}>
             {result.type === "ok" ? (

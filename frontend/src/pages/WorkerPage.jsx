@@ -529,8 +529,8 @@ export default function WorkerPage() {
     setBusyAction("aog");
     try {
       const data = await apiRequest("/api/tasks/current/aog", {
-        method: "POST",
-        body: { toggle: !aogOn },
+        method: "PUT",
+        body: { aog: !aogOn },
       });
       setAogOn(Boolean(data?.aog));
       setToast(data?.aog ? "Самолёт отмечен как AOG" : "AOG снят");

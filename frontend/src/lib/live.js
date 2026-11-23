@@ -179,6 +179,13 @@ export async function updateEngineerPosition(id, batch) {
   });
 }
 
+export async function getRoute(startPoint, endPoint) {
+  return apiRequest("/api/getRoute", {
+    method: "POST",
+    body: { start_point: startPoint, end_point: endPoint },
+  });
+}
+
 export async function trainClassifier() {
   return apiRequest("/api/classify/train", { method: "POST" });
 }
