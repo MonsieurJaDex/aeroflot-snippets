@@ -4,7 +4,7 @@ import L from "leaflet";
 import NetBanner from "../components/NetBanner.jsx";
 import StatusChain from "../components/StatusChain.jsx";
 import { engineerTypeLabel, issueLabel } from "../lib/catalog.js";
-import { formatEta } from "../lib/format.js";
+import { formatEta, relativeRu } from "../lib/format.js";
 import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
@@ -102,6 +102,8 @@ export default function WorkerPage() {
   const etaArrivedBeep = useRef("");
   const staleBeepAt = useRef(0);
   const lastRouteRefresh = useRef(0);
+  const lastSpokenHint = useRef("");
+  const lastGeoAt = useRef(0);
 
   taskRef.current = task;
 
@@ -190,6 +192,7 @@ export default function WorkerPage() {
       const t = Math.floor(Date.now() / 1000);
       try {
         await updateEngineerPosition(current.userId, [[point, t]]);
+        lastGeoAt.current = Date.now();
         setOutboxCount(pendingCount());
         // п.8: после новой геоточки пересчитываем маршрут на сервере (не чаще 15 с).
         const taskId = taskRef.current?.id;
@@ -292,6 +295,22 @@ export default function WorkerPage() {
     setToastKind(kind);
     setToast(text);
   }
+
+  useEffect(() => {
+    if (!routeHint || routeHint === lastSpokenHint.current) return undefined;
+    if (typeof window === "undefined" || !window.speechSynthesis) return undefined;
+    lastSpokenHint.current = routeHint;
+    const timer = window.setTimeout(() => {
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(routeHint);
+        utter.lang = "ru-RU";
+        utter.rate = 1.05;
+        window.speechSynthesis.speak(utter);
+      } catch { /* TTS optional */ }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [routeHint]);
 
   useEffect(() => {
     const out = outboxCount ? ` · гео ${outboxCount}` : "";
@@ -904,7 +923,11 @@ export default function WorkerPage() {
             : etaClock ? <span className="worker-task-badge">ETA {etaClock}</span>
               : minutes != null ? <span className="worker-task-badge">ETA {minutes} мин</span> : null}
           {task?.arrived ? <span className="worker-task-badge">Прибыл</span> : null}
-          {pollStale ? <span className="worker-task-badge stale">Нет связи</span> : null}
+          {pollStale ? (
+            <span className="worker-task-badge stale" title={lastGeoAt.current ? `Последняя гео ${new Date(lastGeoAt.current).toLocaleTimeString("ru-RU")}` : ""}>
+              Нет связи{lastGeoAt.current ? ` · гео ${relativeRu(lastGeoAt.current, Date.now())}` : ""}
+            </span>
+          ) : null}
         </div>
 
         <StatusChain current={step} />
