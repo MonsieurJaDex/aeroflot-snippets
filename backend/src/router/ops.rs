@@ -391,7 +391,6 @@ pub async fn reassign_request(
         &mut pg_conn,
         &mut redis_conn,
         &task,
-        auth_user.id,
     )
     .await?;
     let row = plan

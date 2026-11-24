@@ -1217,7 +1217,6 @@ pub async fn assign_engineer(
         &mut pg_conn,
         &mut redis_conn,
         &task,
-        auth_user.id,
     )
     .await?;
     let candidates: Vec<AssignmentCandidate> = plan
@@ -1371,7 +1370,6 @@ pub async fn assign_candidates(
         &mut pg_conn,
         &mut redis_conn,
         &task,
-        auth_user.id,
     )
     .await?;
 
@@ -1454,9 +1452,7 @@ pub(crate) async fn build_candidates(
     pg_conn: &mut diesel::PgConnection,
     redis_conn: &mut redis::Connection,
     task: &Task,
-    actor: Uuid,
 ) -> Result<AssignmentPlan, Response<Body>> {
-    let _ = actor;
     let active = active_map(app_state)?;
     let plane_point = Point::new(task.plane_x, task.plane_y);
     if !active.map.in_bounds(plane_point) {

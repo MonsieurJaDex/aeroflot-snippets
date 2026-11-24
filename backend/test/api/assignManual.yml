@@ -1,7 +1,7 @@
 info:
   name: assignManual
   type: http
-  seq: 60
+  seq: 62
 
 http:
   method: POST

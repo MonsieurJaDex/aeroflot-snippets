@@ -946,3 +946,80 @@ async fn unassign_returns_the_request_to_the_pool_once() {
         StatusCode::BAD_REQUEST,
     );
 }
+
+/// B3: `waiting_part` is not terminal either — the dispatcher may hand the job
+/// to somebody else while the first engineer waits for a part.
+#[tokio::test]
+async fn reassignment_leaves_waiting_part() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let waiting = ctx.engineer(EngineerType::EngineTechnician);
+    let replacement = ctx.engineer(EngineerType::EngineTechnician);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), waiting.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), replacement.id),
+        "5,30",
+    );
+    let request = ctx.seed_task(
+        dispatcher.id,
+        Some(waiting.id),
+        "waiting_part",
+        None,
+        crate::types::map::Point::new(10, 10),
+    );
+
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request}/reassign"),
+            &dispatcher.token,
+            json!({ "engineer_id": replacement.id, "reason": "запчасть привезут позже" }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let task = ctx.task(request);
+    assert_eq!(task.assigned_engineer, Some(replacement.id));
+    assert_eq!(task.status, "assigned");
+    assert!(!task.waiting_part);
+    assert!(task.eta_seconds.unwrap() > 0);
+    assert_ne!(task.task_route, "[]");
+}
+
+/// B4: unassign also works on a started job, and the first engineer stops
+/// holding it.
+#[tokio::test]
+async fn unassign_leaves_in_progress_and_clears_the_engineer() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::EngineTechnician);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+        "5,5",
+    );
+    let request = ctx.seed_task(
+        dispatcher.id,
+        Some(engineer.id),
+        "in_progress",
+        None,
+        crate::types::map::Point::new(10, 10),
+    );
+
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request}/unassign"),
+            &dispatcher.token,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let task = ctx.task(request);
+    assert_eq!(task.status, "unassigned");
+    assert_eq!(task.assigned_engineer, None);
+    assert_eq!(task.task_route, "[]");
+    assert_eq!(task.eta_seconds, None);
+    assert_eq!(task.candidate_ms, None);
+}

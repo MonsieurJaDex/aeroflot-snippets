@@ -1,7 +1,7 @@
 info:
   name: assignCandidates
   type: http
-  seq: 59
+  seq: 61
 
 http:
   method: POST
@@ -52,7 +52,10 @@ runtime:
         });
     - type: after-response
       code: |-
-        bru.setVar("candidate_engineer_id", res.body.candidates[0].engineer_id);
+        const best = res.body.candidates.find((row) => row.eligible);
+        if (best) {
+          bru.setVar("candidate_engineer_id", best.engineer_id);
+        }
 
 settings:
   encodeUrl: true

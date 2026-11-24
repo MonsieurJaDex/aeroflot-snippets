@@ -1,0 +1,51 @@
+info:
+  name: createRequestCandidates
+  type: http
+  seq: 59
+
+http:
+  method: POST
+  url: "{{HOST}}/requests"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "text": "уход гироплатформы ИНС",
+        "note": "Цепочка превью кандидатов",
+        "plane_uuid": "{{aircraft_id}}",
+        "point": [10, 10],
+        "ata_chapter": "30",
+        "urgency": "aog",
+        "source": "mcc"
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Начало цепочки B1-B4: заявка создаётся как `crew_remark`, следующий шаг
+    ставит её в пул (`queueRequestCandidates` → `unassigned`).
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.status
+      operator: eq
+      value: "crew_remark"
+  scripts:
+    - type: after-response
+      code: |-
+        bru.setVar("candidates_id", res.body.id);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
