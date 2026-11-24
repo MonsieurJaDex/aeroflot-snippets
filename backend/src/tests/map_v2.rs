@@ -247,3 +247,127 @@ async fn engineer_can_leave_the_apron_on_pedestrian_paths() {
         StatusCode::OK,
     );
 }
+
+/// The point of the v2 format: two routes of the *same length* through
+/// sections posted at different speeds must cost different time, and that time
+/// must reach the caller instead of dying inside `PlannedRoute`.
+#[tokio::test]
+async fn equal_length_routes_cost_by_section_speed_and_report_eta() {
+    let ctx = TestContext::with_map(Some(REAL_MAP)).await;
+    let dispatcher = ctx.dispatcher();
+    let active = ctx.state.active.read().expect("active map").clone();
+
+    // Locate a straight run of a given posted speed, longest first, so the
+    // test does not hardcode coordinates that a re-export of the map changes.
+    let palette = &active.document.palette;
+    let section = |kmh: i64, min_len: usize| -> Option<((i64, i64), (i64, i64), i64)> {
+        let ids: Vec<i64> = palette
+            .iter()
+            .filter(|entry| entry.allows_road() && entry.spd_kmh == kmh)
+            .map(|entry| entry.id)
+            .collect();
+        assert!(!ids.is_empty(), "the map must post a {kmh} km/h road section");
+        let matrix = &active.map.0;
+        let height = matrix.len();
+        let width = matrix[0].len();
+        let mut best: Option<((i64, i64), (i64, i64), i64)> = None;
+        for (y, row) in matrix.iter().enumerate() {
+            let mut x = 0;
+            while x < width {
+                if !ids.contains(&row[x]) {
+                    x += 1;
+                    continue;
+                }
+                let from = x;
+                while x < width && ids.contains(&row[x]) {
+                    x += 1;
+                }
+                let len = x - from;
+                if len >= min_len && best.is_none_or(|(_, _, b)| (len as i64) > b) {
+                    best = Some((
+                        (from as i64, y as i64),
+                        ((x - 1) as i64, y as i64),
+                        len as i64,
+                    ));
+                }
+            }
+        }
+        let _ = height;
+        best
+    };
+
+    let slow = section(5, 3).expect("a 5 km/h section");
+    let fast = section(20, 3).expect("a 20 km/h section");
+    // Equal length is what makes the comparison about speed only.
+    let steps = slow.2.min(fast.2).min(12);
+    assert!(steps >= 3, "both sections must have a comparable run");
+    let slow_leg = (slow.0, (slow.0 .0 + steps - 1, slow.0 .1));
+    let fast_leg = (fast.0, (fast.0 .0 + steps - 1, fast.0 .1));
+
+    let route = |leg: ((i64, i64), (i64, i64)), agent: &str| {
+        json!({
+            "start_point": [leg.0 .0, leg.0 .1],
+            "end_point": [leg.1 .0, leg.1 .1],
+            "agent": agent,
+        })
+    };
+
+    let slow_body = expect_status(
+        ctx.post("/api/getRoute", &dispatcher.token, route(slow_leg, "vehicle"))
+            .await,
+        StatusCode::OK,
+    );
+    let fast_body = expect_status(
+        ctx.post("/api/getRoute", &dispatcher.token, route(fast_leg, "vehicle"))
+            .await,
+        StatusCode::OK,
+    );
+
+    // Same number of cells: the length is not what differs.
+    assert_eq!(
+        slow_body["route"].as_array().unwrap().len(),
+        fast_body["route"].as_array().unwrap().len(),
+        "the two legs must have the same length for the comparison to mean anything"
+    );
+
+    let slow_eta = slow_body["eta_seconds"].as_u64().expect("eta_seconds on a route");
+    let fast_eta = fast_body["eta_seconds"].as_u64().expect("eta_seconds on a route");
+    assert!(slow_eta > 0 && fast_eta > 0);
+    assert_eq!(slow_body["agent"], "vehicle");
+    assert_eq!(fast_body["agent"], "vehicle");
+    assert!(
+        slow_eta >= fast_eta * 2,
+        "a 5 km/h section ({slow_eta}s) must cost far more than a 20 km/h one ({fast_eta}s) \
+         over the same {steps} cells"
+    );
+
+    // The same cells on foot are one pace: a pedestrian ignores road speeds.
+    let walk_slow = expect_status(
+        ctx.post("/api/getRoute", &dispatcher.token, route(slow_leg, "engineer"))
+            .await,
+        StatusCode::OK,
+    );
+    let walk_fast = expect_status(
+        ctx.post("/api/getRoute", &dispatcher.token, route(fast_leg, "engineer"))
+            .await,
+        StatusCode::OK,
+    );
+    assert_eq!(walk_slow["eta_seconds"], walk_fast["eta_seconds"]);
+    assert_eq!(walk_slow["agent"], "engineer");
+
+    // Omitting the field keeps the old pedestrian meaning.
+    let legacy = expect_status(
+        ctx.post(
+            "/api/getRoute",
+            &dispatcher.token,
+            json!({
+                "start_point": [fast_leg.0 .0, fast_leg.0 .1],
+                "end_point": [fast_leg.1 .0, fast_leg.1 .1],
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(legacy["agent"], "engineer");
+    assert_eq!(legacy["eta_seconds"], walk_fast["eta_seconds"]);
+}

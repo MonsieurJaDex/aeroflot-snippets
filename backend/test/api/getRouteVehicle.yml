@@ -1,0 +1,38 @@
+info:
+  name: getRouteVehicle
+  type: http
+  seq: 14
+
+http:
+  method: POST
+  url: "{{HOST}}/getRoute"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "start_point": [294, 232],
+        "end_point": [306, 232],
+        "agent": "vehicle"
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.eta_seconds
+      operator: gt
+      value: "0"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

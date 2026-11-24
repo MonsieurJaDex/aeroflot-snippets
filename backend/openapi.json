@@ -805,6 +805,10 @@
         "additionalProperties": false,
         "description": "Request payload for the `get_route` endpoint.",
         "properties": {
+          "agent": {
+            "$ref": "#/components/schemas/RouteAgent",
+            "description": "Who travels. Omitted means `engineer`, keeping the old behaviour."
+          },
           "end_point": {
             "$ref": "#/components/schemas/Point",
             "description": "Destination point of the route."
@@ -823,8 +827,18 @@
       "GetRouteResponse": {
         "description": "Response payload for the `get_route` endpoint.",
         "properties": {
+          "agent": {
+            "$ref": "#/components/schemas/RouteAgent",
+            "description": "Who the route was planned for."
+          },
           "distance": {
             "description": "Total path length in map cells.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "eta_seconds": {
+            "description": "Estimated travel time in seconds at the per-section speeds of the map.\nTwo routes of equal `distance` differ here when they cross different\nspeed classes (a 20 km/h service section against a 5 km/h one).",
+            "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
@@ -835,7 +849,9 @@
         },
         "required": [
           "route",
-          "distance"
+          "distance",
+          "eta_seconds",
+          "agent"
         ],
         "type": "object"
       },
@@ -1476,6 +1492,14 @@
           "$ref": "#/components/schemas/Point"
         },
         "type": "array"
+      },
+      "RouteAgent": {
+        "description": "Who travels the route. A pedestrian ignores the posted road speeds (a\nperson walks at the same pace on an apron and on an airfield), while a\nground vehicle keeps the speed of each section and therefore pays very\ndifferently on a 5 km/h service road and on a 20 km/h one.",
+        "enum": [
+          "engineer",
+          "vehicle"
+        ],
+        "type": "string"
       },
       "SelectMapRequest": {
         "additionalProperties": false,

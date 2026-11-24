@@ -380,18 +380,26 @@ pub async fn get_route(
     if !active.map.in_bounds(payload.start_point) || !active.map.in_bounds(payload.end_point) {
         return Err(bad_request("point is outside of map bounds"));
     }
+    let agent = match payload.agent {
+        crate::types::dto::RouteAgent::Engineer => crate::graph::AgentKind::Engineer,
+        crate::types::dto::RouteAgent::Vehicle => crate::graph::AgentKind::Vehicle,
+    };
     let planned = active
         .location
         .graph
-        .route_stops(
-            crate::graph::AgentKind::Engineer,
-            &[payload.start_point, payload.end_point],
-        )
+        .route_stops(agent, &[payload.start_point, payload.end_point])
         .map_err(|error| bad_request(error.to_string()))?;
     let route = Route::new(planned.points);
 
     let distance = route.len();
-    Ok(Json(GetRouteResponse { route, distance }).into_response())
+    let eta_seconds = planned.seconds.ceil() as u64;
+    Ok(Json(GetRouteResponse {
+        route,
+        distance,
+        eta_seconds,
+        agent: payload.agent,
+    })
+    .into_response())
 }
 
 // ---------------------------------------------------------------------------

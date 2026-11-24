@@ -191,20 +191,47 @@ pub fn vehicle_speed_mps(at: Point, class: SpeedClass) -> f64;  // Runway arm ad
 pub fn max_vehicle_speed_mps() -> f64;                  // includes Runway / palette max
 pub fn graph_from_grid(
     matrix: &MapMatrix,
-    road_ids: &HashSet<i64>,
-    walk_ids: &HashSet<i64>,
+    road_of: &dyn Fn(i64) -> Option<SpeedClass>,    // palette lookup; None = no vehicle
+    walk_of: &dyn Fn(i64) -> Option<SpeedClass>,    // palette lookup; None = not walkable
     closed: &HashSet<(i64, i64)>,
     cell_size_m: f64,
     origin_lat: f64,
     origin_lon: f64,
-    speed_of: &dyn Fn(i64) -> Option<SpeedClass>,   // palette lookup; None = impassable
 ) -> RoadGraph;
 ```
+
+Two lookups, not one set: a cell may be drivable but not walkable, and a
+pedestrian-only cell must still become a node (it is how an engineer leaves the
+apron). An edge carries the class of the cell it enters and pays the *lower* of
+the two speeds when it crosses a class boundary, so a section is a corridor
+rather than a single cell.
 
 `GraphEdge.speed` carries the winning cell's `SpeedClass`, so A* travel time is
 per-section, not 10 km/h everywhere. `RoadGraph::max_vehicle_speed_mps` (or the
 existing free function) reports the fastest class present, and `track.rs`'s
 plausibility ceiling is `max(sidecar.max_speed_mps, map.max_spd_kmh / 3.6)`.
+
+## Routing over sections — `POST /api/getRoute`
+
+Body: `{ "start_point": [x, y], "end_point": [x, y], "agent": "engineer" | "vehicle" }`.
+
+* `agent` is optional and defaults to `engineer`, which is the pre-v2 behaviour:
+  a pedestrian walks at `Walk` speed on every walkable cell, so the posted road
+  speeds do **not** change a pedestrian's ETA. That is deliberate — a person
+  walks as fast on a 20 km/h service road as on a 5 km/h one.
+* `agent: "vehicle"` plans on `layers.road` and charges each edge the posted
+  speed of the section it enters (the lower of the two on a class boundary).
+  The runway is capped at airfield speed for a vehicle: 300 km/h is the
+  aircraft's, not a tug's.
+
+Response: `{ "route": [[x, y], ...], "distance": cells, "eta_seconds": s, "agent": ... }`.
+
+`eta_seconds` is the one field that makes the v2 sections observable to a
+client. Two routes of the same `distance` **must** differ there when they cross
+different speed classes. On `assets/it2026_aero.json` the 12-cell run along the
+5 km/h service section (`294,232 → 306,232`) costs 44 s for a vehicle against
+11 s for the equal 12-cell run along the 20 km/h section (`106,75 → 118,75`);
+on foot both cost 44 s.
 
 ## Frontend hand-off (`frontend/**`, not edited from this branch)
 

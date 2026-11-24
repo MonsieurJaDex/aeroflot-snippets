@@ -109,6 +109,12 @@ pub struct GetRouteResponse {
     pub route: Route,
     /// Total path length in map cells.
     pub distance: usize,
+    /// Estimated travel time in seconds at the per-section speeds of the map.
+    /// Two routes of equal `distance` differ here when they cross different
+    /// speed classes (a 20 km/h service section against a 5 km/h one).
+    pub eta_seconds: u64,
+    /// Who the route was planned for.
+    pub agent: RouteAgent,
 }
 
 /// Query window for collection endpoints.
@@ -140,6 +146,20 @@ pub struct ErrorResponse {
     pub request_id: Option<String>,
 }
 
+/// Who travels the route. A pedestrian ignores the posted road speeds (a
+/// person walks at the same pace on an apron and on an airfield), while a
+/// ground vehicle keeps the speed of each section and therefore pays very
+/// differently on a 5 km/h service road and on a 20 km/h one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteAgent {
+    /// An engineer on foot (default): walkable cells only, `Walk` speed.
+    #[default]
+    Engineer,
+    /// A ground vehicle: drivable cells only, the posted speed of each section.
+    Vehicle,
+}
+
 /// Request payload for the `get_route` endpoint.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -148,6 +168,9 @@ pub struct GetRouteRequest {
     pub start_point: Point,
     /// Destination point of the route.
     pub end_point: Point,
+    /// Who travels. Omitted means `engineer`, keeping the old behaviour.
+    #[serde(default)]
+    pub agent: RouteAgent,
 }
 
 // ---------------------------------------------------------------------------

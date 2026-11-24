@@ -82,9 +82,26 @@ gid.
 - `src/maps.rs`, `src/router/mod.rs`, `src/types/dto.rs` — `GET /api/map` теперь
   самодостаточен: `format`, `width`, `height`, `cell_size_m`, `origin`,
   `palette`, `layers`, `objects`, `zones` вместе с `matrix`.
-- `backend/openapi.json` перегенерирован тестом `types::doc::tests::write_openapi`.
+- `src/types/dto.rs`, `src/router/mod.rs` — `POST /api/getRoute` отдаёт
+  **`eta_seconds`** (время A* по скоростям участков) и принимает необязательное
+  поле **`agent`**: `"engineer"` (по умолчанию, пешеход, скорости дорог ему не
+  указ) или `"vehicle"` (машина, платит скорость той секции, в которую входит).
+  Без этого поля скоростные участки были неотличимы через HTTP: ручка жёстко
+  звала `AgentKind::Engineer` и выбрасывала `PlannedRoute.seconds`.
+- `backend/openapi.json` перегенерирован тестом `types::doc::tests::write_openapi`;
+  схемы `GetRouteResponse` (+`eta_seconds`, `agent`) и `RouteAgent` на месте.
 
-### 5. Что НЕ сделано и почему
+### 5. Известное ограничение расчёта
+
+`graph::route_leg` считает подход к первому узлу и отход от последнего по
+скорости `SpeedClass::VehicleApron` (`graph.rs`, строки ~306-307), а не по
+классу той клетки, где стоит агент. Если точка запроса **не** лежит на дороге,
+эти два отрезка оценены приблизительно. Проверка скоростных участков выше этим
+не затронута: обе точки маршрута лежат на клетках своей секции, поэтому
+подход и отход равны нулю. Стоит поправить, когда появится спрос на маршруты
+«от произвольной точки на перроне».
+
+### 6. Что НЕ сделано и почему
 
 `frontend/**` не тронут: по `AGENTS.md` на ветке `backend` писать во фронтенд
 нельзя. Точный контракт правки описан в `backend/assets/MAP_FORMAT_V2.md`
@@ -97,8 +114,8 @@ gid.
 
 | Проверка | Команда | Результат |
 |---|---|---|
-| Тесты парсера | `cargo test --manifest-path tools/parser/Cargo.toml` | 14 passed, 0 failed |
-| Тесты бэкенда (реальные PG + Redis) | `cargo test` в `backend/` | 47 passed, 0 failed |
+| Тесты парсера | `cd tools/parser && cargo test` | 10 passed, 0 failed (+0 doc-tests) |
+| Тесты бэкенда (реальные PG + Redis) | `cd backend && cargo test` | 48 passed, 0 failed |
 | Предупреждения компилятора | `cargo check` в `backend/` | 0 warnings |
 | Реальная карта по HTTP | сервер на `--map-path assets/it2026_aero.json`, `GET /api/map` | `format: 2`, 412×372, палитра 12, road 6, walk 7, 6 объектов, 10 зон |
 | Скоростные участки | `palette` в ответе | `service` 5/8/10/20, `taxi` 10, `pedestrian` 5, `runway` 300 — все на месте |
@@ -111,3 +128,7 @@ gid.
 | TMJ-путь | `tests/tmj_input.rs` на `vdnh.tmj` | 373×414, road gids сохранены |
 | Детерминизм сборки | `tests/v2_format.rs::build_is_deterministic` | две сборки идентичны |
 | Артефакт соответствует коду | `tests/v2_format.rs::committed_artefact_matches_a_fresh_build` | ok |
+| **Скоростные участки на живом HTTP** | `cargo run -- --map-path assets/it2026_aero.json`, затем `POST /api/getRoute` с `agent: "vehicle"` | 5 км/ч: `(294,232)→(306,232)` — 13 клеток, `eta_seconds: 44`; 20 км/ч: `(106,75)→(118,75)` — тоже 13 клеток, `eta_seconds: 11`. Равная длина, разное время |
+| Пешеход не зависит от класса | те же две пары с `agent: "engineer"` | 44 с и 44 с — как и должно быть |
+| Старое поведение сохранено | тот же запрос **без** поля `agent` | `agent: "engineer"`, 44 с |
+| v1-карта жива | `PUT /api/maps/active {"id":"map2"}`, затем `getRoute` | 64×64, маршрут 200, `eta_seconds: 15` |
