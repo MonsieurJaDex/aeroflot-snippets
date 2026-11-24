@@ -8,6 +8,18 @@ function asPoint(point) {
   return [Number(point[0]), Number(point[1])];
 }
 
+// OpenAPI Route = Point[]; Point = [x, y].
+export function normalizeRoute(route) {
+  if (!Array.isArray(route)) return [];
+  const out = [];
+  for (const item of route) {
+    const point = asPoint(item);
+    if (!point || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) continue;
+    out.push(point);
+  }
+  return out;
+}
+
 export async function engineerName(id) {
   const key = String(id);
   if (names.has(key)) return names.get(key);
@@ -225,10 +237,15 @@ export async function updateTransportPosition(id, vehicleType, newPoint) {
 }
 
 export async function getRoute(startPoint, endPoint) {
-  return apiRequest("/api/getRoute", {
+  const data = await apiRequest("/api/getRoute", {
     method: "POST",
     body: { start_point: startPoint, end_point: endPoint },
   });
+  const route = normalizeRoute(data?.route);
+  const distance = Number.isFinite(Number(data?.distance))
+    ? Number(data.distance)
+    : Math.max(0, route.length - 1);
+  return { ...data, route, distance };
 }
 
 export async function trainClassifier() {

@@ -8,7 +8,7 @@ import { formatEta } from "../lib/format.js";
 import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
-import { updateEngineerPosition } from "../lib/live.js";
+import { normalizeRoute, updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { whenVisible } from "../lib/visibility.js";
 import { CELL_METERS, pointAt, totalMeters, WALK_MPS } from "../lib/walk.js";
@@ -510,7 +510,7 @@ export default function WorkerPage() {
     }
 
     function renderRoute(nextTask) {
-      const route = nextTask && Array.isArray(nextTask.route) ? nextTask.route : [];
+      const route = nextTask ? normalizeRoute(nextTask.route) : [];
       if (!bag.map || !tmj) return;
       if (!nextTask || route.length < 2) {
         stopWalk({ keepSelf: true });
@@ -625,7 +625,7 @@ export default function WorkerPage() {
     .join("")
     .slice(0, 2)
     .toUpperCase() || "--";
-  const route = Array.isArray(task?.route) ? task.route : [];
+  const route = task ? normalizeRoute(task.route) : [];
   const routeText = !task ? "" : route.length < 2 ? "Вы уже у воздушного судна." : `Маршрут: ${Math.max(0, route.length - 1)} клеток`;
   const step = chainStep(task, statusStep);
   const minutes = task ? etaMinutes(task.eta_seconds) : null;

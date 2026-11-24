@@ -27,6 +27,7 @@ import {
   loadMovements,
   loadStaff,
   loadTransport,
+  normalizeRoute,
   postTrackPoint,
   queueRequest,
   reassignRequest,
@@ -619,6 +620,22 @@ export default function DispatcherPage() {
             else map.removeLayer(walk.line);
           }
         },
+        previewRoute(gridRoute, label = "Проба getRoute") {
+          routeExtrasLayer.clearLayers();
+          const route = normalizeRoute(gridRoute);
+          if (route.length < 2) return null;
+          const centers = route.map(([x, y]) => [x + 0.5, y + 0.5]);
+          const line = L.polyline(centers.map((center) => centerToLatLng(tmj, center)), {
+            color: "#00529b",
+            weight: 4,
+            opacity: 0.85,
+            dashArray: "8 6",
+          }).addTo(routeExtrasLayer);
+          line.bindTooltip(label, { sticky: true });
+          if (!showRoute) map.removeLayer(routeExtrasLayer);
+          else map.fitBounds(line.getBounds(), { padding: [80, 80], maxZoom: 3 });
+          return line;
+        },
         async assign() {
           const form = formRef.current;
           const plane = aircraftNow.find((item) => item.id === form.planeId);
@@ -649,7 +666,7 @@ export default function DispatcherPage() {
                 request_id: mccItem?.serverId || null,
               },
             });
-            const gridRoute = Array.isArray(response.route) ? response.route.map(([x, y]) => [x, y]) : [];
+            const gridRoute = normalizeRoute(response.route);
             const assignedName = await engineerName(response.engineer_uuid);
             routeExtrasLayer.clearLayers();
             startWalk(response.engineer_uuid, assignedName, gridRoute);
@@ -1084,8 +1101,10 @@ export default function DispatcherPage() {
       }
       const data = await getRoute(free.point, plane.point);
       const cells = Number(data?.distance);
+      const route = normalizeRoute(data?.route);
+      actions.current.previewRoute?.(route, `${free.name || "инженер"} → борт`);
       softBeep(560, 100);
-      setRouteNote(`Проба: ${free.name || "инженер"} → борт · ${Number.isFinite(cells) ? cells : "?"} клеток`);
+      setRouteNote(`Проба: ${free.name || "инженер"} → борт · ${Number.isFinite(cells) ? cells : Math.max(0, route.length - 1)} клеток · OpenAPI getRoute`);
     } catch (error) {
       setRouteNote(assignErrorMessage(error));
       softBeep(320, 200);
