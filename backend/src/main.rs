@@ -45,6 +45,8 @@ mod models;
 mod parser;
 mod rank;
 mod router;
+#[cfg(test)]
+mod tests;
 mod types;
 mod utils;
 
@@ -164,6 +166,34 @@ async fn main() {
         classifier,
     });
 
+    // application router
+    let app = build_app(Arc::clone(&app_state));
+
+    // server start
+    let server_addr = format!("{}:{}", &app_config.host, &app_config.port);
+
+    let listener = match tokio::net::TcpListener::bind(&server_addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("failed to bind {}: {}", server_addr, e);
+            process::exit(1);
+        }
+    };
+    tracing::info!("Running server at: http://{server_addr}");
+
+    if let Err(e) = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+    {
+        tracing::error!("server error: {}", e);
+    }
+}
+
+/// Builds the `/api` router with authentication and authorization middleware.
+///
+/// Kept separate from [`build_app`] so tests can exercise the handlers without
+/// the Swagger UI and the outer HTTP layers.
+fn build_api_router(app_state: Arc<AppState>) -> Router {
     // authentication and authorization router
     let auth_public = Router::new()
         .route("/register", post(router::auth::register_handler))
@@ -254,16 +284,21 @@ async fn main() {
         ));
 
     // global API router
-    let api_routes = Router::new()
-        .route("/v1/track", post(router::track::ingest))
+    Router::new()
+        .route(
+            "/v1/track",
+            post(router::track::ingest).get(router::track::ingest_query),
+        )
         .nest("/auth", auth_router)
         .nest("/geo", geo_routes)
         .merge(protected_routes)
-        .with_state(Arc::clone(&app_state));
+        .with_state(app_state)
+}
 
-    // application router
-    let app = Router::new()
-        .nest("/api", api_routes)
+/// Builds the complete application: `/api`, Swagger UI and HTTP layers.
+fn build_app(app_state: Arc<AppState>) -> Router {
+    Router::new()
+        .nest("/api", build_api_router(Arc::clone(&app_state)))
         .merge(SwaggerUi::new("/swagger").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
@@ -274,26 +309,7 @@ async fn main() {
         ))
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
         .layer(PropagateRequestIdLayer::x_request_id())
-        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid));
-
-    // server start
-    let server_addr = format!("{}:{}", &app_config.host, &app_config.port);
-
-    let listener = match tokio::net::TcpListener::bind(&server_addr).await {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::error!("failed to bind {}: {}", server_addr, e);
-            process::exit(1);
-        }
-    };
-    tracing::info!("Running server at: http://{server_addr}");
-
-    if let Err(e) = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-    {
-        tracing::error!("server error: {}", e);
-    }
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
 }
 
 async fn shutdown_signal() {

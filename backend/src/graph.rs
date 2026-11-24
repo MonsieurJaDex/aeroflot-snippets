@@ -14,6 +14,10 @@ pub const VEHICLE_STAND_KMH: f64 = 5.0;
 pub const VEHICLE_TERMINAL_KMH: f64 = 8.0;
 pub const VEHICLE_APRON_KMH: f64 = 10.0;
 pub const VEHICLE_AIRFIELD_KMH: f64 = 20.0;
+/// Runway section. The real map posts 300 km/h there, which no vehicle in the
+/// palette can exceed; the class exists so the section keeps its own speed
+/// instead of collapsing into apron speed.
+pub const RUNWAY_KMH: f64 = 300.0;
 pub const TOOL_DELAY_SECS: f64 = 30.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,13 +26,65 @@ pub enum AgentKind {
     Vehicle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpeedClass {
     Walk,
     VehicleStand,
     VehicleTerminal,
     VehicleApron,
     VehicleAirfield,
+    Runway,
+}
+
+impl SpeedClass {
+    /// Name used by the map palette (`palette[].speed_class`). The inverse of
+    /// [`SpeedClass::from_name`]; kept public so a writer of map files (or a
+    /// test) can spell a class without duplicating the table.
+    #[must_use]
+    #[allow(dead_code)]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Walk => "Walk",
+            Self::VehicleStand => "VehicleStand",
+            Self::VehicleTerminal => "VehicleTerminal",
+            Self::VehicleApron => "VehicleApron",
+            Self::VehicleAirfield => "VehicleAirfield",
+            Self::Runway => "Runway",
+        }
+    }
+
+    /// Palette name to class. An unknown name is an apron class: the map file
+    /// may grow kinds the backend does not know yet, and refusing the whole
+    /// map over one label would be worse than driving slowly.
+    #[must_use]
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "Walk" => Self::Walk,
+            "VehicleStand" => Self::VehicleStand,
+            "VehicleTerminal" => Self::VehicleTerminal,
+            "VehicleAirfield" => Self::VehicleAirfield,
+            "Runway" => Self::Runway,
+            _ => Self::VehicleApron,
+        }
+    }
+
+    /// Posted speed of this class, km/h.
+    #[must_use]
+    pub fn kmh(self) -> f64 {
+        match self {
+            Self::Walk => walk_speed_kmh(),
+            Self::VehicleStand => vehicle_stand_speed_kmh(),
+            Self::VehicleTerminal => vehicle_terminal_speed_kmh(),
+            Self::VehicleApron => vehicle_apron_speed_kmh(),
+            Self::VehicleAirfield => vehicle_airfield_speed_kmh(),
+            Self::Runway => runway_speed_kmh(),
+        }
+    }
+}
+
+/// Runway speed. Later this can depend on the cell.
+pub fn runway_speed_kmh() -> f64 {
+    RUNWAY_KMH
 }
 
 /// Walking speed. Later this can depend on the cell; today it is the constant.
@@ -65,16 +121,22 @@ pub fn engineer_speed_mps(_at: Point) -> f64 {
     kmh_to_mps(walk_speed_kmh())
 }
 
+/// Speed a ground vehicle may actually travel on a class, km/h.
+///
+/// The posted speed of a runway section (300 km/h) is the aircraft's, not a
+/// tug's: a vehicle entering it keeps the airfield cap. The posted speed stays
+/// in the palette, where the GPS plausibility filter reads it.
+#[must_use]
+pub fn vehicle_cap_kmh(class: SpeedClass) -> f64 {
+    match class {
+        SpeedClass::Runway => vehicle_airfield_speed_kmh(),
+        other => other.kmh(),
+    }
+}
+
 /// Vehicle speed at a cell for an edge class, metres per second.
 pub fn vehicle_speed_mps(_at: Point, class: SpeedClass) -> f64 {
-    let kmh = match class {
-        SpeedClass::Walk => walk_speed_kmh(),
-        SpeedClass::VehicleStand => vehicle_stand_speed_kmh(),
-        SpeedClass::VehicleTerminal => vehicle_terminal_speed_kmh(),
-        SpeedClass::VehicleApron => vehicle_apron_speed_kmh(),
-        SpeedClass::VehicleAirfield => vehicle_airfield_speed_kmh(),
-    };
-    kmh_to_mps(kmh)
+    kmh_to_mps(vehicle_cap_kmh(class))
 }
 
 /// Upper bound used by A*. Future per-cell speeds must stay at or below it.
@@ -91,6 +153,7 @@ pub fn max_vehicle_speed_mps() -> f64 {
         SpeedClass::VehicleTerminal,
         SpeedClass::VehicleApron,
         SpeedClass::VehicleAirfield,
+        SpeedClass::Runway,
     ]
     .into_iter()
     .map(|class| vehicle_speed_mps(origin, class))
@@ -138,16 +201,19 @@ pub struct PlannedRoute {
 
 impl RoadGraph {
     #[allow(dead_code)]
+    /// Cell -> WGS-84. `y` grows south, matching `map[y][x]` row order, so
+    /// row 0 is the northern edge of the map.
     pub fn project(&self, x: i64, y: i64) -> (f64, f64) {
-        let north = (y as f64) * self.cell_size_m / 111_320.0;
-        let lat = self.origin_lat + north;
+        let south = (y as f64) * self.cell_size_m / 111_320.0;
+        let lat = self.origin_lat - south;
         let cos = (self.origin_lat.to_radians()).cos().max(0.2);
         let east = (x as f64) * self.cell_size_m / (111_320.0 * cos);
         (lat, self.origin_lon + east)
     }
 
+    /// WGS-84 -> cell, inverse of [`RoadGraph::project`].
     pub fn unproject(&self, lat: f64, lon: f64) -> (f64, f64) {
-        let y = (lat - self.origin_lat) * 111_320.0 / self.cell_size_m;
+        let y = (self.origin_lat - lat) * 111_320.0 / self.cell_size_m;
         let cos = (self.origin_lat.to_radians()).cos().max(0.2);
         let x = (lon - self.origin_lon) * 111_320.0 * cos / self.cell_size_m;
         (x, y)
@@ -463,10 +529,49 @@ impl GraphBuilder {
     }
 }
 
-/// Walkable cells become nodes. Four-neighbour links are open roads.
+/// Cells a palette marks as traversable become nodes; four-neighbour links
+/// become edges.
+///
+/// Each edge carries the [`SpeedClass`] of the cell being entered, so a route
+/// costs what the map posts per section instead of one flat apron speed.
+/// `road_of` returns the drivable class of a cell (and `None` when a vehicle
+/// may not enter it), `walk_of` the walkable one. A cell that is walkable but
+/// not drivable — a pedestrian path — gets an engineer-only edge, which is how
+/// the engineer leaves the apron in the real airport map.
+#[cfg(test)]
 pub fn graph_from_grid(
     matrix: &crate::types::map::MapMatrix,
-    road_values: &HashSet<i64>,
+    road_of: &dyn Fn(i64) -> Option<SpeedClass>,
+    walk_of: &dyn Fn(i64) -> Option<SpeedClass>,
+    closed: &HashSet<(i64, i64)>,
+    cell_size_m: f64,
+    origin_lat: f64,
+    origin_lon: f64,
+) -> RoadGraph {
+    graph_from_grid_with_overlays(
+        matrix,
+        road_of,
+        walk_of,
+        &|_, _| None,
+        closed,
+        cell_size_m,
+        origin_lat,
+        origin_lon,
+    )
+}
+
+/// [`graph_from_grid`], plus the classes co-located on a cell.
+///
+/// A v2 map stores one palette id per cell, so where a taxiway crosses a
+/// 20 km/h service road only one speed reaches the matrix. `overlay_of` returns
+/// the other ids for a cell; the edge then costs the **slowest** drivable class
+/// there, because a vehicle on that cell may drive under the strictest limit it
+/// is subject to. Without overlays this is exactly [`graph_from_grid`].
+pub fn graph_from_grid_with_overlays(
+    matrix: &crate::types::map::MapMatrix,
+    road_of: &dyn Fn(i64) -> Option<SpeedClass>,
+    walk_of: &dyn Fn(i64) -> Option<SpeedClass>,
+    overlay_of: &dyn Fn(i64, i64) -> Option<Vec<i64>>,
     closed: &HashSet<(i64, i64)>,
     cell_size_m: f64,
     origin_lat: f64,
@@ -475,7 +580,7 @@ pub fn graph_from_grid(
     let mut builder = GraphBuilder::new(cell_size_m, origin_lat, origin_lon);
     for (y, row) in matrix.0.iter().enumerate() {
         for (x, value) in row.iter().enumerate() {
-            if road_values.contains(value) {
+            if road_of(*value).is_some() || walk_of(*value).is_some() {
                 builder.add_node(x as i64, y as i64);
             }
         }
@@ -484,24 +589,84 @@ pub fn graph_from_grid(
     for (x, y) in coords {
         let from = builder.index[&(x, y)];
         for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
-            let nx = x + dx;
-            let ny = y + dy;
+            let (nx, ny) = (x + dx, y + dy);
             let Some(&to) = builder.index.get(&(nx, ny)) else {
                 continue;
             };
-            let blocked = closed.contains(&(x, y)) || closed.contains(&(nx, ny));
+            let value = matrix.0[ny as usize][nx as usize];
+            let source_value = matrix.0[y as usize][x as usize];
+            let source_road = road_of(source_value);
+            let target_road = road_of(value);
+            let source_walk = walk_of(source_value);
+            let target_walk = walk_of(value);
+            let vehicle = source_road.is_some() && target_road.is_some();
+            let engineer = source_walk.is_some() && target_walk.is_some();
+            if !vehicle && !engineer {
+                continue;
+            }
+            // A section is a corridor: you keep its speed while both cells
+            // belong to it, and slow to the lower of the two when crossing
+            // into a slower class. That is why a route pays the posted speed of
+            // the section it runs along, not one flat apron speed.
+            let speed = match (source_road, target_road) {
+                (Some(a), Some(b)) => {
+                    let mut slowest = if a.kmh() <= b.kmh() { a } else { b };
+                    // A co-located class on either cell tightens the limit.
+                    for (cx, cy) in [(x, y), (nx, ny)] {
+                        let Some(ids) = overlay_of(cx, cy) else {
+                            continue;
+                        };
+                        for id in ids {
+                            if let Some(class) = road_of(id) {
+                                if class.kmh() < slowest.kmh() {
+                                    slowest = class;
+                                }
+                            }
+                        }
+                    }
+                    slowest
+                }
+                _ => source_walk.or(target_walk).unwrap_or(SpeedClass::Walk),
+            };
             builder.add_edge(
                 from,
                 to,
                 cell_size_m,
-                SpeedClass::VehicleApron,
-                true,
-                true,
-                blocked,
+                speed,
+                engineer,
+                vehicle,
+                closed.contains(&(x, y)) || closed.contains(&(nx, ny)),
             );
         }
     }
     builder.finish()
+}
+
+/// Convenience wrapper for the legacy shape: one set of values that is both
+/// drivable and walkable at the same speed, which is what a v1 map means.
+///
+/// The loader never calls it — it goes through [`graph_from_grid`] with the
+/// palette, and a v1 document synthesises apron-speed entries there. This
+/// exists for tests that want a flat grid in one line.
+#[cfg(test)]
+pub fn graph_from_legacy_grid(
+    matrix: &crate::types::map::MapMatrix,
+    road_values: &HashSet<i64>,
+    closed: &HashSet<(i64, i64)>,
+    cell_size_m: f64,
+    origin_lat: f64,
+    origin_lon: f64,
+) -> RoadGraph {
+    let road_of = |value: i64| road_values.contains(&value).then_some(SpeedClass::VehicleApron);
+    graph_from_grid(
+        matrix,
+        &road_of,
+        &road_of,
+        closed,
+        cell_size_m,
+        origin_lat,
+        origin_lon,
+    )
 }
 
 #[cfg(test)]
@@ -514,7 +679,7 @@ mod tests {
     fn route_uses_walk_speed_and_snaps_off_graph() {
         let matrix = MapMatrix(vec![vec![1, 1, 1], vec![0, 0, 0], vec![1, 1, 1]]);
         let roads = HashSet::from([1]);
-        let graph = graph_from_grid(&matrix, &roads, &HashSet::new(), 10.0, 55.83, 37.63);
+        let graph = graph_from_legacy_grid(&matrix, &roads, &HashSet::new(), 10.0, 55.83, 37.63);
         let route = graph
             .route_stops(AgentKind::Engineer, &[Point::new(0, 0), Point::new(2, 0)])
             .expect("route");
@@ -539,5 +704,177 @@ mod tests {
         let (snapped, approach) = graph.snap(lat, lon, AgentKind::Engineer).expect("snap");
         assert!(snapped.1 == 0 || snapped.1 == 2, "{snapped:?}");
         assert!(approach > 0.0);
+    }
+
+    #[test]
+    fn a_fast_section_actually_shortens_vehicle_travel_time() {
+        // Two lanes between the same two columns. The upper lane is apron in
+        // both graphs; the lower lane is apron in the flat graph and a runway
+        // section in the palette graph. Speed is paid per section, so the
+        // paletted route runs the lower lane and arrives sooner.
+        let matrix = MapMatrix(vec![
+            vec![9, 9, 9, 9, 9],
+            vec![9, 9, 9, 9, 9],
+            vec![1, 1, 1, 1, 1],
+            vec![9, 9, 9, 9, 9],
+        ]);
+        let flat = graph_from_legacy_grid(
+            &matrix,
+            &HashSet::from([9, 1]),
+            &HashSet::new(),
+            5.0,
+            55.83,
+            37.63,
+        );
+        let palette = graph_from_grid(
+            &matrix,
+            &|value| match value {
+                0 => None,
+                1 => Some(SpeedClass::Runway),
+                _ => Some(SpeedClass::VehicleApron),
+            },
+            &|value| (value != 0).then_some(SpeedClass::VehicleApron),
+            &HashSet::new(),
+            5.0,
+            55.83,
+            37.63,
+        );
+        let stops = [Point::new(0, 2), Point::new(4, 2)];
+        let flat_route = flat.route_stops(AgentKind::Vehicle, &stops).expect("flat route");
+        let palette_route = palette
+            .route_stops(AgentKind::Vehicle, &stops)
+            .expect("palette route");
+        assert!(
+            palette_route.seconds < flat_route.seconds * 0.75,
+            "a fast section must beat the flat apron: {} vs {}",
+            palette_route.seconds,
+            flat_route.seconds
+        );
+        // A vehicle keeps the airfield cap on a runway section, not 300 km/h.
+        assert!(palette_route.seconds > 0.5);
+    }
+
+    #[test]
+    fn an_overlapped_cell_pays_the_slower_colocated_speed() {
+        // The matrix shows 20 km/h service cells (id 2) all the way. Cells
+        // (1,0) and (2,0) are *also* a 5 km/h service road (id 3), which the
+        // single-value matrix cannot show. The route must pay 5 km/h there.
+        let matrix = MapMatrix(vec![vec![2, 2, 2, 2]]);
+        let closed = HashSet::new();
+        let speed_of = |value: i64| match value {
+            2 => Some(SpeedClass::VehicleAirfield),
+            3 => Some(SpeedClass::VehicleStand),
+            _ => None,
+        };
+        let plain = graph_from_grid(
+            &matrix,
+            &speed_of,
+            &speed_of,
+            &closed,
+            5.0,
+            55.83,
+            37.63,
+        );
+        let overlays = |x: i64, y: i64| {
+            ((x, y) == (1, 0) || (x, y) == (2, 0))
+                .then(|| vec![2, 3])
+                .filter(|_| y == 0)
+        };
+        let overlaid = graph_from_grid_with_overlays(
+            &matrix,
+            &speed_of,
+            &speed_of,
+            &overlays,
+            &closed,
+            5.0,
+            55.83,
+            37.63,
+        );
+        let stops = [Point::new(0, 0), Point::new(3, 0)];
+        let fast = plain.route_stops(AgentKind::Vehicle, &stops).expect("plain route");
+        let slow = overlaid
+            .route_stops(AgentKind::Vehicle, &stops)
+            .expect("overlaid route");
+        assert!(
+            slow.seconds > fast.seconds,
+            "the co-located 5 km/h road must slow the route: {} vs {}",
+            slow.seconds,
+            fast.seconds
+        );
+        // 15 m at 20 km/h plus 10 m at 5 km/h versus 15 m and 10 m at 20 km/h.
+        let expected = 15.0 / kmh_to_mps(20.0) + 10.0 / kmh_to_mps(5.0);
+        assert!(
+            (slow.seconds - expected).abs() < 1.0,
+            "expected about {expected}s through the slow cells, got {}",
+            slow.seconds
+        );
+    }
+
+    #[test]
+    fn walk_only_cells_are_open_to_an_engineer_and_shut_to_a_vehicle() {
+        // Column 0 is a pedestrian path, column 2 is apron, column 1 is empty;
+        // the two are joined at the bottom row.
+        let matrix = MapMatrix(vec![
+            vec![5, 0, 2],
+            vec![5, 0, 2],
+            vec![5, 5, 2],
+        ]);
+        let graph = graph_from_grid(
+            &matrix,
+            &|value| (value == 2).then_some(SpeedClass::VehicleApron),
+            &|value| (value != 0).then_some(SpeedClass::Walk),
+            &HashSet::new(),
+            5.0,
+            55.83,
+            37.63,
+        );
+        let stops = [Point::new(0, 0), Point::new(2, 0)];
+        assert!(
+            graph.route_stops(AgentKind::Engineer, &stops).is_ok(),
+            "the engineer must be able to walk the pedestrian path and step onto the apron"
+        );
+        // A pedestrian path is not a road: a vehicle cannot start there.
+        assert!(
+            graph.route_stops(AgentKind::Vehicle, &stops).is_err(),
+            "a vehicle must not drive a pedestrian path"
+        );
+        // And the engineer may walk where a vehicle may drive.
+        let apron = [Point::new(2, 0), Point::new(2, 1)];
+        assert!(graph.route_stops(AgentKind::Engineer, &apron).is_ok());
+        assert!(graph.route_stops(AgentKind::Vehicle, &apron).is_ok());
+    }
+
+    #[test]
+    fn speed_class_names_round_trip() {
+        for class in [
+            SpeedClass::Walk,
+            SpeedClass::VehicleStand,
+            SpeedClass::VehicleTerminal,
+            SpeedClass::VehicleApron,
+            SpeedClass::VehicleAirfield,
+            SpeedClass::Runway,
+        ] {
+            assert_eq!(SpeedClass::from_name(class.name()), class);
+        }
+        assert_eq!(SpeedClass::from_name("no-such-class"), SpeedClass::VehicleApron);
+    }
+
+    #[test]
+    fn projection_flips_y_so_row_zero_is_north() {
+        let matrix = MapMatrix(vec![vec![1], vec![1]]);
+        let graph = graph_from_legacy_grid(
+            &matrix,
+            &HashSet::from([1]),
+            &HashSet::new(),
+            10.0,
+            55.83,
+            37.63,
+        );
+        let (lat_row0, lon0) = graph.project(0, 0);
+        let (lat_row1, lon1) = graph.project(0, 1);
+        assert!(lat_row0 > lat_row1, "row 0 must be north of row 1");
+        assert!((lon0 - lon1).abs() < 1e-9);
+        let (x, y) = graph.unproject(lat_row1, lon1);
+        assert!(x.abs() < 1e-6 && (y - 1.0).abs() < 1e-6, "unproject inverts project");
     }
 }

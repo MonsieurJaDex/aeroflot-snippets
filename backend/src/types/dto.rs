@@ -27,8 +27,31 @@ pub struct MapResponse {
     pub id: String,
     /// Display name, equal to the file stem.
     pub name: String,
-    /// Grid of walkable cells and obstacles.
+    /// Grid of walkable cells and obstacles. Values are palette ids, `0` is
+    /// empty, so a client must read `palette` to interpret them.
     pub matrix: crate::types::map::MapMatrix,
+    /// Map format generation: `2` for a palette matrix.
+    pub format: u32,
+    /// Width in cells.
+    pub width: usize,
+    /// Height in cells.
+    pub height: usize,
+    /// Side of one cell in metres.
+    pub cell_size_m: f64,
+    /// North-west corner of cell `(0, 0)`.
+    pub origin: crate::types::map::Origin,
+    /// Every class a matrix cell may carry.
+    pub palette: Vec<crate::types::map::PaletteEntry>,
+    /// Which palette ids are drivable and which are walkable.
+    pub layers: crate::types::map::MapLayers,
+    /// Buildings and other named areas.
+    pub objects: Vec<crate::types::map::MapObject>,
+    /// Service zones.
+    pub zones: Vec<crate::types::map::MapZone>,
+    /// Cells claimed by more than one class. `matrix` holds only the winner, so
+    /// a client that needs both speeds on an overlapped cell reads this.
+    #[serde(default)]
+    pub overlays: Vec<crate::types::map::CellOverlay>,
     /// When this process loaded the map file.
     #[schema(format = "date-time")]
     pub updated_at: String,
@@ -90,6 +113,12 @@ pub struct GetRouteResponse {
     pub route: Route,
     /// Total path length in map cells.
     pub distance: usize,
+    /// Estimated travel time in seconds at the per-section speeds of the map.
+    /// Two routes of equal `distance` differ here when they cross different
+    /// speed classes (a 20 km/h service section against a 5 km/h one).
+    pub eta_seconds: u64,
+    /// Who the route was planned for.
+    pub agent: RouteAgent,
 }
 
 /// Query window for collection endpoints.
@@ -121,6 +150,20 @@ pub struct ErrorResponse {
     pub request_id: Option<String>,
 }
 
+/// Who travels the route. A pedestrian ignores the posted road speeds (a
+/// person walks at the same pace on an apron and on an airfield), while a
+/// ground vehicle keeps the speed of each section and therefore pays very
+/// differently on a 5 km/h service road and on a 20 km/h one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteAgent {
+    /// An engineer on foot (default): walkable cells only, `Walk` speed.
+    #[default]
+    Engineer,
+    /// A ground vehicle: drivable cells only, the posted speed of each section.
+    Vehicle,
+}
+
 /// Request payload for the `get_route` endpoint.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -129,6 +172,9 @@ pub struct GetRouteRequest {
     pub start_point: Point,
     /// Destination point of the route.
     pub end_point: Point,
+    /// Who travels. Omitted means `engineer`, keeping the old behaviour.
+    #[serde(default)]
+    pub agent: RouteAgent,
 }
 
 // ---------------------------------------------------------------------------
