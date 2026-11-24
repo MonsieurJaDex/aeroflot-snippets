@@ -1023,3 +1023,45 @@ async fn unassign_leaves_in_progress_and_clears_the_engineer() {
     assert_eq!(task.eta_seconds, None);
     assert_eq!(task.candidate_ms, None);
 }
+
+/// B3 support: the preview the dispatcher uses to pick a replacement also
+/// serves a task that already holds an engineer.
+#[tokio::test]
+async fn candidates_preview_serves_a_task_that_already_has_an_engineer() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let first = ctx.engineer(EngineerType::EngineTechnician);
+    let second = ctx.engineer(EngineerType::EngineTechnician);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), first.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), second.id),
+        "5,30",
+    );
+    let request = ctx.seed_task(
+        dispatcher.id,
+        Some(first.id),
+        "assigned",
+        None,
+        crate::types::map::Point::new(10, 10),
+    );
+
+    let preview = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({ "classifier_text": "seeded issue", "note": "смотрю замену",
+                    "plane_uuid": Uuid::new_v4(), "request_id": request }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(preview["request_id"], request.to_string());
+    // The job does not count against the engineer who already holds it, so the
+    // replacement ranks against an accurate load and nothing is written.
+    assert_eq!(ctx.task(request).assigned_engineer, Some(first.id));
+    assert_eq!(ctx.task(request).status, "assigned");
+    assert!(preview["candidates"].as_array().unwrap().len() >= 2);
+}

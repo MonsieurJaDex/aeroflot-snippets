@@ -445,7 +445,7 @@ pub async fn reassign_request(
 /// A task keeps its engineer until it is done; anything earlier may be moved
 /// to somebody else or dropped back into the pool.
 fn is_reassignable(status: &str) -> bool {
-    matches!(status, "unassigned" | "assigned" | "in_progress" | "waiting_part")
+    !super::is_terminal_status(status)
 }
 
 #[utoipa::path(

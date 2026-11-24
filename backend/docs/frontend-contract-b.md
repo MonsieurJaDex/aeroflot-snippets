@@ -1,0 +1,92 @@
+# B → фронт: контракт трёх ручек (описание, без правок `frontend/**`)
+
+Бэкенд-ветка `backend` не пишет во `frontend/**`. Ниже — что диспетчерскому
+экрану нужно вызвать, чтобы показать кандидатов, назначить выбранного и снять
+инженера с задачи. Пути — как в `main.rs`, с `/api` и с точным регистром.
+
+## 0. Что обязательно в теле (оба assign-ручки)
+
+`AssignEngineerRequest` требует три поля и отвергает неизвестные:
+
+- `classifier_text` — строка (может быть пустой, но поле обязательно);
+- `plane_uuid` — строка с UUID борта; обязательное;
+- `note` — поле обязательное, значение может быть `null`.
+
+`request_id` — обязательный по смыслу: без него `422 request_id is required`,
+потому что назначается всегда существующая заявка в `unassigned`. `issue`
+принимает одно из значений `AircraftIssue` и по умолчанию `other`;
+классификация всё равно идёт по `issue_type` самой заявки, а не по этим полям.
+Поэтому фронту достаточно: `classifier_text`, `note`, `plane_uuid`,
+`request_id` и, для ручного режима, `engineer_id`.
+
+## 1. Превью кандидатов — `POST /api/assign/candidates`
+
+Body — тот же `AssignEngineerRequest`, что у `/api/assign`:
+
+```json
+{ "classifier_text": "…", "plane_uuid": "<uuid>", "note": "…", "request_id": "<uuid>" }
+```
+
+Ответ `200`:
+
+```json
+{
+  "request_id": "<uuid>",
+  "chapter": "30",
+  "candidate_ms": 7,
+  "candidates": [
+    { "engineer_id": "…", "eligible": true, "reason": "…",
+      "eta_seconds": 240, "uses_vehicle": false,
+      "late_seconds": 0.0, "load_penalty": 0.0,
+      "aog_bonus": 120.0, "arrival_bonus": 0.0, "score": 120.0 }
+  ]
+}
+```
+
+Ручка ничего не меняет в `tasks` — её можно звать на каждое открытие карточки и
+после каждого сдвига GPS. Она работает для заявки в `unassigned`, `assigned`,
+`in_progress` и `waiting_part` — то есть годится и для выбора замены при
+переназначении; `done` и `rejected` — `400`. Показывать: `reason`, `eta_seconds`, `score`
+(меньше — лучше), бейджи «AOG» при `aog_bonus > 0` и «только прилетел» при
+`arrival_bonus > 0`; строки с `eligible: false` — серым с `reason` в подсказке.
+`chapter: null` означает, что глава ATA не определена и допуск не ограничивал.
+
+## 2. Назначение — `POST /api/assign` (тот же body + `engineer_id`)
+
+```json
+{ "classifier_text": "…", "plane_uuid": "<uuid>", "note": "…",
+  "request_id": "<uuid>", "engineer_id": "<uuid из candidates>" }
+```
+
+- `engineer_id` задан — назначается именно он; маршрут и `eta_seconds` в ответе
+  построены для него.
+- `engineer_id` не задан — работает прежний автоподбор ближайшего подходящего.
+- `400` — инженер не допущен к главе ATA, занят начатой работой или ждёт
+  запчасть на этом борту; причина в теле (`code`, `message`).
+- `404` — инженер не найден или подходящих нет.
+
+Ответ прежний (`engineer_uuid`, `eta_seconds`, `route`, `candidates`, …), фронт
+может подсветить выбранную строку по `engineer_uuid`.
+
+## 3. Переназначение — `POST /api/requests/{id}/reassign`
+
+```json
+{ "engineer_id": "<uuid>", "reason": "передаю смене" }
+```
+
+Работает из `unassigned`, `assigned`, `in_progress`, `waiting_part`; `done` и
+`rejected` — `400`. Маршрут и `eta_seconds` пересчитываются для нового
+инженера, задача возвращается в `assigned`. В UI: кнопка «Передать» на карточке
+задачи, выбор инженера из того же превью, обязательная причина.
+
+## 4. Снятие — `POST /api/requests/{id}/unassign`
+
+Body пустой (`{}`). Ответ `200 { "id": "…", "status": "unassigned" }`.
+Инженер, маршрут и ETA чистятся, задача возвращается в пул и снова попадает в
+превью. Повторное снятие (задача уже `unassigned`) — `400`. В UI: кнопка
+«Снять с задачи» с подтверждением, рядом с «Передать».
+
+## Чего фронту делать не нужно
+
+`plane_uuid`, `issue`, `note`, `classifier_text` уже читаются бэкендом; тело не
+надо урезать. Никаких новых полей в `/api/assign` кроме `engineer_id`.

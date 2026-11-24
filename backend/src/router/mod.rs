@@ -1211,7 +1211,7 @@ pub async fn assign_engineer(
         internal_error()
     })?;
 
-    let task = load_request_for_assignment(&mut pg_conn, payload.request_id.as_deref())?;
+    let task = load_request_for_assignment(&mut pg_conn, payload.request_id.as_deref(), true)?;
     let plan = build_candidates(
         &app_state,
         &mut pg_conn,
@@ -1364,7 +1364,7 @@ pub async fn assign_candidates(
         internal_error()
     })?;
 
-    let task = load_request_for_assignment(&mut pg_conn, payload.request_id.as_deref())?;
+    let task = load_request_for_assignment(&mut pg_conn, payload.request_id.as_deref(), false)?;
     let plan = build_candidates(
         &app_state,
         &mut pg_conn,
@@ -1416,11 +1416,13 @@ pub(crate) fn assignment_candidate(row: &crate::rank::CandidateScore) -> Assignm
     }
 }
 
-/// Loads the request that is being assigned, refusing anything that is not
-/// waiting for an engineer.
+/// Loads the request the dispatcher is looking at. Assignment needs it in the
+/// pool; the preview also serves tasks that already hold an engineer, because
+/// that is where the dispatcher picks the one to move them to.
 fn load_request_for_assignment(
     pg_conn: &mut diesel::PgConnection,
     request_id: Option<&str>,
+    pool_only: bool,
 ) -> Result<Task, Response<Body>> {
     let request_id = request_id
         .filter(|raw| !raw.is_empty())
@@ -1438,10 +1440,21 @@ fn load_request_for_assignment(
     let Some(task) = task else {
         return Err(not_found("request was not found"));
     };
-    if task.status != "unassigned" {
+    if is_terminal_status(&task.status) {
+        return Err(bad_request(format!(
+            "a request in status {} has no engineers left to rank",
+            task.status
+        )));
+    }
+    if pool_only && task.status != "unassigned" {
         return Err(bad_request("request is not waiting for assignment"));
     }
     Ok(task)
+}
+
+/// A finished job is nobody's to move: `done` and `rejected` are the end.
+pub(crate) fn is_terminal_status(status: &str) -> bool {
+    matches!(status, "done" | "rejected")
 }
 
 /// Ranks every engineer for `task`. Reads only: the classification hint, the
