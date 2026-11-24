@@ -25,3 +25,20 @@ __pycache__
 
 # Jetbrains IDE
 .idea/
+
+# Локальные правила агента этого пользователя. Не для бэкенд-разработчика.
+.cursor/
+
+# Не код: задание, регламент и прочие документы
+*.pdf
+*.doc
+*.docx
+*.rtf
+*регламент*
+frontend/_reglement.txt
+
+# Локальный контракт от бэкендера — не коммитить
+/openapi.json
+/_tz_extract.txt
+/_geodata_new/
+
