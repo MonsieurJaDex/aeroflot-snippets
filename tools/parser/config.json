@@ -1,0 +1,20 @@
+{
+  "source": "geojson",
+  "input_dir": "backend/assets/it2026_aero_geodata",
+  "roads_file": "roads.geojson",
+  "objects_file": "objects.geojson",
+  "zones_file": "service_zones.geojson",
+  "boundary_file": "airport_boundaries.geojson",
+  "cell_size_m": 5.0,
+  "priority": [
+    "runway",
+    "taxi",
+    "service",
+    "pedestrian"
+  ],
+  "stitch_radius_cells": 1,
+  "name": "it2026_aero",
+  "out": "backend/assets/it2026_aero.json",
+  "location_out": "backend/assets/it2026_aero.location.json",
+  "runtime_from": "backend/assets/map2.location.json"
+}

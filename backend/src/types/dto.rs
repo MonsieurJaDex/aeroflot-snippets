@@ -27,8 +27,27 @@ pub struct MapResponse {
     pub id: String,
     /// Display name, equal to the file stem.
     pub name: String,
-    /// Grid of walkable cells and obstacles.
+    /// Grid of walkable cells and obstacles. Values are palette ids, `0` is
+    /// empty, so a client must read `palette` to interpret them.
     pub matrix: crate::types::map::MapMatrix,
+    /// Map format generation: `2` for a palette matrix.
+    pub format: u32,
+    /// Width in cells.
+    pub width: usize,
+    /// Height in cells.
+    pub height: usize,
+    /// Side of one cell in metres.
+    pub cell_size_m: f64,
+    /// North-west corner of cell `(0, 0)`.
+    pub origin: crate::types::map::Origin,
+    /// Every class a matrix cell may carry.
+    pub palette: Vec<crate::types::map::PaletteEntry>,
+    /// Which palette ids are drivable and which are walkable.
+    pub layers: crate::types::map::MapLayers,
+    /// Buildings and other named areas.
+    pub objects: Vec<crate::types::map::MapObject>,
+    /// Service zones.
+    pub zones: Vec<crate::types::map::MapZone>,
     /// When this process loaded the map file.
     #[schema(format = "date-time")]
     pub updated_at: String,

@@ -72,6 +72,12 @@ pub struct TestUser {
 impl TestContext {
     /// Provisions the database, flushes Redis, loads the map and builds the router.
     pub async fn new() -> Self {
+        Self::with_map(None).await
+    }
+
+    /// Same, but serving `relative_path` (a path under `backend/`) instead of
+    /// the legacy `assets/map2.json`. Used to drive the v2 palette map.
+    pub async fn with_map(relative_path: Option<&str>) -> Self {
         let guard = test_lock().lock().await;
 
         let database_url = env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
@@ -94,7 +100,10 @@ impl TestContext {
 
         run_migrations_and_reset(db_pool.clone(), redis_pool.clone()).await;
 
-        let map_path = json_path("TEST_MAP_PATH", "assets/map2.json");
+        let map_path = match relative_path {
+            Some(relative) => manifest_path(relative),
+            None => json_path("TEST_MAP_PATH", "assets/map2.json"),
+        };
         let dataset_path = json_path(
             "TEST_DATASET_PATH",
             "assets/problem_classification_dataset.tsv",

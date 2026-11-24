@@ -8,8 +8,8 @@ use std::{collections::HashSet, fs, path::Path};
 use serde::Deserialize;
 
 use crate::{
-    graph::{RoadGraph, graph_from_grid},
-    types::map::MapMatrix,
+    graph::{RoadGraph, SpeedClass, graph_from_grid},
+    types::map::MapDocument,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -149,7 +149,14 @@ impl Location {
     }
 }
 
-pub fn load_location(map_path: &Path, matrix: &MapMatrix, road_values: &HashSet<i64>) -> Location {
+/// Builds the runtime view of a map: knobs from `{map_id}.location.json`, and
+/// geometry from the map document itself.
+///
+/// The sidecar wins where it states a value (deployment tuning); the map
+/// document supplies anything it omits, so a v2 map is self-describing. The
+/// plausibility ceiling is `max(sidecar.max_speed_mps, palette maximum)`: a
+/// 12 m/s sidecar must not drop a legal 300 km/h runway movement.
+pub fn load_location(map_path: &Path, document: &MapDocument) -> Location {
     let sidecar = map_path.with_file_name(format!(
         "{}.location.json",
         map_path
@@ -161,9 +168,9 @@ pub fn load_location(map_path: &Path, matrix: &MapMatrix, road_values: &HashSet<
         .ok()
         .and_then(|raw| serde_json::from_str::<LocationFile>(&raw).ok())
         .unwrap_or(LocationFile {
-            cell_size_m: default_cell(),
-            origin_lat: default_lat(),
-            origin_lon: default_lon(),
+            cell_size_m: document.cell_size_m,
+            origin_lat: document.origin.lat,
+            origin_lon: document.origin.lon,
             sla_secs: default_sla(),
             alert_before_secs: default_alert(),
             boarding_delay_secs: default_boarding(),
@@ -177,35 +184,116 @@ pub fn load_location(map_path: &Path, matrix: &MapMatrix, road_values: &HashSet<
             agents: Vec::new(),
             closed_cells: Vec::new(),
         });
-    let closed = file
+    let mut closed: HashSet<(i64, i64)> = file
         .closed_cells
         .iter()
         .map(|pair| (pair[0], pair[1]))
         .collect();
+    closed.extend(
+        document
+            .closed_cells
+            .iter()
+            .map(|pair| (pair[0], pair[1])),
+    );
     let ata = if file.ata.is_empty() {
         default_ata()
     } else {
         file.ata
     };
+
+    // Geometry: a v2 map states its own grid and origin, so it wins. A v1 map
+    // (`name == "legacy"`) carries no binding at all — the loader synthesises a
+    // placeholder origin — so the sidecar decides there.
+    let legacy_map = document.name == "legacy";
+    let cell_size_m = if legacy_map || document.cell_size_m <= 0.0 {
+        if legacy_map || file.cell_size_m > 0.0 {
+            file.cell_size_m.max(f64::MIN_POSITIVE)
+        } else {
+            document.cell_size_m
+        }
+    } else {
+        if (file.cell_size_m - document.cell_size_m).abs() > f64::EPSILON
+            && file.cell_size_m > 0.0
+        {
+            tracing::warn!(
+                map_cell_size_m = document.cell_size_m,
+                sidecar_cell_size_m = file.cell_size_m,
+                "map and sidecar disagree on cell size; using the map"
+            );
+        }
+        document.cell_size_m
+    };
+    let (origin_lat, origin_lon) = if legacy_map {
+        (file.origin_lat, file.origin_lon)
+    } else {
+        (document.origin.lat, document.origin.lon)
+    };
+
+    let road_of = |value: i64| {
+        document
+            .entry(value)
+            .filter(|entry| entry.allows_road())
+            .and_then(|entry| entry.speed_class.as_deref())
+            .map(SpeedClass::from_name)
+    };
+    let walk_of = |value: i64| {
+        document
+            .entry(value)
+            .filter(|entry| entry.allows_walk())
+            .and_then(|entry| entry.speed_class.as_deref())
+            .map(SpeedClass::from_name)
+    };
     let graph = graph_from_grid(
-        matrix,
-        road_values,
+        &document.map,
+        &road_of,
+        &walk_of,
         &closed,
-        file.cell_size_m,
-        file.origin_lat,
-        file.origin_lon,
+        cell_size_m,
+        origin_lat,
+        origin_lon,
     );
+
+    let zones = if document.zones.is_empty() {
+        file.zones
+    } else {
+        document
+            .zones
+            .iter()
+            .map(|zone| Zone {
+                id: zone.id.clone(),
+                x: zone.x,
+                y: zone.y,
+                radius_m: zone.radius_m,
+                label: zone.label.clone(),
+            })
+            .collect()
+    };
+    let objects = if document.objects.is_empty() {
+        file.objects
+    } else {
+        document
+            .objects
+            .iter()
+            .map(|object| MapObject {
+                id: object.id.clone(),
+                kind: object.kind.clone(),
+                x: object.x + object.w / 2,
+                y: object.y + object.h / 2,
+            })
+            .collect()
+    };
+
     Location {
-        cell_size_m: file.cell_size_m,
+        cell_size_m,
         sla_secs: file.sla_secs,
         alert_before_secs: file.alert_before_secs,
         boarding_delay_secs: file.boarding_delay_secs,
         tool_delay_secs: file.tool_delay_secs,
         max_accuracy_m: file.max_accuracy_m,
-        max_speed_mps: file.max_speed_mps,
+        max_speed_mps: document.max_speed_mps(file.max_speed_mps),
         stale_after_secs: file.stale_after_secs,
-        zones: file.zones,
-        objects: file.objects,
+        zones,
+        objects,
         ata,
         agents: file.agents,
         graph,

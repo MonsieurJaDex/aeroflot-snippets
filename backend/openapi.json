@@ -938,6 +938,32 @@
         ],
         "type": "object"
       },
+      "MapLayers": {
+        "description": "Layer membership of the whole document.",
+        "properties": {
+          "road": {
+            "description": "Palette ids a vehicle may drive on.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "walk": {
+            "description": "Palette ids an engineer may walk on.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "road",
+          "walk"
+        ],
+        "type": "object"
+      },
       "MapListResponse": {
         "description": "Catalog of maps and the id that is active.",
         "properties": {
@@ -987,31 +1013,131 @@
         },
         "type": "array"
       },
+      "MapObject": {
+        "description": "A building or other named area, as a cell bounding box.",
+        "properties": {
+          "h": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "`terminal`, `hangar`, `runway`, `parking`, `warehouse`, `other`.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "w": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "x": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "y": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "x",
+          "y",
+          "w",
+          "h"
+        ],
+        "type": "object"
+      },
       "MapResponse": {
         "description": "Airport map served to authenticated clients.",
         "properties": {
+          "cell_size_m": {
+            "description": "Side of one cell in metres.",
+            "format": "double",
+            "type": "number"
+          },
+          "format": {
+            "description": "Map format generation: `2` for a palette matrix.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "height": {
+            "description": "Height in cells.",
+            "minimum": 0,
+            "type": "integer"
+          },
           "id": {
             "description": "File stem of the map currently being served.",
             "type": "string"
           },
+          "layers": {
+            "$ref": "#/components/schemas/MapLayers",
+            "description": "Which palette ids are drivable and which are walkable."
+          },
           "matrix": {
             "$ref": "#/components/schemas/MapMatrix",
-            "description": "Grid of walkable cells and obstacles."
+            "description": "Grid of walkable cells and obstacles. Values are palette ids, `0` is\nempty, so a client must read `palette` to interpret them."
           },
           "name": {
             "description": "Display name, equal to the file stem.",
             "type": "string"
           },
+          "objects": {
+            "description": "Buildings and other named areas.",
+            "items": {
+              "$ref": "#/components/schemas/MapObject"
+            },
+            "type": "array"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/Origin",
+            "description": "North-west corner of cell `(0, 0)`."
+          },
+          "palette": {
+            "description": "Every class a matrix cell may carry.",
+            "items": {
+              "$ref": "#/components/schemas/PaletteEntry"
+            },
+            "type": "array"
+          },
           "updated_at": {
             "description": "When this process loaded the map file.",
             "format": "date-time",
             "type": "string"
+          },
+          "width": {
+            "description": "Width in cells.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "zones": {
+            "description": "Service zones.",
+            "items": {
+              "$ref": "#/components/schemas/MapZone"
+            },
+            "type": "array"
           }
         },
         "required": [
           "id",
           "name",
           "matrix",
+          "format",
+          "width",
+          "height",
+          "cell_size_m",
+          "origin",
+          "palette",
+          "layers",
+          "objects",
+          "zones",
           "updated_at"
         ],
         "type": "object"
@@ -1048,6 +1174,37 @@
           "width",
           "height",
           "active"
+        ],
+        "type": "object"
+      },
+      "MapZone": {
+        "description": "A service zone: a disc in cell coordinates.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "radius_m": {
+            "format": "double",
+            "type": "number"
+          },
+          "x": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "y": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "x",
+          "y",
+          "radius_m"
         ],
         "type": "object"
       },
@@ -1132,6 +1289,64 @@
           "Bearer"
         ],
         "type": "string"
+      },
+      "Origin": {
+        "description": "Grid anchor: the north-west corner of cell `(0, 0)`.",
+        "properties": {
+          "lat": {
+            "format": "double",
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "type": "object"
+      },
+      "PaletteEntry": {
+        "description": "One drivable or walkable cell class.",
+        "properties": {
+          "id": {
+            "description": "Value a cell carries in `map`.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "pass": {
+            "description": "Layers this class belongs to: `road`, `walk`, or neither (obstacle).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "spd_kmh": {
+            "description": "Posted speed in km/h; `0` for an obstacle.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "speed_class": {
+            "description": "Name of the `SpeedClass` variant, `None` for an obstacle.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "description": "Source class: `service`, `taxi`, `runway`, `pedestrian`, `legacy`, or an\nobstacle kind (`terminal`, `hangar`, …).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "spd_kmh",
+          "pass"
+        ],
+        "type": "object"
       },
       "Point": {
         "description": "A coordinate on the airport map.\n\nSerialised as a JSON array `[x, y]`.",

@@ -6,6 +6,7 @@ mod aircraft;
 mod assign;
 mod auth;
 mod geo;
+mod map_v2;
 mod maps;
 mod requests;
 mod support;

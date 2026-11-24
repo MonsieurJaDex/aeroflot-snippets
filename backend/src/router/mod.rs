@@ -206,10 +206,20 @@ pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
         Ok(active) => active,
         Err(response) => return response,
     };
+    let document = active.document.clone();
     Json(MapResponse {
         id: active.id,
         name: active.name,
         matrix: active.map,
+        format: document.format,
+        width: document.width,
+        height: document.height,
+        cell_size_m: document.cell_size_m,
+        origin: document.origin,
+        palette: document.palette.clone(),
+        layers: document.layers.clone(),
+        objects: document.objects.clone(),
+        zones: document.zones.clone(),
         updated_at: active.loaded_at.to_rfc3339(),
     })
     .into_response()
