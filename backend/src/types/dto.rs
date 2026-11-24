@@ -352,9 +352,27 @@ pub struct AssignmentCandidate {
     pub aog_bonus: f64,
     /// Seconds taken off for a freshly arrived aircraft; fades over an hour.
     pub arrival_bonus: f64,
+    /// Seconds taken off because the request is `urgent`; zero for `normal`.
+    pub urgency_bonus: f64,
+    /// Seconds taken off for the declared MEL category (A > B > C > D).
+    pub mel_bonus: f64,
+    /// The score as signed addends, in score order. Their sum equals `score`,
+    /// so every point of the ranking is explainable.
+    pub factors: Vec<ScoreFactor>,
     /// Final ranking score: `eta_seconds + late_seconds + load_penalty -
-    /// aog_bonus - arrival_bonus`. Lower is better; `f64::MAX` for a rejection.
+    /// aog_bonus - arrival_bonus - urgency_bonus - mel_bonus`. Lower is better;
+    /// `f64::MAX` for a rejection.
     pub score: f64,
+}
+
+/// One addend of [`AssignmentCandidate::score`].
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ScoreFactor {
+    /// Stable machine name, for example `eta`, `late`, `load` or `aog_bonus`.
+    pub name: String,
+    /// Contribution to the score in seconds: positive is a penalty, negative a
+    /// bonus.
+    pub seconds: f64,
 }
 
 /// Response payload describing the engineer's current task.

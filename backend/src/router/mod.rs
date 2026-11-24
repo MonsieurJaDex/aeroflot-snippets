@@ -9,11 +9,11 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use axum::extract::rejection::JsonRejection;
 use axum::{
-    Extension, Json,
     body::Body,
     extract::{FromRequest, FromRequestParts, Request, State},
-    http::{Response, StatusCode, request::Parts},
+    http::{request::Parts, Response, StatusCode},
     response::IntoResponse,
+    Extension, Json,
 };
 
 use chrono::{DateTime, Utc};
@@ -32,11 +32,10 @@ use crate::{
             ActiveMapResponse, AircraftEntry, AircraftListResponse, AircraftMovementListResponse,
             AircraftMovementResponse, AogListResponse, ArriveAircraftRequest,
             AssignEngineerRequest, AssignEngineerResponse, AssignmentCandidate,
-            AssignmentCandidatesResponse, ClassifyRequest,
-            ClassifyResponse, CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse,
-            DepartAircraftRequest, ErrorResponse, GetRouteRequest, GetRouteResponse,
-            MapListResponse, MapResponse, MapSummary, PageQuery, SelectMapRequest,
-            TrainClassifierResponse,
+            AssignmentCandidatesResponse, ClassifyRequest, ClassifyResponse, CurrentTaskAogRequest,
+            CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest, ErrorResponse,
+            GetRouteRequest, GetRouteResponse, MapListResponse, MapResponse, MapSummary, PageQuery,
+            ScoreFactor, SelectMapRequest, TrainClassifierResponse,
         },
         enums::{UserRole, VehicleType},
         map::{Point, Route},
@@ -1212,13 +1211,7 @@ pub async fn assign_engineer(
     })?;
 
     let task = load_request_for_assignment(&mut pg_conn, payload.request_id.as_deref(), true)?;
-    let plan = build_candidates(
-        &app_state,
-        &mut pg_conn,
-        &mut redis_conn,
-        &task,
-    )
-    .await?;
+    let plan = build_candidates(&app_state, &mut pg_conn, &mut redis_conn, &task).await?;
     let candidates: Vec<AssignmentCandidate> = plan
         .outcome
         .candidates
@@ -1249,7 +1242,8 @@ pub async fn assign_engineer(
             .find(|row| row.eligible)
             .ok_or_else(|| not_found("no suitable engineer available"))?,
         Some(raw) => {
-            let engineer_id = Uuid::from_str(raw).map_err(|_| bad_request("invalid engineer id"))?;
+            let engineer_id =
+                Uuid::from_str(raw).map_err(|_| bad_request("invalid engineer id"))?;
             let row = plan
                 .outcome
                 .candidates
@@ -1278,7 +1272,8 @@ pub async fn assign_engineer(
             tasks::candidate_ms.eq(Some(plan.outcome.elapsed_ms)),
             tasks::ata_chapter.eq(&plan.chapter),
             tasks::ends_at
-                .eq(task.recorded_at + chrono::Duration::seconds(plan.active.location.sla_secs as i64)),
+                .eq(task.recorded_at
+                    + chrono::Duration::seconds(plan.active.location.sla_secs as i64)),
             tasks::is_active.eq(true),
             tasks::waiting_part.eq(false),
             tasks::arrived_at.eq(None::<DateTime<Utc>>),
@@ -1365,13 +1360,7 @@ pub async fn assign_candidates(
     })?;
 
     let task = load_request_for_assignment(&mut pg_conn, payload.request_id.as_deref(), false)?;
-    let plan = build_candidates(
-        &app_state,
-        &mut pg_conn,
-        &mut redis_conn,
-        &task,
-    )
-    .await?;
+    let plan = build_candidates(&app_state, &mut pg_conn, &mut redis_conn, &task).await?;
 
     Ok(Json(AssignmentCandidatesResponse {
         request_id: task.id.to_string(),
@@ -1412,6 +1401,16 @@ pub(crate) fn assignment_candidate(row: &crate::rank::CandidateScore) -> Assignm
         load_penalty: row.components.load,
         aog_bonus: row.components.aog_bonus,
         arrival_bonus: row.components.arrival_bonus,
+        urgency_bonus: row.components.urgency_bonus,
+        mel_bonus: row.components.mel_bonus,
+        factors: row
+            .factors
+            .iter()
+            .map(|factor| ScoreFactor {
+                name: factor.name.clone(),
+                seconds: factor.seconds,
+            })
+            .collect(),
         score: row.score,
     }
 }
@@ -1520,8 +1519,7 @@ pub(crate) async fn build_candidates(
         })?;
     let mut in_progress = HashMap::new();
     let mut load = HashMap::new();
-    let mut waiting_same = HashMap::new();
-    for (engineer, state, plane) in open_rows {
+    for (engineer, state, _plane) in open_rows {
         let Some(engineer) = engineer else { continue };
         if state == "in_progress" {
             in_progress.insert(engineer, true);
@@ -1529,22 +1527,21 @@ pub(crate) async fn build_candidates(
         } else if state == "assigned" {
             *load.entry(engineer).or_insert(0) += 1;
         }
-        if state == "waiting_part" && plane == task.plane_id {
-            waiting_same.insert(engineer, true);
+        // `waiting_part` is no longer special: the ТЗ requires that engineer to
+        // be back in the common pool, so it only counts towards the workload.
+        else if state == "waiting_part" {
+            *load.entry(engineer).or_insert(0) += 1;
         }
     }
 
     let aircraft = match task.plane_id {
-        Some(plane_uuid) => crate::aircraft_context::aircraft_context(
-            pg_conn,
-            redis_conn,
-            &active,
-            plane_uuid,
-        )
-        .map_err(|e| {
-            tracing::error!(error = %e, "failed to load aircraft context");
-            internal_error()
-        })?,
+        Some(plane_uuid) => {
+            crate::aircraft_context::aircraft_context(pg_conn, redis_conn, &active, plane_uuid)
+                .map_err(|e| {
+                    tracing::error!(error = %e, "failed to load aircraft context");
+                    internal_error()
+                })?
+        }
         None => crate::aircraft_context::AircraftContext::default(),
     };
 
@@ -1568,7 +1565,8 @@ pub(crate) async fn build_candidates(
         positions,
         in_progress,
         load,
-        waiting_same_aircraft: waiting_same,
+        urgency: task.urgency.as_str(),
+        mel_category: task.mel_category.as_deref(),
         transports,
         needs_tools: !task.tools_picked && active.location.object_point("warehouse").is_some(),
     });

@@ -28,8 +28,11 @@ docs:
     Превью кандидатов: диспетчер смотрит рейтинг инженеров до решения.
     Ручка только читает — строки `tasks` после вызова не меняются, поэтому её
     можно звать сколько угодно раз. `eligible` показывает, кому можно отдать
-    заявку; `score` — сумма `eta_seconds + late_seconds + load_penalty -
-    aog_bonus - arrival_bonus`, меньше — лучше.
+    заявку; `score` = `eta_seconds + late_seconds + load_penalty - aog_bonus -
+    arrival_bonus - urgency_bonus - mel_bonus`, меньше — лучше. Поле `factors`
+    — тот же балл, разложенный на слагаемые: сумма `seconds` равна `score`,
+    штраф положительный, бонус отрицательный, состав всегда один и тот же.
+    `reason` перечисляет всё, что вошло в балл.
 
 runtime:
   assertions:
@@ -49,6 +52,11 @@ runtime:
           expect(row).to.have.property("eta_seconds");
           expect(row).to.have.property("score");
           expect(row).to.have.property("eligible");
+          expect(row).to.have.property("factors");
+          expect(row).to.have.property("urgency_bonus");
+          expect(row).to.have.property("mel_bonus");
+          const sum = row.factors.reduce((acc, f) => acc + f.seconds, 0);
+          expect(Math.abs(sum - row.score)).to.be.lessThan(0.000001);
         });
     - type: after-response
       code: |-

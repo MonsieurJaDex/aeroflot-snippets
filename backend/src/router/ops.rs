@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::http::{Response, StatusCode, header};
+use axum::http::{header, Response, StatusCode};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use chrono::{Duration, Utc};
@@ -15,7 +15,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::{
-    ApiJson, active_map, bad_request, forbidden, internal_error, not_found, unprocessable,
+    active_map, bad_request, forbidden, internal_error, not_found, unprocessable, ApiJson,
 };
 use crate::database::schema::{defect_types, journal, tasks};
 use crate::graph::AgentKind;
@@ -386,13 +386,7 @@ pub async fn reassign_request(
     // The receiving engineer is ranked for the same aircraft: that is what
     // rebuilds the route and the ETA, so a reassignment never inherits the
     // travel time of the engineer it moved away from.
-    let plan = super::build_candidates(
-        &app_state,
-        &mut pg_conn,
-        &mut redis_conn,
-        &task,
-    )
-    .await?;
+    let plan = super::build_candidates(&app_state, &mut pg_conn, &mut redis_conn, &task).await?;
     let row = plan
         .outcome
         .candidates
@@ -663,11 +657,13 @@ pub async fn wait_for_part(
     let mut pg_conn = app_state.db_pool.get().map_err(|_| internal_error())?;
     let task = current_for(&mut pg_conn, auth_user.id)?;
     diesel::update(tasks::table.find(task.id))
-        // The engineer stays attached to the aircraft: the assignment builder
-        // reads `assigned_engineer` to exclude them from this aircraft only.
+        // ТЗ п.19: waiting for a part sends the engineer back to the common
+        // pool, so the aircraft no longer holds them and another request may
+        // take them. `waiting_part` keeps the task open and counted as load.
         .set((
             tasks::status.eq("waiting_part"),
             tasks::waiting_part.eq(true),
+            tasks::assigned_engineer.eq(None::<Uuid>),
         ))
         .execute(&mut pg_conn)
         .map_err(|_| internal_error())?;
@@ -757,6 +753,7 @@ pub async fn list_alerts(
     dispatcher(&auth_user)?;
     let active = active_map(&app_state)?;
     let mut pg_conn = app_state.db_pool.get().map_err(|_| internal_error())?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|_| internal_error())?;
     let open = tasks::table
         .filter(tasks::is_active.eq(true))
         .filter(tasks::map_id.eq(&active.id))
@@ -805,11 +802,28 @@ pub async fn list_alerts(
                 None,
             );
         }
+        // ТЗ п.21: a risk warning is only actionable when it names who could
+        // still make it. Rank the pool for this very request and keep the best
+        // engineer whose own travel time still lands before the deadline.
+        let alternative = alternative_engineer(&app_state, &mut pg_conn, &mut redis_conn, &task)
+            .await
+            .and_then(|(id, eta)| {
+                let left = (task.ends_at - (now + Duration::seconds(eta))).num_seconds();
+                (left > 0).then_some((id, left))
+            });
+        let (alternative_engineer_id, alternative_margin_seconds) = match alternative {
+            Some((id, left)) => (Some(id.to_string()), Some(left)),
+            None => (None, Some(margin)),
+        };
+        let message = match &alternative_engineer_id {
+            Some(id) => format!("не успевает, прогноз {eta} с; успевает инженер {id}"),
+            None => format!("не успевает, прогноз {eta} с; замены в пуле нет"),
+        };
         alerts.push(AlertItem {
             request_id: task.id.to_string(),
-            message: format!("не успевает, прогноз {eta} с"),
-            alternative_engineer_id: None,
-            alternative_margin_seconds: Some(margin),
+            message,
+            alternative_engineer_id,
+            alternative_margin_seconds,
         });
     }
     Ok(Json(AlertList { alerts }).into_response())
@@ -959,4 +973,29 @@ fn current_for(
         .optional()
         .map_err(|_| internal_error())?
         .ok_or_else(|| not_found("engineer has no active task"))
+}
+
+/// Best engineer from the pool who is not the one already held by `task`, with
+/// their own travel time. Used by [`list_alerts`] to name a real alternative
+/// (ТЗ п.21) instead of an empty id; a ranking that cannot be built yields
+/// `None`, and the alert still goes out.
+async fn alternative_engineer(
+    app_state: &Arc<AppState>,
+    pg_conn: &mut diesel::PgConnection,
+    redis_conn: &mut redis::Connection,
+    task: &Task,
+) -> Option<(Uuid, i64)> {
+    let plan = super::build_candidates(app_state, pg_conn, redis_conn, task)
+        .await
+        .ok()?;
+    plan.outcome
+        .candidates
+        .into_iter()
+        .filter(|row| row.eligible && Some(row.engineer_id) != task.assigned_engineer)
+        .min_by(|left, right| {
+            left.score
+                .partial_cmp(&right.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|row| (row.engineer_id, row.eta_seconds as i64))
 }

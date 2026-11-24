@@ -8,7 +8,7 @@ use std::{collections::HashSet, fs, path::Path};
 use serde::Deserialize;
 
 use crate::{
-    graph::{RoadGraph, SpeedClass, graph_from_grid_with_overlays},
+    graph::{graph_from_grid_with_overlays, RoadGraph, SpeedClass},
     types::map::MapDocument,
 };
 
@@ -79,6 +79,12 @@ struct LocationFile {
     arrival_bonus_secs: f64,
     #[serde(default = "default_arrival_window")]
     arrival_window_secs: u64,
+    /// Seconds knocked off the score of an `urgent` request.
+    #[serde(default = "default_urgency_bonus")]
+    urgency_bonus_secs: f64,
+    /// Base of the MEL bonus scale (MEL category B). A/C/D scale around it.
+    #[serde(default = "default_mel_bonus")]
+    mel_bonus_secs: f64,
     #[serde(default)]
     zones: Vec<Zone>,
     #[serde(default)]
@@ -130,6 +136,12 @@ fn default_arrival_bonus() -> f64 {
 fn default_arrival_window() -> u64 {
     3600
 }
+fn default_urgency_bonus() -> f64 {
+    60.0
+}
+fn default_mel_bonus() -> f64 {
+    90.0
+}
 
 #[derive(Debug, Clone)]
 pub struct Location {
@@ -146,6 +158,11 @@ pub struct Location {
     pub arrival_bonus_secs: f64,
     /// Width of the post-arrival window in seconds.
     pub arrival_window_secs: u64,
+    /// Seconds knocked off the score of an `urgent` (not `normal`) request.
+    pub urgency_bonus_secs: f64,
+    /// Base of the MEL bonus scale, keyed like MEL category B; A/C/D scale
+    /// around it. `None` carries no bonus.
+    pub mel_bonus_secs: f64,
     pub max_accuracy_m: f64,
     pub max_speed_mps: f64,
     #[allow(dead_code)]
@@ -204,6 +221,8 @@ pub fn load_location(map_path: &Path, document: &MapDocument) -> Location {
             aog_bonus_secs: default_aog_bonus(),
             arrival_bonus_secs: default_arrival_bonus(),
             arrival_window_secs: default_arrival_window(),
+            urgency_bonus_secs: default_urgency_bonus(),
+            mel_bonus_secs: default_mel_bonus(),
             zones: Vec::new(),
             objects: Vec::new(),
             ata: Vec::new(),
@@ -215,12 +234,7 @@ pub fn load_location(map_path: &Path, document: &MapDocument) -> Location {
         .iter()
         .map(|pair| (pair[0], pair[1]))
         .collect();
-    closed.extend(
-        document
-            .closed_cells
-            .iter()
-            .map(|pair| (pair[0], pair[1])),
-    );
+    closed.extend(document.closed_cells.iter().map(|pair| (pair[0], pair[1])));
     let ata = if file.ata.is_empty() {
         default_ata()
     } else {
@@ -238,8 +252,7 @@ pub fn load_location(map_path: &Path, document: &MapDocument) -> Location {
             document.cell_size_m
         }
     } else {
-        if (file.cell_size_m - document.cell_size_m).abs() > f64::EPSILON
-            && file.cell_size_m > 0.0
+        if (file.cell_size_m - document.cell_size_m).abs() > f64::EPSILON && file.cell_size_m > 0.0
         {
             tracing::warn!(
                 map_cell_size_m = document.cell_size_m,
@@ -323,6 +336,8 @@ pub fn load_location(map_path: &Path, document: &MapDocument) -> Location {
         aog_bonus_secs: file.aog_bonus_secs,
         arrival_bonus_secs: file.arrival_bonus_secs,
         arrival_window_secs: file.arrival_window_secs,
+        urgency_bonus_secs: file.urgency_bonus_secs,
+        mel_bonus_secs: file.mel_bonus_secs,
         max_accuracy_m: file.max_accuracy_m,
         max_speed_mps: document.max_speed_mps(file.max_speed_mps),
         stale_after_secs: file.stale_after_secs,

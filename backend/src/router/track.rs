@@ -5,11 +5,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::Json;
 use axum::body::Body;
 use axum::extract::{FromRequest, Query, Request, State};
-use axum::http::{Response, StatusCode, header};
+use axum::http::{header, Response, StatusCode};
 use axum::response::IntoResponse;
+use axum::Json;
 use chrono::{DateTime, SecondsFormat, Utc};
 use redis::TypedCommands;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -357,11 +357,7 @@ fn apply_point(
     let lon = lon.unwrap_or(0.0);
     let when = when.unwrap_or_else(Utc::now);
     let stamp = when.to_rfc3339_opts(SecondsFormat::Millis, true);
-    let agent = active
-        .location
-        .agents
-        .iter()
-        .find(|agent| agent.obj == obj);
+    let agent = active.location.agents.iter().find(|agent| agent.obj == obj);
     let linked = agent
         .and_then(|agent| agent.engineer_id.as_deref())
         .and_then(|id| Uuid::parse_str(id).ok())
@@ -457,8 +453,7 @@ fn apply_point(
     redis_conn
         .set(&key, stored.to_string())
         .map_err(|_| super::internal_error())?;
-    let position_id =
-        linked.unwrap_or_else(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, obj.as_bytes()));
+    let position_id = linked.unwrap_or_else(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, obj.as_bytes()));
     match kind {
         "vehicle" => {
             let vehicle = agent
@@ -482,6 +477,9 @@ fn apply_point(
                 active.engineer_timestamp_key(position_id),
                 when.timestamp().to_string(),
             );
+            // ТЗ п.20: the forecast follows the engineer, so a live position
+            // refresh also refreshes the SLA forecast of their open task.
+            refresh_forecast(active, redis_conn, pg_conn, position_id, grid);
         }
     }
     Ok(TrackAck {
@@ -538,4 +536,107 @@ fn haversine_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let a = (dlat / 2.0).sin().powi(2)
         + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlon / 2.0).sin().powi(2);
     2.0 * r * a.sqrt().asin()
+}
+
+/// Recomputes `tasks.eta_seconds` for the engineer's open task after they moved.
+///
+/// Gated on `map:{id}:eta_cell:{task}`: a packet of hundreds of points inside
+/// one cell runs no A\* at all, which is what keeps the tracker cheap. The
+/// journal records `sla_risk`/`sla_breached` only when the forecast crosses
+/// into that state, never on every point, and a failed recomputation leaves the
+/// accepted point untouched.
+fn refresh_forecast(
+    active: &crate::maps::ActiveMap,
+    redis_conn: &mut redis::Connection,
+    pg_conn: &mut diesel::PgConnection,
+    engineer: Uuid,
+    grid: crate::types::map::Point,
+) {
+    use diesel::prelude::*;
+
+    use crate::database::schema::tasks;
+    use crate::models::task::Task;
+
+    let open = tasks::table
+        .filter(tasks::assigned_engineer.eq(engineer))
+        .filter(tasks::is_active.eq(true))
+        .filter(tasks::map_id.eq(&active.id))
+        .filter(tasks::status.eq_any(["assigned", "in_progress"]))
+        .select(Task::as_select())
+        .first::<Task>(pg_conn)
+        .optional();
+    let Ok(Some(task)) = open else {
+        return;
+    };
+    let cell_key = format!("map:{}:eta_cell:{}", active.id, task.id);
+    let crate::types::map::Point(cell_x, cell_y) = grid;
+    let cell = format!("{cell_x},{cell_y}");
+    let previous: Option<String> = redis_conn.get(&cell_key).unwrap_or(None);
+    if previous.as_deref() == Some(cell.as_str()) {
+        return;
+    }
+    let planned = active.location.graph.route_stops(
+        AgentKind::Engineer,
+        &[
+            grid,
+            crate::types::map::Point::new(task.plane_x, task.plane_y),
+        ],
+    );
+    let Ok(planned) = planned else {
+        return;
+    };
+    let eta = planned.seconds.ceil() as i32;
+    let now = Utc::now();
+    let predicted = now + chrono::Duration::seconds(i64::from(eta));
+    let window = chrono::Duration::seconds(active.location.alert_before_secs as i64);
+    // Risk is the same rule `list_alerts` applies, so the two agree.
+    let risky = predicted > task.ends_at || now + window >= task.ends_at;
+    let breached = now > task.ends_at;
+    if diesel::update(tasks::table.find(task.id))
+        .set(tasks::eta_seconds.eq(Some(eta)))
+        .execute(pg_conn)
+        .is_err()
+    {
+        return;
+    }
+    if risky && !task.sla_alerted {
+        if diesel::update(tasks::table.find(task.id))
+            .set(tasks::sla_alerted.eq(true))
+            .execute(pg_conn)
+            .is_ok()
+        {
+            crate::journal::record(
+                pg_conn,
+                "sla_risk",
+                Some(&engineer.to_string()),
+                Some(task.id),
+                serde_json::json!({
+                    "eta_seconds": eta,
+                    "deadline": task.ends_at.to_rfc3339(),
+                    "source": "track",
+                }),
+                None,
+            );
+        }
+    }
+    if breached && !task.sla_breached {
+        if diesel::update(tasks::table.find(task.id))
+            .set(tasks::sla_breached.eq(true))
+            .execute(pg_conn)
+            .is_ok()
+        {
+            crate::journal::record(
+                pg_conn,
+                "sla_breached",
+                Some(&engineer.to_string()),
+                Some(task.id),
+                serde_json::json!({
+                    "deadline": task.ends_at.to_rfc3339(),
+                    "source": "track",
+                }),
+                None,
+            );
+        }
+    }
+    let _ = redis_conn.set(&cell_key, cell);
 }

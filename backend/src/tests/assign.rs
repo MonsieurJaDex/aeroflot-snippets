@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::tests::support::{TestContext, expect_status};
+use crate::tests::support::{expect_status, TestContext};
 use crate::types::enums::EngineerType;
 use crate::types::map::Point;
 
@@ -378,14 +378,7 @@ async fn aog_bonus_lets_a_farther_aircraft_outrank_a_closer_one() {
     let far_plane = Uuid::new_v4();
     ctx.redis_set(&format!("map:{}:aog:{}", ctx.active_id(), far_plane), "1");
     let far_request = create_request_at(&ctx, &dispatcher.token, far_plane, (13, 10)).await;
-    let far = assign_candidate(
-        &ctx,
-        &dispatcher.token,
-        far_plane,
-        far_request,
-        engineer.id,
-    )
-    .await;
+    let far = assign_candidate(&ctx, &dispatcher.token, far_plane, far_request, engineer.id).await;
 
     assert_eq!(near["aog_bonus"].as_f64().unwrap(), 0.0);
     assert_eq!(
@@ -424,14 +417,7 @@ async fn a_fresh_arrival_outranks_a_nearer_older_aircraft() {
         None,
     );
     let old_request = create_request_at(&ctx, &dispatcher.token, old_plane, (10, 10)).await;
-    let old = assign_candidate(
-        &ctx,
-        &dispatcher.token,
-        old_plane,
-        old_request,
-        engineer.id,
-    )
-    .await;
+    let old = assign_candidate(&ctx, &dispatcher.token, old_plane, old_request, engineer.id).await;
 
     let fresh_plane = Uuid::new_v4();
     seed_movement(&ctx, fresh_plane, (13, 10), Utc::now(), None);
@@ -526,7 +512,10 @@ async fn without_flags_the_ranking_is_still_the_travel_time() {
         assert_eq!(row["aog_bonus"].as_f64().unwrap(), 0.0);
         assert_eq!(row["arrival_bonus"].as_f64().unwrap(), 0.0);
         if row["eligible"].as_bool().unwrap() {
-            scores.push((row["eta_seconds"].as_u64().unwrap(), row["score"].as_f64().unwrap()));
+            scores.push((
+                row["eta_seconds"].as_u64().unwrap(),
+                row["score"].as_f64().unwrap(),
+            ));
         }
     }
     assert_eq!(scores.len(), 2, "both engineers must be eligible");
@@ -555,14 +544,8 @@ async fn candidate_score_is_the_sum_of_its_published_components() {
 
     let first_plane = Uuid::new_v4();
     let first_request = create_request_at(&ctx, &dispatcher.token, first_plane, (10, 10)).await;
-    let first = assign_candidate(
-        &ctx,
-        &dispatcher.token,
-        first_plane,
-        first_request,
-        busy.id,
-    )
-    .await;
+    let first =
+        assign_candidate(&ctx, &dispatcher.token, first_plane, first_request, busy.id).await;
 
     let plane = Uuid::new_v4();
     let request = create_request_at(&ctx, &dispatcher.token, plane, (12, 12)).await;
@@ -642,7 +625,8 @@ async fn candidates_preview_is_read_only() {
     );
     let snapshot = ctx.task(request);
     let second = expect_status(
-        ctx.post("/api/assign/candidates", &dispatcher.token, body).await,
+        ctx.post("/api/assign/candidates", &dispatcher.token, body)
+            .await,
         StatusCode::OK,
     );
     let after = ctx.task(request);
@@ -1064,4 +1048,241 @@ async fn candidates_preview_serves_a_task_that_already_has_an_engineer() {
     assert_eq!(ctx.task(request).assigned_engineer, Some(first.id));
     assert_eq!(ctx.task(request).status, "assigned");
     assert!(preview["candidates"].as_array().unwrap().len() >= 2);
+}
+
+/// ТЗ п.17: every published row explains itself. The listed factors are the
+/// score, so their sum has to equal it — a row whose parts do not add up to its
+/// total is an unexplainable ranking.
+#[tokio::test]
+async fn every_candidate_publishes_factors_that_sum_to_its_score() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let near = ctx.engineer(EngineerType::AvionicsEngineer);
+    let far = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), near.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), far.id),
+        "5,12",
+    );
+
+    let plane = Uuid::new_v4();
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
+    let preview = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({ "classifier_text": "уход гироплатформы ИНС",
+                    "plane_uuid": plane, "request_id": request }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    let mut checked = 0;
+    for row in preview["candidates"].as_array().expect("candidates array") {
+        if row["eligible"] != true {
+            continue;
+        }
+        let score = row["score"].as_f64().expect("score is a number");
+        let factors = row["factors"].as_array().expect("factors array");
+        assert!(!factors.is_empty(), "an accepted row lists its factors");
+        let sum: f64 = factors
+            .iter()
+            .map(|factor| factor["seconds"].as_f64().expect("factor seconds"))
+            .sum();
+        assert!(
+            (sum - score).abs() < 1e-6,
+            "factors {sum} do not add up to score {score}: {factors:?}"
+        );
+        // The two bonuses that used to be missing are named even when zero, so
+        // a frontend can render a stable table.
+        for name in [
+            "eta",
+            "late",
+            "load",
+            "aog_bonus",
+            "arrival_bonus",
+            "urgency_bonus",
+            "mel_bonus",
+        ] {
+            assert!(
+                factors.iter().any(|factor| factor["name"] == name),
+                "factor {name} is missing from {factors:?}"
+            );
+        }
+        // The named bonus and the legacy flat field must be the same number.
+        let named: f64 = factors
+            .iter()
+            .filter(|factor| factor["name"] == "aog_bonus")
+            .map(|factor| factor["seconds"].as_f64().unwrap())
+            .sum();
+        assert!((named + row["aog_bonus"].as_f64().unwrap()).abs() < 1e-6);
+        assert!(
+            !row["reason"].as_str().unwrap().is_empty(),
+            "an accepted row explains itself"
+        );
+        checked += 1;
+    }
+    assert_eq!(
+        checked, 2,
+        "both engineers must be eligible and explainable"
+    );
+}
+
+/// ТЗ п.16: urgency is one of the criteria, not a label. The same request, the
+/// same engineer, the same distance — only `urgent` differs from `normal`.
+#[tokio::test]
+async fn urgent_request_scores_below_normal_for_the_same_engineer() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+        "5,5",
+    );
+    let normal = create_queued_request(&ctx, &dispatcher.token, Uuid::new_v4()).await;
+    let urgent =
+        create_queued_request_with_urgency(&ctx, &dispatcher.token, Uuid::new_v4(), "urgent").await;
+    assert_eq!(ctx.task(urgent).urgency, "urgent");
+    assert_eq!(ctx.task(normal).urgency, "normal");
+
+    let normal_row = preview_row(&ctx, &dispatcher.token, normal, engineer.id).await;
+    let urgent_row = preview_row(&ctx, &dispatcher.token, urgent, engineer.id).await;
+    let normal_score = normal_row["score"].as_f64().unwrap();
+    let urgent_score = urgent_row["score"].as_f64().unwrap();
+    let bonus = urgent_row["urgency_bonus"].as_f64().unwrap();
+    assert!(bonus > 0.0, "an urgent request carries a bonus");
+    assert_eq!(normal_row["urgency_bonus"].as_f64().unwrap(), 0.0);
+    assert!(
+        urgent_score <= normal_score - bonus + 1e-6,
+        "urgency did not reach the score: urgent {urgent_score} vs normal {normal_score}"
+    );
+    let reason = urgent_row["reason"].as_str().expect("reason");
+    assert!(
+        reason.contains("срочност"),
+        "the reason must name the urgency bonus: {reason}"
+    );
+}
+
+/// ТЗ п.16: the MEL category is part of the score, and a tighter category
+/// presses harder. `A` before `D` on the same engineer and the same distance.
+#[tokio::test]
+async fn mel_category_reaches_the_score_in_order() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+        "5,5",
+    );
+
+    let mut bonuses = Vec::new();
+    for category in ["A", "D"] {
+        // A fresh request, assigned through the API so the engineer really
+        // holds it; then the engineer declares the MEL category.
+        let plane = Uuid::new_v4();
+        let request = create_queued_request(&ctx, &dispatcher.token, plane).await;
+        let assigned = expect_status(
+            ctx.post(
+                "/api/assign",
+                &dispatcher.token,
+                json!({ "classifier_text": "уход гироплатформы ИНС",
+                        "plane_uuid": plane, "request_id": request }),
+            )
+            .await,
+            StatusCode::OK,
+        );
+        assert_eq!(assigned["engineer_uuid"], engineer.id.to_string());
+        expect_status(
+            ctx.post(
+                "/api/tasks/current/mel",
+                &engineer.token,
+                json!({ "category": category }),
+            )
+            .await,
+            StatusCode::OK,
+        );
+        assert_eq!(ctx.task(request).mel_category.as_deref(), Some(category));
+        let row = preview_row(&ctx, &dispatcher.token, request, engineer.id).await;
+        assert!(
+            row["reason"].as_str().unwrap().contains("MEL"),
+            "the reason must name the MEL bonus: {}",
+            row["reason"]
+        );
+        bonuses.push(row["mel_bonus"].as_f64().expect("mel_bonus is published"));
+        // The task must not hold the engineer for the next round: complete it.
+        expect_status(
+            ctx.post("/api/tasks/current/complete", &engineer.token, json!(null))
+                .await,
+            StatusCode::OK,
+        );
+    }
+    assert!(
+        bonuses[0] > bonuses[1] && bonuses[1] > 0.0,
+        "MEL A must outweigh MEL D: {bonuses:?}"
+    );
+}
+
+/// Ranked row of one engineer for one request through the read-only preview.
+async fn preview_row(
+    ctx: &TestContext,
+    dispatcher: &str,
+    request: Uuid,
+    engineer: Uuid,
+) -> serde_json::Value {
+    let preview = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            dispatcher,
+            json!({ "classifier_text": "разложение балла", "note": "превью",
+                    "plane_uuid": Uuid::new_v4(), "request_id": request }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    preview["candidates"]
+        .as_array()
+        .expect("candidates array")
+        .iter()
+        .find(|row| row["engineer_id"] == engineer.to_string())
+        .expect("engineer is ranked")
+        .clone()
+}
+
+/// Intake with an explicit urgency, queued and ready for assignment.
+async fn create_queued_request_with_urgency(
+    ctx: &TestContext,
+    dispatcher: &str,
+    plane_id: Uuid,
+    urgency: &str,
+) -> Uuid {
+    let created = expect_status(
+        ctx.post(
+            "/api/requests",
+            dispatcher,
+            json!({
+                "text": "уход гироплатформы ИНС, курс смещается",
+                "plane_uuid": plane_id,
+                "point": [10, 10],
+                "ata_chapter": "30",
+                "urgency": urgency
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let request_id: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request_id}/queue"),
+            dispatcher,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    request_id
 }
