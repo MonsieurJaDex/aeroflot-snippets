@@ -1,0 +1,38 @@
+info:
+  name: clearObjectCalibration
+  type: http
+  seq: 58
+
+http:
+  method: POST
+  url: "{{HOST}}/geo/clearObjectCalibration"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "obj": "{{engineer_id}}"
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Снимает пин: объект снова снапится по сырому GPS.
+    204 без тела. 404, если пина не было. Только Dispatcher.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "204"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

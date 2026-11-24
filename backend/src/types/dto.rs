@@ -639,6 +639,68 @@ pub struct UpdateTransportPositionRequest {
     pub new_point: Point,
 }
 
+/// Request payload for pinning a tracked object to a known cell.
+///
+/// Give the target either as a grid cell (`point`) or as WGS-84 (`lat` plus
+/// `lon`), never both and never neither; a pair of degrees is converted with
+/// the active map projection.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CalibrateObjectRequest {
+    /// Object to pin: an engineer UUID, `RA-…` aircraft, or the `obj` a tracker
+    /// reports.
+    pub obj: String,
+    /// Kind of object, which decides the surface the pin lives on.
+    pub kind: ObjectKind,
+    /// Cell to pin, `[x, y]`.
+    pub point: Option<Point>,
+    /// Latitude in degrees, converted with the active map projection.
+    pub lat: Option<f64>,
+    /// Longitude in degrees, converted with the active map projection.
+    pub lon: Option<f64>,
+}
+
+/// Request payload for dropping an object's pin.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ClearCalibrationRequest {
+    /// Object whose pin is removed; it snaps to raw GPS again afterwards.
+    pub obj: String,
+}
+
+/// One stored pin, as returned by the calibration endpoints.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CalibrationEntry {
+    /// The pinned object.
+    pub obj: String,
+    /// Kind of object.
+    pub kind: ObjectKind,
+    /// Pinned cell.
+    pub point: Point,
+    /// The pinned cell as WGS-84, so an operator can compare it with a phone.
+    pub geo: Coordinate,
+    /// False when the pinned cell carries no graph node, so routes cannot start
+    /// or end on it and fall to the nearest node instead.
+    pub on_graph: bool,
+}
+
+/// Pins currently stored for the active map.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CalibrationListResponse {
+    pub calibrations: Vec<CalibrationEntry>,
+    /// Number of pins before `limit` and `offset` are applied.
+    pub total: u64,
+}
+
+/// A WGS-84 coordinate in degrees.
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+pub struct Coordinate {
+    /// Latitude in degrees.
+    pub lat: f64,
+    /// Longitude in degrees.
+    pub lon: f64,
+}
+
 /// Request ids grouped by the aircraft they belong to.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PlaneRequests {

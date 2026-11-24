@@ -254,6 +254,12 @@ impl RoadGraph {
         (x, y)
     }
 
+    /// Whether the cell itself carries a graph node: a route may start or end
+    /// exactly here, with no snapping to a neighbouring cell.
+    pub fn is_node(&self, point: Point) -> bool {
+        self.index.contains_key(&(point.0, point.1))
+    }
+
     pub fn nearest_node(&self, point: Point) -> Option<u32> {
         if let Some(id) = self.index.get(&(point.0, point.1)) {
             return Some(*id);
