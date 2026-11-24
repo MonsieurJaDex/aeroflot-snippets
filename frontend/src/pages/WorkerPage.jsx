@@ -16,6 +16,8 @@ import {
   buildTileGrid,
   buildWalkMask,
   centerToLatLng,
+  addPlaceLabels,
+  routeSpansMap,
   loadApronMap,
   loadTilesetImages,
   renderCanvas,
@@ -94,6 +96,7 @@ function normalizeCurrentTask(body, prev = null) {
     ? [Number(rawPlane[0]), Number(rawPlane[1])]
     : null;
   const accepted = Boolean(body.is_accepted);
+  const knownStatus = new Set(["crew_remark", "unassigned", "assigned", "accepted", "in_progress", "done", "completed", "waiting_part"]);
   let route = normalizeRoute(body.route);
   if (route.length < 2 && prev && String(prev.id) === String(body.id)) {
     const kept = normalizeRoute(prev.route);
@@ -104,7 +107,7 @@ function normalizeCurrentTask(body, prev = null) {
     description: typeof body.description === "string" ? body.description : "",
     issue: body.issue == null || typeof body.issue === "object" ? "" : body.issue,
     is_accepted: accepted,
-    status: accepted ? "in_progress" : "assigned",
+    status: knownStatus.has(body.status) ? body.status : (accepted ? "in_progress" : "assigned"),
     plane_point: planePoint && Number.isFinite(planePoint[0]) && Number.isFinite(planePoint[1]) ? planePoint : null,
     route,
   };
@@ -218,9 +221,10 @@ export default function WorkerPage() {
         setNotice((current) => {
           if (statusNoteAt.current > started) return current;
           if (!normalized) return "Ожидание назначения от диспетчера. Позиция на карте — из геоданных сервера.";
-          return normalized.status === "assigned"
-            ? "Назначение получено. Примите или отклоните задачу."
-            : "Задача активна. На карте — ваша точка и маршрут. Завершите, когда работы закончены.";
+          if (normalized.status === "assigned") return "Назначение получено. Примите или отклоните задачу.";
+          if (normalized.status === "accepted") return "Задача принята. Отметьте инструмент и идите по маршруту.";
+          if (normalized.status === "done" || normalized.status === "completed") return "Задача выполнена.";
+          return "Задача активна. На карте — ваша точка и маршрут. Завершите, когда работы закончены.";
         });
       } catch (error) {
         if (cancelled) return;
@@ -637,7 +641,8 @@ export default function WorkerPage() {
       if (walk?.dest) latlngs.push(walk.dest.getLatLng());
       if (selfMarker) latlngs.push(selfMarker.getLatLng());
       if (latlngs.length >= 2) {
-        bag.map.fitBounds(L.latLngBounds(latlngs), { padding: [36, 36], maxZoom: 2 });
+        const bounds = L.latLngBounds(latlngs);
+        if (routeSpansMap(tmj, bounds)) bag.map.fitBounds(bounds, { padding: [36, 36], maxZoom: 2 });
         return;
       }
       if (selfMarker) {
@@ -778,7 +783,9 @@ export default function WorkerPage() {
       setSelfText(`ВЫ: ${selfPoint[0]}, ${selfPoint[1]}`);
       setDistance(`${Math.max(0, roadRoute.length - 1)} КЛЕТОК`);
       setRouteHint(turnHint(centers, 1));
-      bag.map.fitBounds(walk.line.getBounds(), { padding: [36, 36], maxZoom: 2 });
+      if (routeSpansMap(tmj, walk.line.getBounds())) {
+        bag.map.fitBounds(walk.line.getBounds(), { padding: [36, 36], maxZoom: 2 });
+      }
       bag.frame = requestAnimationFrame(tick);
     }
 
@@ -793,13 +800,14 @@ export default function WorkerPage() {
         crs: L.CRS.Simple,
         zoomControl: false,
         attributionControl: false,
-        minZoom: -1,
-        maxZoom: 3,
+        minZoom: -4,
+        maxZoom: 6,
       });
       bag.map = map;
       L.control.zoom({ position: "bottomright" }).addTo(map);
       const bounds = [[0, 0], [tmj.height * tmj.tileheight, tmj.width * tmj.tilewidth]];
       L.imageOverlay(renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
+      addPlaceLabels(map, tmj);
       map.fitBounds(bounds);
       // Клики по карте не имитируют GPS — полевой трек отдельно через GPS Logger.
       const onResize = () => map.invalidateSize();

@@ -53,6 +53,8 @@ import {
   cellToLatLng,
   centerToLatLng,
   clickToCell,
+  addPlaceLabels,
+  routeSpansMap,
   loadApronMap,
   loadTilesetImages,
   renderCanvas,
@@ -489,13 +491,14 @@ export default function DispatcherPage() {
       const bounds = [[0, 0], [tmj.height * tmj.tileheight, tmj.width * tmj.tilewidth]];
       const map = L.map(mapNode.current, {
         crs: L.CRS.Simple,
-        minZoom: -2,
+        minZoom: -4,
         maxZoom: 6,
         zoomSnap: 0.25,
         attributionControl: false,
       });
       bag.map = map;
       L.imageOverlay(renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
+      addPlaceLabels(map, tmj);
       map.fitBounds(bounds);
 
       const standsLayer = L.layerGroup().addTo(map);
@@ -748,7 +751,7 @@ export default function DispatcherPage() {
           }).addTo(routeExtrasLayer);
           line.bindTooltip(label, { sticky: true });
           if (!showRoute) map.removeLayer(routeExtrasLayer);
-          else map.fitBounds(line.getBounds(), { padding: [80, 80], maxZoom: 3 });
+          else if (routeSpansMap(tmj, line.getBounds())) map.fitBounds(line.getBounds(), { padding: [80, 80], maxZoom: 3 });
           return line;
         },
         async assign() {
@@ -873,7 +876,7 @@ export default function DispatcherPage() {
                 return next;
               });
             }
-            if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
+            if (routeLine && routeSpansMap(tmj, routeLine.getBounds())) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
           } catch (error) {
             setResult({ type: "error", text: `Ошибка: ${assignErrorMessage(error)}` });
           } finally {
@@ -1115,7 +1118,7 @@ export default function DispatcherPage() {
   }
 
   async function onDepartPlane() {
-    if (!aircraft.some((plane) => plane.id === planeId)) {
+    if (!selectedStand?.point) {
       setDepartNote("Выберите борт.");
       return;
     }
@@ -1149,6 +1152,10 @@ export default function DispatcherPage() {
       const data = await setActiveMap(activeMapId);
       softBeep(500, 100);
       setMapNote(`Активна: ${data?.name || activeMapId} · ${data?.width || "?"}×${data?.height || "?"}`);
+      if (data?.reload) {
+        window.location.reload();
+        return;
+      }
       const maps = await listMaps();
       setMapCatalog(Array.isArray(maps.maps) ? maps.maps : []);
       setActiveMapId(maps.active_id || activeMapId);
@@ -1272,7 +1279,7 @@ export default function DispatcherPage() {
   }
 
   async function onArrivePlane() {
-    const plane = aircraft.find((item) => item.id === planeId);
+    const plane = selectedStand;
     if (!plane?.point) {
       setArriveNote("Выберите борт со стоянкой.");
       return;
@@ -1736,11 +1743,11 @@ export default function DispatcherPage() {
             {classifyPending ? "Классификация…" : "Подсказать тип инженера"}
           </button>
           {classifyHint ? <p className="fault-hint">{classifyHint}</p> : null}
-          <button type="button" className="shift-button" disabled={arrivePending || !aircraft.some((plane) => plane.id === planeId) || pending || departPending} onClick={onArrivePlane}>
+          <button type="button" className="shift-button" disabled={arrivePending || !selectedStand?.point || pending || departPending} onClick={onArrivePlane}>
             {arrivePending ? "Фиксация…" : "Зафиксировать прибытие борта"}
           </button>
           {arriveNote ? <p className="fault-hint">{arriveNote}</p> : null}
-          <button type="button" className="shift-button" disabled={departPending || !aircraft.some((plane) => plane.id === planeId) || pending || arrivePending} onClick={onDepartPlane}>
+          <button type="button" className="shift-button" disabled={departPending || !selectedStand?.point || pending || arrivePending} onClick={onDepartPlane}>
             {departPending ? "Фиксация…" : "Зафиксировать вылет борта"}
           </button>
           {departNote ? <p className="fault-hint">{departNote}</p> : null}
@@ -1886,7 +1893,7 @@ export default function DispatcherPage() {
                                 {chosen ? <span className="candidate-badge">выбран</span> : null}
                               </td>
                               <td>{row.eligible ? "да" : "нет"}</td>
-                              <td>{chosen ? "—" : (row.reason || "—")}</td>
+                              <td>{row.reason || "—"}</td>
                               <td>{etaMin}</td>
                               <td>{row.usesVehicle ? "да" : "нет"}</td>
                             </tr>
