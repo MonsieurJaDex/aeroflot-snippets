@@ -265,6 +265,12 @@ impl RoadGraph {
             .map(|(id, _)| id as u32)
     }
 
+    /// Whether this exact cell carries a graph node, that is, whether a route
+    /// can start or end on it without snapping somewhere else.
+    pub fn is_node(&self, point: Point) -> bool {
+        self.index.contains_key(&(point.0, point.1))
+    }
+
     /// Snaps a WGS-84 point to the nearest open edge and returns the grid node
     /// plus the off-graph approach distance in metres.
     pub fn snap(&self, lat: f64, lon: f64, agent: AgentKind) -> Option<(Point, f64)> {
