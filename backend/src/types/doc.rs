@@ -44,7 +44,8 @@ use crate::types::{
     dto::{
         ActiveMapResponse, AircraftEntry, AircraftListResponse, AircraftMovementListResponse,
         AircraftMovementResponse, AogListResponse, ArriveAircraftRequest, AssignEngineerRequest,
-        AssignEngineerResponse, AssignmentCandidate, AssignmentCandidatesResponse,
+        AssignCandidatesRequest, AssignEngineerResponse, AssignmentCandidate,
+        AssignmentCandidatesResponse,
         CalibrateObjectRequest, CalibrationEntry, CalibrationListResponse, ClassifyRequest,
         ClassifyResponse, ClearCalibrationRequest, Coordinate, CurrentTaskAogRequest,
         CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest, EngineerPositionSample,
@@ -148,6 +149,7 @@ use crate::types::{
         AssignmentCandidate,
         ScoreFactor,
         AssignEngineerRequest,
+        AssignCandidatesRequest,
         AssignEngineerResponse,
         AssignmentCandidatesResponse,
         ClassifyRequest,

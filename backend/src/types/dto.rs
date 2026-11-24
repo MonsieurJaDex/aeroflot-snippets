@@ -214,6 +214,18 @@ pub struct AssignEngineerRequest {
     pub engineer_id: Option<String>,
 }
 
+/// Request payload for `POST /api/assign/candidates`. Only the request being
+/// ranked is needed: the preview reads nothing else and writes nothing, so the
+/// fields an actual assignment reads (`classifier_text`, `plane_uuid`) have no
+/// business being required here.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AssignCandidatesRequest {
+    /// Existing request in a non-terminal status.
+    #[schema(format = "uuid", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
+    pub request_id: String,
+}
+
 /// Answer of `POST /api/assign/candidates`: the ranking a dispatcher reads
 /// before choosing an engineer. Nothing is assigned by it.
 #[derive(Debug, Serialize, ToSchema)]

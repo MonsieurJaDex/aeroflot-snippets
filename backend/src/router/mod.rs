@@ -1331,7 +1331,7 @@ pub async fn assign_engineer(
     operation_id = "assignCandidates",
     description = "Ranks every engineer for a request. Read-only: the task is not modified.",
     security(("bearerAuth" = [])),
-    request_body = AssignEngineerRequest,
+    request_body = AssignCandidatesRequest,
     responses(
         (status = 200, description = "Ranked candidates", body = AssignmentCandidatesResponse),
         (status = 400, description = "Invalid input or route error", body = ErrorResponse),
@@ -1345,7 +1345,7 @@ pub async fn assign_engineer(
 pub async fn assign_candidates(
     State(app_state): State<Arc<AppState>>,
     Extension(auth_user): Extension<AuthUser>,
-    ApiJson(payload): ApiJson<AssignEngineerRequest>,
+    ApiJson(payload): ApiJson<AssignCandidatesRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
     if auth_user.role != UserRole::Dispatcher {
         return Err(forbidden("only dispatchers can rank engineers"));
@@ -1360,7 +1360,7 @@ pub async fn assign_candidates(
         internal_error()
     })?;
 
-    let task = load_request_for_assignment(&mut pg_conn, payload.request_id.as_deref(), false)?;
+    let task = load_request_for_assignment(&mut pg_conn, Some(&payload.request_id), false)?;
     let plan = build_candidates(&app_state, &mut pg_conn, &mut redis_conn, &task).await?;
 
     Ok(Json(AssignmentCandidatesResponse {
