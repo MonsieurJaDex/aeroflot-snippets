@@ -771,15 +771,21 @@ pub async fn export_journal(
     for row in rows {
         csv.push_str(&format!(
             "{},{},{},{},{},{}\n",
-            row.at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-            row.kind,
-            row.actor.unwrap_or_default(),
-            row.task_id.map(|id| id.to_string()).unwrap_or_default(),
-            row.duration_ms.map(|ms| ms.to_string()).unwrap_or_default(),
-            row.params.replace('\n', " ")
+            csv_field(&row.at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+            csv_field(&row.kind),
+            csv_field(&row.actor.unwrap_or_default()),
+            csv_field(&row.task_id.map(|id| id.to_string()).unwrap_or_default()),
+            csv_field(&row.duration_ms.map(|ms| ms.to_string()).unwrap_or_default()),
+            csv_field(&row.params.replace('\n', " "))
         ));
     }
     Ok(([(header::CONTENT_TYPE, "text/csv; charset=utf-8")], csv).into_response())
+}
+
+/// Quotes a CSV field per RFC 4180: `params` holds JSON, so a bare value with
+/// commas would split one event across several columns.
+fn csv_field(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
 }
 
 async fn transition(

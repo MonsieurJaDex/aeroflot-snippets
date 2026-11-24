@@ -69,6 +69,37 @@ async fn applies_buffered_engineer_positions_and_keeps_the_newest() {
 }
 
 #[tokio::test]
+async fn rejects_a_position_batch_addressed_to_another_engineer() {
+    let ctx = TestContext::new().await;
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    let other = ctx.engineer(EngineerType::AviationTechnician);
+    let other_key = format!("map:{}:position:{}", ctx.active_id(), other.id);
+
+    expect_status(
+        ctx.post(
+            "/api/geo/updateEngineerPosition",
+            &engineer.token,
+            json!({ "id": other.id, "batch": [[[9, 9], 500]] }),
+        )
+        .await,
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(ctx.redis_get(&other_key), None);
+
+    let own_key = format!("map:{}:position:{}", ctx.active_id(), engineer.id);
+    expect_status(
+        ctx.post(
+            "/api/geo/updateEngineerPosition",
+            &engineer.token,
+            json!({ "id": engineer.id, "batch": [[[4, 4], 600]] }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(ctx.redis_get(&own_key), Some("4,4".to_owned()));
+}
+
+#[tokio::test]
 async fn validates_engineer_position_batches() {
     let ctx = TestContext::new().await;
     let engineer = ctx.engineer(EngineerType::AviationTechnician);
