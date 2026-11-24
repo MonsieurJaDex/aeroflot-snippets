@@ -21,6 +21,7 @@ import {
   departAircraft,
   downloadJournalCsv,
   getRoute,
+  getRouteVia,
   listMaps,
   loadAlerts,
   loadAogAircraft,
@@ -1084,7 +1085,7 @@ export default function DispatcherPage() {
     }
   }
 
-  async function onPreviewRoute() {
+  async function onPreviewRoute(withVia = false) {
     const plane = aircraft.find((item) => item.id === planeId);
     if (!plane?.point) {
       setRouteNote("Выберите борт.");
@@ -1093,18 +1094,44 @@ export default function DispatcherPage() {
     setRoutePending(true);
     setRouteNote("");
     try {
-      const [staff, busy] = await Promise.all([loadStaff(), loadBusyEngineerIds()]);
+      const [staff, busy, fleetNow] = await Promise.all([
+        loadStaff(),
+        loadBusyEngineerIds(),
+        withVia ? loadTransport() : Promise.resolve(fleet),
+      ]);
       const free = (staff.plotted || []).find((agent) => !busy.has(String(agent.id)) && Array.isArray(agent.point));
       if (!free?.point) {
         setRouteNote("Нет свободного инженера с координатами для пробы маршрута.");
         return;
       }
-      const data = await getRoute(free.point, plane.point);
-      const cells = Number(data?.distance);
-      const route = normalizeRoute(data?.route);
-      actions.current.previewRoute?.(route, `${free.name || "инженер"} → борт`);
+      let route = [];
+      let cells = 0;
+      let label = `${free.name || "инженер"} → борт`;
+      let note = "";
+      if (withVia) {
+        const needType = ISSUE_REQUIRED_VEHICLE[issue];
+        const pool = (fleetNow || []).filter((v) => Array.isArray(v.point));
+        const pick = (needType
+          ? pool.find((v) => String(v.vehicle_type).toLowerCase() === String(needType).toLowerCase())
+          : null) || pool[0];
+        if (!pick?.point) {
+          setRouteNote("Нет спецтранспорта на карте для пробы через промежуточную точку.");
+          return;
+        }
+        const data = await getRouteVia([free.point, pick.point, plane.point]);
+        route = normalizeRoute(data?.route);
+        cells = Number(data?.distance);
+        label = `${free.name || "инженер"} → ${pick.label} → борт`;
+        note = `Проба via: ${label} · ${Number.isFinite(cells) ? cells : Math.max(0, route.length - 1)} клеток · ${data?.legs || 2} плеча · OpenAPI getRoute`;
+      } else {
+        const data = await getRoute(free.point, plane.point);
+        route = normalizeRoute(data?.route);
+        cells = Number(data?.distance);
+        note = `Проба: ${label} · ${Number.isFinite(cells) ? cells : Math.max(0, route.length - 1)} клеток · OpenAPI getRoute`;
+      }
+      actions.current.previewRoute?.(route, label);
       softBeep(560, 100);
-      setRouteNote(`Проба: ${free.name || "инженер"} → борт · ${Number.isFinite(cells) ? cells : Math.max(0, route.length - 1)} клеток · OpenAPI getRoute`);
+      setRouteNote(note);
     } catch (error) {
       setRouteNote(assignErrorMessage(error));
       softBeep(320, 200);
@@ -1537,8 +1564,11 @@ export default function DispatcherPage() {
             {departPending ? "Фиксация…" : "Зафиксировать вылет борта"}
           </button>
           {departNote ? <p className="fault-hint">{departNote}</p> : null}
-          <button type="button" className="shift-button" disabled={routePending || !planeId || pending || arrivePending || departPending} onClick={onPreviewRoute}>
+          <button type="button" className="shift-button" disabled={routePending || !planeId || pending || arrivePending || departPending} onClick={() => onPreviewRoute(false)}>
             {routePending ? "Считаем…" : "Проба маршрута getRoute"}
+          </button>
+          <button type="button" className="shift-button" disabled={routePending || !planeId || pending || arrivePending || departPending} onClick={() => onPreviewRoute(true)}>
+            {routePending ? "Считаем…" : "Проба через спецтранспорт (via)"}
           </button>
           {routeNote ? <p className="fault-hint">{routeNote}</p> : null}
           <button

@@ -11,7 +11,7 @@ import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/
 import { normalizeRoute, updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { whenVisible } from "../lib/visibility.js";
-import { CELL_METERS, pointAt, totalMeters, WALK_MPS } from "../lib/walk.js";
+import { CELL_METERS, pointAt, totalMeters, turnHint, WALK_MPS } from "../lib/walk.js";
 import {
   buildTileGrid,
   centerToLatLng,
@@ -87,6 +87,7 @@ export default function WorkerPage() {
   const [toast, setToast] = useState("");
   const [toastKind, setToastKind] = useState("ok");
   const [distance, setDistance] = useState("НЕТ МАРШРУТА");
+  const [routeHint, setRouteHint] = useState("");
   const [selfText, setSelfText] = useState("ВЫ: НЕТ ТОЧКИ");
   const [busyAction, setBusyAction] = useState("");
   const [statusStep, setStatusStep] = useState("не назначен");
@@ -510,6 +511,8 @@ export default function WorkerPage() {
         walk.line.setLatLngs([at, walk.dest.getLatLng()]);
         walk.done = true;
         setDistance("НА МЕСТЕ");
+        setRouteHint("Вы в зоне обслуживания ВС");
+        softBeep(720, 120);
         return;
       }
       const rest = walk.centers.slice(sample.nextIndex).map((center) => centerToLatLng(tmj, center));
@@ -518,6 +521,7 @@ export default function WorkerPage() {
       const leftMeters = Math.max(0, totalMeters(walk.centers) - traveled);
       const cellsLeft = Math.ceil(leftMeters / CELL_METERS - 1e-6);
       setDistance(`${cellsLeft} КЛЕТОК`);
+      setRouteHint(turnHint(walk.centers, sample.nextIndex));
       bag.frame = requestAnimationFrame(tick);
     }
 
@@ -548,8 +552,10 @@ export default function WorkerPage() {
           selfPoint = [Number(nextTask.plane_point[0]), Number(nextTask.plane_point[1])];
           setSelfText(`ВЫ: ${selfPoint[0]}, ${selfPoint[1]}`);
           setDistance("УЖЕ НА МЕСТЕ");
+          setRouteHint("Вы уже у воздушного судна");
         } else {
           setDistance(nextTask ? "УЖЕ НА МЕСТЕ" : "НЕТ МАРШРУТА");
+          setRouteHint(nextTask ? "Вы уже у воздушного судна" : "");
         }
         focus();
         return;
@@ -584,6 +590,7 @@ export default function WorkerPage() {
       ensureSelfMarker(centerToLatLng(tmj, centers[0]));
       setSelfText(`ВЫ: ${selfPoint[0]}, ${selfPoint[1]}`);
       setDistance(`${Math.max(0, route.length - 1)} КЛЕТОК`);
+      setRouteHint(turnHint(centers, 1));
       bag.map.fitBounds(walk.line.getBounds(), { padding: [36, 36], maxZoom: 2 });
       bag.frame = requestAnimationFrame(tick);
     }
@@ -924,6 +931,7 @@ export default function WorkerPage() {
             <span className="task-state">{selfText}</span>
             <span className="task-state">{distance}</span>
           </div>
+          {routeHint ? <p className="fault-hint route-hint" role="status">{routeHint}</p> : null}
           <div id="worker-map" ref={mapNode} />
         </section>
 

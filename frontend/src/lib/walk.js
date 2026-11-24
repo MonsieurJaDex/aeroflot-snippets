@@ -47,3 +47,29 @@ export function pointAt(centers, meters) {
     done: true,
   };
 }
+
+function heading(a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? "восток" : dx < 0 ? "запад" : null;
+  return dy > 0 ? "юг" : dy < 0 ? "север" : null;
+}
+
+/** Текстовая подсказка поворота по клеткам маршрута (опц. баллы ТЗ). */
+export function turnHint(centers, nextIndex) {
+  if (!Array.isArray(centers) || centers.length < 2) return "Маршрут построен";
+  const i = Math.max(1, Math.min(Number(nextIndex) || 1, centers.length - 1));
+  if (i >= centers.length - 1) return "Прямо до зоны обслуживания ВС";
+  const prev = heading(centers[i - 1], centers[i]);
+  const next = heading(centers[i], centers[i + 1]);
+  if (!prev || !next || prev === next) {
+    return next ? `Держитесь курса: ${next}` : "Прямо по маршруту";
+  }
+  const order = ["север", "восток", "юг", "запад"];
+  const a = order.indexOf(prev);
+  const b = order.indexOf(next);
+  const diff = (b - a + 4) % 4;
+  if (diff === 1) return `Впереди поворот направо → ${next}`;
+  if (diff === 3) return `Впереди поворот налево → ${next}`;
+  return `Разворот, затем ${next}`;
+}

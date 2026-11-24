@@ -248,6 +248,31 @@ export async function getRoute(startPoint, endPoint) {
   return { ...data, route, distance };
 }
 
+/** Цепочка getRoute через 1+ промежуточных точек (п.6 ТЗ). */
+export async function getRouteVia(points) {
+  const stops = (Array.isArray(points) ? points : [])
+    .map(asPoint)
+    .filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  if (stops.length < 2) return { route: [], distance: 0, legs: 0 };
+  if (stops.length === 2) {
+    const one = await getRoute(stops[0], stops[1]);
+    return { ...one, legs: 1 };
+  }
+  const route = [];
+  let distance = 0;
+  for (let i = 0; i < stops.length - 1; i += 1) {
+    const leg = await getRoute(stops[i], stops[i + 1]);
+    const part = normalizeRoute(leg.route);
+    distance += Number.isFinite(Number(leg.distance))
+      ? Number(leg.distance)
+      : Math.max(0, part.length - 1);
+    if (!part.length) continue;
+    if (!route.length) route.push(...part);
+    else route.push(...part.slice(1));
+  }
+  return { route, distance, legs: stops.length - 1 };
+}
+
 export async function trainClassifier() {
   return apiRequest("/api/classify/train", { method: "POST" });
 }
