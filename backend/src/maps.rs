@@ -47,7 +47,6 @@ pub struct ActiveMap {
     pub id: String,
     pub name: String,
     pub map: MapMatrix,
-    pub road_points: HashSet<i64>,
     pub loaded_at: DateTime<Utc>,
     pub location: std::sync::Arc<Location>,
 }
@@ -168,7 +167,6 @@ pub fn load_active(entry: &MapCatalogEntry) -> anyhow::Result<ActiveMap> {
         id: entry.id.clone(),
         name: entry.name.clone(),
         map: parsed.map,
-        road_points,
         loaded_at: Utc::now(),
         location,
     })
@@ -248,10 +246,6 @@ fn migrate_legacy_keys(redis_conn: &mut redis::Connection, map_id: &str) -> anyh
         .set(LEGACY_MOVED_KEY, map_id)
         .context("failed to mark legacy redis keys as moved")?;
     Ok(())
-}
-
-pub fn route_cache_key(map_id: &str, hash: u64) -> String {
-    format!("map:{map_id}:route:{hash}")
 }
 
 fn map_id_from_path(path: &Path) -> anyhow::Result<String> {

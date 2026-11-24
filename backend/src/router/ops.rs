@@ -1,5 +1,6 @@
 //! Request lifecycle: MCC intake, queue, engineer transitions, MEL, alerts, journal export.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -22,7 +23,7 @@ use crate::journal::JournalEvent;
 use crate::middleware::AuthUser;
 use crate::models::task::Task;
 use crate::types::config::AppState;
-use crate::types::dto::ErrorResponse;
+use crate::types::dto::{AllRequests, ErrorResponse, PlaneRequests};
 use crate::types::enums::UserRole;
 use crate::types::map::{Point, Route};
 
@@ -215,6 +216,90 @@ fn resolve_plane(
     };
     let point = Point::from_value(value).map_err(|_| internal_error())?;
     Ok((Some(id), point))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/requests/all",
+    tag = "Tasks",
+    operation_id = "listAllRequests",
+    description = "All request ids on the current map, grouped by aircraft. \
+                   Requests without an aircraft are omitted.",
+    security(("bearerAuth" = [])),
+    responses(
+        (status = 200, description = "Grouped request ids", body = AllRequests),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Dispatcher role required", body = ErrorResponse),
+    ),
+)]
+pub async fn list_all_requests(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
+    dispatcher(&auth_user)?;
+    let active = active_map(&app_state)?;
+    let mut pg_conn = app_state.db_pool.get().map_err(|_| internal_error())?;
+
+    let rows = tasks::table
+        .filter(tasks::map_id.eq(&active.id))
+        .filter(tasks::plane_id.is_not_null())
+        .order(tasks::created_at.asc())
+        .select((tasks::plane_id.assume_not_null(), tasks::id))
+        .load::<(Uuid, Uuid)>(&mut pg_conn)
+        .map_err(|_| internal_error())?;
+
+    let mut grouped: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (plane_id, task_id) in rows {
+        grouped
+            .entry(plane_id.to_string())
+            .or_default()
+            .push(task_id.to_string());
+    }
+
+    Ok(Json(AllRequests(grouped)).into_response())
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/requests/{plane_id}",
+    tag = "Tasks",
+    operation_id = "listRequestsForPlane",
+    description = "All request ids registered against a specific aircraft on the current map.",
+    security(("bearerAuth" = [])),
+    params(("plane_id" = String, Path, description = "Aircraft id")),
+    responses(
+        (status = 200, description = "Request ids", body = PlaneRequests),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Dispatcher role required", body = ErrorResponse),
+        (status = 404, description = "Aircraft was not found", body = ErrorResponse),
+    ),
+)]
+pub async fn list_requests_for_plane(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    Path(plane_id): Path<Uuid>,
+) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
+    dispatcher(&auth_user)?;
+    let active = active_map(&app_state)?;
+    let mut pg_conn = app_state.db_pool.get().map_err(|_| internal_error())?;
+
+    let ids: Vec<Uuid> = tasks::table
+        .filter(tasks::map_id.eq(&active.id))
+        .filter(tasks::plane_id.eq(Some(plane_id)))
+        .order(tasks::created_at.asc())
+        .select(tasks::id)
+        .load::<Uuid>(&mut pg_conn)
+        .map_err(|_| internal_error())?;
+
+    if ids.len() == 0 {
+        return Ok(not_found("aircraft doesn't have any request"))
+    }
+
+    Ok(Json(PlaneRequests {
+        plane_id: plane_id.to_string(),
+        request_ids: ids.into_iter().map(|id| id.to_string()).collect(),
+    })
+    .into_response())
 }
 
 #[utoipa::path(

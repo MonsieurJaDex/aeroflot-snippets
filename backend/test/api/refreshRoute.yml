@@ -1,0 +1,24 @@
+info:
+  name: refreshRoute
+  type: http
+  seq: 30
+
+http:
+  method: POST
+  url: "{{HOST}}/tasks/{{request_id}}/route"
+  auth:
+    type: bearer
+    token: "{{engineer_token}}"
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

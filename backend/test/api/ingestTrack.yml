@@ -1,7 +1,7 @@
 info:
   name: ingestTrack
   type: http
-  seq: 27
+  seq: 54
 
 http:
   method: POST
@@ -13,13 +13,26 @@ http:
     type: json
     data: |-
       {
-        "obj": "e-01",
+        "obj": "{{engineer_id}}",
         "lat": 55.8312,
         "lon": 37.6361,
-        "t": "2026-12-03T09:14:20.123Z",
+        "t": "2026-11-23T12:00:00.000Z",
         "acc": 5,
-        "spd": 0
+        "spd": 1.2
       }
+
+docs:
+  content: |-
+    Без авторизации. obj — UUID инженера, тогда точка привязывается к нему.
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("track point is accepted", function () {
+          expect(res.status).to.equal(200);
+          expect(res.body.accepted).to.equal(true);
+        });
 
 settings:
   encodeUrl: true

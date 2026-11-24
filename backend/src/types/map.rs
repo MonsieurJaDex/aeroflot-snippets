@@ -4,11 +4,7 @@
 //! denotes a free cell and any non-zero value denotes an obstacle. The
 //! [`MapMatrix`] and [`Point`] types are exported to the OpenAPI schema.
 
-use std::{
-    fmt,
-    hash::{DefaultHasher, Hash, Hasher},
-    str::FromStr,
-};
+use std::{fmt, str::FromStr};
 
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
@@ -132,34 +128,6 @@ impl Route {
     #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
-    }
-
-    /// Returns a **direction-independent** hash of the route.
-    ///
-    /// Only the first and last points are hashed, so `A → B` and `B → A`
-    /// produce the same key. Useful as a cache key.
-    #[must_use]
-    pub fn compute_universal_key(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
-
-        if self.0.len() < 2 {
-            self.0.hash(&mut hasher);
-            return hasher.finish();
-        }
-
-        // `len >= 2` — both `first()` and `last()` are `Some`.
-        let first = self.0.first().unwrap();
-        let last = self.0.last().unwrap();
-
-        if (first.0, first.1) <= (last.0, last.1) {
-            first.hash(&mut hasher);
-            last.hash(&mut hasher);
-        } else {
-            last.hash(&mut hasher);
-            first.hash(&mut hasher);
-        }
-
-        hasher.finish()
     }
 }
 

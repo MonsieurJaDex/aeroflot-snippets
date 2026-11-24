@@ -1,0 +1,24 @@
+info:
+  name: pickTools
+  type: http
+  seq: 29
+
+http:
+  method: POST
+  url: "{{HOST}}/tasks/current/tools"
+  auth:
+    type: bearer
+    token: "{{engineer_token}}"
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

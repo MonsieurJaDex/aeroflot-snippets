@@ -1,0 +1,28 @@
+info:
+  name: acceptCurrent
+  type: http
+  seq: 28
+
+http:
+  method: POST
+  url: "{{HOST}}/tasks/current/accept"
+  auth:
+    type: bearer
+    token: "{{engineer_token}}"
+
+docs:
+  content: |-
+    assigned → in_progress
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
