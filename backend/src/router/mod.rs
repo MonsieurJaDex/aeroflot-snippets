@@ -31,7 +31,8 @@ use crate::{
         dto::{
             ActiveMapResponse, AircraftEntry, AircraftListResponse, AircraftMovementListResponse,
             AircraftMovementResponse, AogListResponse, ArriveAircraftRequest,
-            AssignEngineerRequest, AssignEngineerResponse, AssignmentCandidate,
+            AssignCandidatesRequest, AssignEngineerRequest, AssignEngineerResponse,
+            AssignmentCandidate,
             AssignmentCandidatesResponse, ClassifyRequest, ClassifyResponse, CurrentTaskAogRequest,
             CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest, ErrorResponse,
             GetRouteRequest, GetRouteResponse, MapListResponse, MapResponse, MapSummary, PageQuery,

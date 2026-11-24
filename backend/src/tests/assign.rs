@@ -613,11 +613,7 @@ async fn candidates_preview_is_read_only() {
     let plane = Uuid::new_v4();
     let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
 
-    let body = json!({
-        "classifier_text": "уход гироплатформы ИНС",
-        "plane_uuid": plane,
-        "request_id": request
-    });
+    let body = json!({ "request_id": request });
     let first = expect_status(
         ctx.post("/api/assign/candidates", &dispatcher.token, body.clone())
             .await,
@@ -899,11 +895,7 @@ async fn unassign_returns_the_request_to_the_pool_once() {
         ctx.post(
             "/api/assign/candidates",
             &dispatcher.token,
-            json!({
-                "classifier_text": "уход гироплатформы ИНС",
-                "plane_uuid": plane,
-                "request_id": request
-            }),
+            json!({ "request_id": request }),
         )
         .await,
         StatusCode::OK,
@@ -1036,8 +1028,7 @@ async fn candidates_preview_serves_a_task_that_already_has_an_engineer() {
         ctx.post(
             "/api/assign/candidates",
             &dispatcher.token,
-            json!({ "classifier_text": "seeded issue", "note": "смотрю замену",
-                    "plane_uuid": Uuid::new_v4(), "request_id": request }),
+            json!({ "request_id": request }),
         )
         .await,
         StatusCode::OK,
@@ -1074,8 +1065,7 @@ async fn every_candidate_publishes_factors_that_sum_to_its_score() {
         ctx.post(
             "/api/assign/candidates",
             &dispatcher.token,
-            json!({ "classifier_text": "уход гироплатформы ИНС",
-                    "plane_uuid": plane, "request_id": request }),
+            json!({ "request_id": request }),
         )
         .await,
         StatusCode::OK,
@@ -1237,8 +1227,7 @@ async fn preview_row(
         ctx.post(
             "/api/assign/candidates",
             dispatcher,
-            json!({ "classifier_text": "разложение балла", "note": "превью",
-                    "plane_uuid": Uuid::new_v4(), "request_id": request }),
+            json!({ "request_id": request }),
         )
         .await,
         StatusCode::OK,
