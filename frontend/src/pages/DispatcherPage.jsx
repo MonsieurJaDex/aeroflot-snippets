@@ -20,6 +20,7 @@ import {
   createDefect,
   departAircraft,
   downloadJournalCsv,
+  fetchJournalCsv,
   getRoute,
   getRouteVia,
   listMaps,
@@ -136,6 +137,8 @@ export default function DispatcherPage() {
   const [alertsNote, setAlertsNote] = useState("");
   const [journalNote, setJournalNote] = useState("");
   const [journalPending, setJournalPending] = useState(false);
+  const [journalPreview, setJournalPreview] = useState("");
+  const [journalPreviewErr, setJournalPreviewErr] = useState("");
   const [reassignId, setReassignId] = useState(() => sessionStorage.getItem("oto-reassign-id") || "");
   const [reassignEngineer, setReassignEngineer] = useState(() => sessionStorage.getItem("oto-reassign-eng") || "");
   const [reassignReason, setReassignReason] = useState(() => sessionStorage.getItem("oto-reassign-reason") || "");
@@ -241,6 +244,12 @@ export default function DispatcherPage() {
       hydrateProfile().catch(() => {});
     }, 60000);
     return () => clearInterval(timer);
+  }, [allowed]);
+
+  useEffect(() => {
+    if (!allowed) return undefined;
+    loadJournalPreview();
+    return undefined;
   }, [allowed]);
 
   useEffect(() => {
@@ -841,6 +850,18 @@ export default function DispatcherPage() {
     });
   }
 
+  async function loadJournalPreview() {
+    setJournalPreviewErr("");
+    try {
+      const text = await fetchJournalCsv();
+      const lines = text.split(/\r?\n/).filter((line) => line.trim().length);
+      setJournalPreview(lines.slice(-8).join("\n"));
+    } catch (error) {
+      setJournalPreview("");
+      setJournalPreviewErr(assignErrorMessage(error));
+    }
+  }
+
   async function downloadJournal() {
     setJournalPending(true);
     setJournalNote("");
@@ -848,6 +869,7 @@ export default function DispatcherPage() {
       await downloadJournalCsv();
       softBeep(520, 120);
       setJournalNote("Файл journal.csv сохранён.");
+      await loadJournalPreview();
     } catch (error) {
       setJournalNote(assignErrorMessage(error));
       softBeep(320, 200);
@@ -1309,6 +1331,10 @@ export default function DispatcherPage() {
             {journalPending ? "Скачивание…" : "Скачать журнал · Ctrl+J"}
           </button>
           {journalNote ? <p className="fault-hint">{journalNote}</p> : null}
+          {journalPreviewErr ? <p className="fault-hint">{journalPreviewErr}</p> : null}
+          {journalPreview ? (
+            <pre className="journal-preview" aria-label="Последние строки journal.csv">{journalPreview}</pre>
+          ) : null}
         </details>
         <details className="request-panel" open>
           <summary>Заявки ЦПУ · {inbox.length}</summary>
@@ -1604,6 +1630,9 @@ export default function DispatcherPage() {
             {result.type === "ok" ? (
               <>
                 <strong>{result.name}</strong><br />
+                {result.candidateMs != null ? (
+                  <p className="assign-timing">Подбор кандидатов: <strong>{result.candidateMs} мс</strong></p>
+                ) : null}
                 Борт {result.plane} · {result.issue}<br />
                 {result.onSite ? "Инженер уже у воздушного судна, маршрут пустой." : <>Маршрут: <strong>{result.cells} клеток</strong><br />В пути: <strong>{result.minutes} мин</strong></>}
                 {result.pickup ? <><br />Маршрут заезжает за спецтранспорт: <strong>{result.pickup}</strong>.</> : null}
