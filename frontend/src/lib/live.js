@@ -5,7 +5,41 @@ const names = new Map();
 
 function asPoint(point) {
   if (!Array.isArray(point) || point.length < 2) return null;
-  return [Number(point[0]), Number(point[1])];
+  const x = Number(point[0]);
+  const y = Number(point[1]);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return [x, y];
+}
+
+function asJson(data) {
+  if (typeof data !== "string") return data;
+  const text = data.trim();
+  if (!text || (text[0] !== "[" && text[0] !== "{")) return data;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return data;
+  }
+}
+
+function pointFromUpdate(batch) {
+  const bare = asPoint(batch);
+  if (bare) return bare;
+  if (!Array.isArray(batch)) return null;
+  let best = null;
+  let bestT = -Infinity;
+  for (const sample of batch) {
+    if (!Array.isArray(sample)) continue;
+    const point = asPoint(sample[0]) || asPoint(sample);
+    if (!point) continue;
+    const stamp = Number(sample[1]);
+    const t = Number.isFinite(stamp) ? stamp : -Infinity;
+    if (!best || t >= bestT) {
+      best = point;
+      bestT = t;
+    }
+  }
+  return best;
 }
 
 // OpenAPI Route = Point[]; Point = [x, y].
@@ -14,7 +48,7 @@ export function normalizeRoute(route) {
   const out = [];
   for (const item of route) {
     const point = asPoint(item);
-    if (!point || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) continue;
+    if (!point) continue;
     out.push(point);
   }
   return out;
@@ -24,8 +58,13 @@ export async function engineerName(id) {
   const key = String(id);
   if (names.has(key)) return names.get(key);
   try {
-    const data = await apiRequest(`/api/auth/getEngineerName/${key}`, { auth: false });
-    const name = data?.name || `Инженер ${key.slice(0, 8)}`;
+    const data = await apiRequest("/api/auth/get_engineer_name", {
+      method: "POST",
+      auth: false,
+      body: { id: key },
+    });
+    const parsed = asJson(data);
+    const name = (typeof parsed === "string" ? parsed : parsed?.name) || `Инженер ${key.slice(0, 8)}`;
     names.set(key, name);
     return name;
   } catch {
@@ -38,7 +77,7 @@ export async function engineerName(id) {
 export async function loadStaff() {
   let engineers = [];
   try {
-    engineers = await apiRequest("/api/geo/getEngineersPositions");
+    engineers = asJson(await apiRequest("/api/simulate/get_engineers_positions"));
   } catch (error) {
     console.warn("[map] не удалось загрузить список сотрудников", error);
     return { plotted: [], missing: [] };
@@ -48,9 +87,14 @@ export async function loadStaff() {
   const plotted = [];
   const missing = [];
   await Promise.all(engineers.map(async (entry) => {
-    const id = String(entry.id);
+    // Живой ответ — [id, point]; объект с position/point/new_point тоже принимаем.
+    const tuple = Array.isArray(entry);
+    const id = String(tuple ? entry[0] : entry?.id || "");
+    if (!id) return;
     const name = await engineerName(id);
-    const point = asPoint(entry.position);
+    const point = tuple
+      ? asPoint(entry[1])
+      : asPoint(entry.position) || asPoint(entry.point) || asPoint(entry.new_point);
     if (!point) {
       missing.push({ id, name });
       return;
@@ -62,16 +106,8 @@ export async function loadStaff() {
 }
 
 export async function loadAircraft() {
-  try {
-    const data = await apiRequest("/api/aircraft");
-    const list = Array.isArray(data?.aircraft) ? data.aircraft : [];
-    return list
-      .map((item) => ({ id: String(item.id), point: asPoint(item.point) }))
-      .filter((item) => item.point);
-  } catch (error) {
-    console.warn("[map] не удалось загрузить воздушные суда", error);
-    return [];
-  }
+  // На этом сервере /api/aircraft нет.
+  return [];
 }
 
 export async function loadAogIds() {
@@ -130,9 +166,11 @@ export async function postTrackPoint({ obj, lat, lon, t = new Date().toISOString
 
 export async function loadBusyEngineerIds() {
   try {
-    const data = await apiRequest("/api/geo/activeEngineers");
-    const ids = data?.active_engineers || [];
-    return new Set(ids.map(String));
+    const data = asJson(await apiRequest("/api/simulate/active_engineers"));
+    const ids = Array.isArray(data)
+      ? data
+      : (data?.active_engineers || data?.engineers || data?.ids || []);
+    return new Set(ids.map((item) => String(item?.id ?? item)).filter(Boolean));
   } catch (error) {
     console.warn("[map] не удалось загрузить занятых инженеров", error);
     return new Set();
@@ -141,7 +179,7 @@ export async function loadBusyEngineerIds() {
 
 export async function loadTransport() {
   try {
-    const list = await apiRequest("/api/geo/getTransportPositions");
+    const list = asJson(await apiRequest("/api/simulate/get_transport_positions"));
     if (!Array.isArray(list)) return [];
     return list
       .filter((item) => item.vehicle_type !== "Aircraft" && item.vehicle_type !== "aircraft")
@@ -217,52 +255,50 @@ export async function loadMovements(limit = 20) {
 }
 
 export async function departAircraft(id) {
-  return apiRequest("/api/aircraft/depart", {
-    method: "POST",
-    body: { id },
-  });
+  void id;
+  throw new Error("Вылет борта на этом сервере недоступен.");
 }
 
 export async function arriveAircraft(point, id = null) {
-  const body = { point };
-  if (id) body.id = id;
-  return apiRequest("/api/aircraft/arrive", {
-    method: "POST",
-    body,
-  });
+  void point;
+  void id;
+  throw new Error("Прибытие борта на этом сервере недоступно.");
 }
 
 export async function updateEngineerPosition(id, batch) {
-  return apiRequest("/api/geo/updateEngineerPosition", {
+  const newPoint = pointFromUpdate(batch);
+  if (!newPoint) throw new Error("Нет точки для позиции инженера.");
+  return apiRequest("/api/simulate/update_engineer_position", {
     method: "POST",
-    body: { id, batch },
+    body: { id, new_point: newPoint },
   });
 }
 
 export async function updateTransportPosition(id, vehicleType, newPoint) {
-  return apiRequest("/api/geo/updateTransportPosition", {
+  return apiRequest("/api/simulate/update_transport_position", {
     method: "POST",
     body: { id, vehicle_type: vehicleType, new_point: newPoint },
   });
 }
 
 export async function getRoute(startPoint, endPoint) {
-  const data = await apiRequest("/api/getRoute", {
+  const data = asJson(await apiRequest("/api/getRoute", {
     method: "POST",
     body: { start_point: startPoint, end_point: endPoint },
-  });
-  const route = normalizeRoute(data?.route);
-  const distance = Number.isFinite(Number(data?.distance))
+  }));
+  const route = normalizeRoute(Array.isArray(data) ? data : data?.route);
+  const distance = !Array.isArray(data) && Number.isFinite(Number(data?.distance))
     ? Number(data.distance)
     : Math.max(0, route.length - 1);
-  return { ...data, route, distance };
+  if (data && typeof data === "object" && !Array.isArray(data)) return { ...data, route, distance };
+  return { route, distance };
 }
 
 /** Цепочка getRoute через 1+ промежуточных точек (п.6 ТЗ). */
 export async function getRouteVia(points) {
   const stops = (Array.isArray(points) ? points : [])
     .map(asPoint)
-    .filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    .filter(Boolean);
   if (stops.length < 2) return { route: [], distance: 0, legs: 0 };
   if (stops.length === 2) {
     const one = await getRoute(stops[0], stops[1]);

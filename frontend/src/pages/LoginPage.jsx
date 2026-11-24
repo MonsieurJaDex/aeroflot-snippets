@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import NetBanner from "../components/NetBanner.jsx";
-import { softBeep } from "../lib/beep.js";
+import PasswordField from "../components/PasswordField.jsx";
 import { ENGINEER_TYPES } from "../lib/catalog.js";
 import { clearSession, getApiBase, getSession, login, register, setApiBase } from "../lib/session.js";
+
+const EMAIL_RE = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i;
+
+function validEmail(value) {
+  return EMAIL_RE.test(String(value || "").trim());
+}
 
 const ROLE_LABELS = {
   Mcc: "ЦПУ",
@@ -20,17 +26,19 @@ function homeForRole(role) {
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [apiBase, setApiBaseInput] = useState(getApiBase);
-  const [role, setRole] = useState(() => {
-    const saved = localStorage.getItem("oto-last-role");
-    return saved === "Dispatcher" || saved === "Engineer" || saved === "Mcc" ? saved : null;
-  });
+  const [role, setRole] = useState(null);
   const [mode, setMode] = useState("login");
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [pending, setPending] = useState(false);
-  const [savedEmail, setSavedEmail] = useState(() => localStorage.getItem("oto-last-email") || "");
+  const [email, setEmail] = useState(() => (localStorage.getItem("oto-remember") === "1" ? localStorage.getItem("oto-remember-email") || "" : ""));
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [skill, setSkill] = useState(ENGINEER_TYPES[0][0]);
   const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(() => localStorage.getItem("oto-remember") === "1");
 
   useEffect(() => {
     document.title = "Аэрофлот ОТО · вход";
@@ -39,30 +47,21 @@ export default function LoginPage() {
 
   useEffect(() => {
     const session = getSession();
-    if (session?.role === "Dispatcher" || session?.role === "Engineer" || session?.role === "Mcc") {
+    if (session?.role === "Dispatcher" || session?.role === "Engineer") {
       navigate(homeForRole(session.role), { replace: true });
     }
   }, [navigate]);
 
   useEffect(() => {
-    function onKey(event) {
-      if (event.key === "Escape" && role) {
-        event.preventDefault();
-        localStorage.removeItem("oto-last-role");
-        setRole(null);
-        setError("");
-        setStatus("");
-        return;
-      }
-      if (role) return;
-      if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
-      if (event.key === "1") { event.preventDefault(); openRole("Mcc"); }
-      if (event.key === "2") { event.preventDefault(); openRole("Dispatcher"); }
-      if (event.key === "3") { event.preventDefault(); openRole("Engineer"); }
+    if (location.state?.resetRoles) {
+      localStorage.removeItem("oto-last-role");
+      setRole(null);
+      setMode("login");
+      setError("");
+      setStatus("");
+      navigate("/", { replace: true, state: {} });
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [role]);
+  }, [location.state, navigate]);
 
   function prefetchRole(nextRole) {
     if (nextRole === "Mcc") import("./MccPage.jsx");
@@ -70,42 +69,73 @@ export default function LoginPage() {
     if (nextRole === "Engineer") import("./WorkerPage.jsx");
   }
 
+  function resetSecrets() {
+    setPassword("");
+    setShowPassword(false);
+  }
+
   function openRole(nextRole) {
     prefetchRole(nextRole);
-    softBeep(520, 70);
     if (nextRole === "Mcc") {
-      localStorage.setItem("oto-last-role", "Mcc");
+      localStorage.removeItem("oto-last-role");
       navigate("/mcc");
       return;
     }
     localStorage.setItem("oto-last-role", nextRole);
     setRole(nextRole);
-    setError("");
-    setStatus(`Роль: ${ROLE_LABELS[nextRole]}`);
     setMode("login");
+    setName("");
+    resetSecrets();
+    setError("");
+    setStatus("");
+  }
+
+  function backToRoles() {
+    localStorage.removeItem("oto-last-role");
+    setRole(null);
+    setMode("login");
+    setName("");
+    resetSecrets();
+    setError("");
+    setStatus("");
+  }
+
+  function switchMode(next) {
+    setMode(next);
+    setName("");
+    resetSecrets();
+    setError("");
+  }
+
+  function storeRemember(nextEmail) {
+    if (remember) {
+      localStorage.setItem("oto-remember", "1");
+      localStorage.setItem("oto-remember-email", nextEmail);
+    } else {
+      localStorage.removeItem("oto-remember");
+      localStorage.removeItem("oto-remember-email");
+    }
   }
 
   async function onLogin(event) {
     event.preventDefault();
     setError("");
+    if (!validEmail(email)) {
+      setError("Почта: имя@сервис.домен, например ivan@mail.ru");
+      return;
+    }
     setPending(true);
-    const form = new FormData(event.currentTarget);
     try {
-      const email = String(form.get("email") || "").trim();
-      const session = await login(email, String(form.get("password") || ""));
+      const session = await login(email.trim(), password);
       if (session.role !== role) {
         clearSession();
         setError(`Этот аккаунт зарегистрирован как ${ROLE_LABELS[session.role] || session.role}.`);
-        softBeep(320, 200);
         return;
       }
-      localStorage.setItem("oto-last-email", email);
-      setSavedEmail(email);
-      softBeep(680, 100);
+      storeRemember(email.trim());
       navigate(homeForRole(session.role));
     } catch (err) {
       setError(err.message);
-      softBeep(320, 200);
     } finally {
       setPending(false);
     }
@@ -114,24 +144,23 @@ export default function LoginPage() {
   async function onRegister(event) {
     event.preventDefault();
     setError("");
+    if (!validEmail(email)) {
+      setError("Почта: имя@сервис.домен, например ivan@mail.ru");
+      return;
+    }
     setPending(true);
-    const form = new FormData(event.currentTarget);
     try {
-      const email = String(form.get("email") || "").trim();
       const session = await register({
-        name: String(form.get("name") || "").trim(),
-        email,
-        password: String(form.get("password") || ""),
+        name: name.trim(),
+        email: email.trim(),
+        password,
         userRole: role,
-        engineerType: role === "Engineer" ? String(form.get("skill") || "") : undefined,
+        engineerType: role === "Engineer" ? skill : undefined,
       });
-      localStorage.setItem("oto-last-email", email);
-      setSavedEmail(email);
-      softBeep(680, 100);
+      storeRemember(email.trim());
       navigate(homeForRole(session.role));
     } catch (err) {
       setError(err.message);
-      softBeep(320, 200);
     } finally {
       setPending(false);
     }
@@ -145,7 +174,6 @@ export default function LoginPage() {
           <p className="eyebrow">ОТО · ДИСПЕТЧЕРИЗАЦИЯ</p>
           <h1>Аэрофлот</h1>
           <p className="role-copy">ЦПУ фиксирует замечание, начальник смены назначает, инженер выполняет. Вход по роли.</p>
-          <p className="role-copy role-copy-sub">Нет учётки — откройте роль и вкладку «Регистрация». ЦПУ может писать локально без входа, на сервер нужен токен.</p>
         </div>
 
         <details className="api-config">
@@ -171,13 +199,9 @@ export default function LoginPage() {
                 try {
                   const res = await fetch(`${base}/api/aircraft`);
                   const ok = res.ok || res.status === 401;
-                  setStatus(ok
-                    ? `Сервер отвечает (${res.status}).`
-                    : `Сервер ответил ${res.status}.`);
-                  softBeep(ok ? 720 : 380, ok ? 100 : 180);
+                  setStatus(ok ? `Сервер отвечает (${res.status}).` : `Сервер ответил ${res.status}.`);
                 } catch {
                   setStatus("Сервер недоступен по этому адресу.");
-                  softBeep(280, 220);
                 }
               }}
             >
@@ -193,71 +217,84 @@ export default function LoginPage() {
                 <div className="auth-role-badge">{ROLE_LABELS[role]}</div>
                 <div className="auth-card-title">Доступ к системе</div>
               </div>
-              <button className="auth-close" type="button" title="Esc" onClick={() => { localStorage.removeItem("oto-last-role"); setRole(null); setError(""); setStatus(""); }}>Назад · Esc</button>
+              <button className="auth-close" type="button" onClick={backToRoles}>Назад</button>
             </div>
             <div className="auth-tabs">
-              <button className={mode === "login" ? "auth-tab active" : "auth-tab"} type="button" onClick={() => setMode("login")}>Вход</button>
-              <button className={mode === "register" ? "auth-tab active" : "auth-tab"} type="button" onClick={() => setMode("register")}>Регистрация</button>
+              <button className={mode === "login" ? "auth-tab active" : "auth-tab"} type="button" onClick={() => switchMode("login")}>Вход</button>
+              <button className={mode === "register" ? "auth-tab active" : "auth-tab"} type="button" onClick={() => switchMode("register")}>Регистрация</button>
             </div>
             {mode === "login" ? (
-              <form className="auth-form" onSubmit={onLogin}>
-                <label>Email<input type="email" name="email" required autoComplete="username" autoFocus defaultValue={savedEmail} /></label>
-                <label>Пароль
-                  <input type={showPassword ? "text" : "password"} name="password" required autoComplete="current-password" />
+              <form className="auth-form" key={`login-${role}`} autoComplete="off" onSubmit={onLogin}>
+                <label>Email
+                  <input type="email" name="email" required autoComplete="username" autoFocus value={email} onChange={(event) => setEmail(event.target.value)} />
                 </label>
-                <label className="layer-row">
-                  <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} />
-                  Показать пароль
+                <PasswordField
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  show={showPassword}
+                  onToggle={() => setShowPassword((prev) => !prev)}
+                />
+                <label className="remember-row">
+                  <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
+                  Запомнить почту
                 </label>
                 <button type="submit" disabled={pending} aria-busy={pending}>{pending ? "Вход…" : "Войти"}</button>
               </form>
             ) : (
-              <form className="auth-form" onSubmit={onRegister}>
-                <label>Имя<input type="text" name="name" required /></label>
-                <label>Email<input type="email" name="email" required autoComplete="username" /></label>
-                <label>Пароль
-                  <input type={showPassword ? "text" : "password"} name="password" required autoComplete="new-password" />
+              <form className="auth-form" key={`register-${role}`} autoComplete="off" onSubmit={onRegister}>
+                <label>Имя
+                  <input type="text" name="full-name" required autoComplete="off" autoFocus value={name} onChange={(event) => setName(event.target.value)} />
                 </label>
-                <label className="layer-row">
-                  <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} />
-                  Показать пароль
+                <label>Email
+                  <input type="email" name="email" required autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
                 </label>
+                <PasswordField
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  show={showPassword}
+                  onToggle={() => setShowPassword((prev) => !prev)}
+                />
                 {role === "Engineer" ? (
                   <label>Специализация
-                    <select name="skill" defaultValue={ENGINEER_TYPES[0][0]}>
+                    <select name="skill" value={skill} onChange={(event) => setSkill(event.target.value)}>
                       {ENGINEER_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </select>
                   </label>
                 ) : null}
+                <label className="remember-row">
+                  <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
+                  Запомнить почту
+                </label>
                 <button type="submit" disabled={pending}>{pending ? "Регистрация…" : "Зарегистрироваться"}</button>
               </form>
             )}
             {error ? <div className="auth-error">{error}</div> : null}
-            <div className="auth-status">{status}</div>
+            {status ? <div className="auth-status">{status}</div> : null}
           </section>
         ) : (
           <div className="role-grid">
-            <button className="role-card" type="button" title="Клавиша 1" onMouseEnter={() => prefetchRole("Mcc")} onFocus={() => prefetchRole("Mcc")} onClick={() => openRole("Mcc")}>
-              <span className="role-card-number">01 · 1</span>
+            <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Mcc")} onFocus={() => prefetchRole("Mcc")} onClick={() => openRole("Mcc")}>
+              <span className="role-card-number">01</span>
               <h2>ЦПУ</h2>
               <p>Фиксирует замечание экипажа или сотрудника и передаёт его начальнику смены. Исполнителя не назначает.</p>
-              <span>Передать замечание</span>
+              <span>Войти как ЦПУ</span>
             </button>
-            <button className="role-card" type="button" title="Клавиша 2" onMouseEnter={() => prefetchRole("Dispatcher")} onFocus={() => prefetchRole("Dispatcher")} onClick={() => openRole("Dispatcher")}>
-              <span className="role-card-number">02 · 2</span>
+            <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Dispatcher")} onFocus={() => prefetchRole("Dispatcher")} onClick={() => openRole("Dispatcher")}>
+              <span className="role-card-number">02</span>
               <h2>Начальник смены</h2>
               <p>Принимает заявку от ЦПУ, назначает инженера и подтверждает снятие после статуса «в работе».</p>
               <span>Войти как начальник смены</span>
             </button>
-            <button className="role-card" type="button" title="Клавиша 3" onMouseEnter={() => prefetchRole("Engineer")} onFocus={() => prefetchRole("Engineer")} onClick={() => openRole("Engineer")}>
-              <span className="role-card-number">03 · 3</span>
+            <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Engineer")} onFocus={() => prefetchRole("Engineer")} onClick={() => openRole("Engineer")}>
+              <span className="role-card-number">03</span>
               <h2>Инженер</h2>
               <p>Принимает или отклоняет заявку, меняет статус, идёт по маршруту, ставит AOG и категорию MEL.</p>
               <span>Войти как инженер</span>
             </button>
           </div>
         )}
-        <p className="build-stamp">ОТО frontend · {import.meta.env.MODE}</p>
       </div>
     </main>
   );

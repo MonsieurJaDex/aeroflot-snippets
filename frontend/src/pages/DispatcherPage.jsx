@@ -35,6 +35,7 @@ import {
   reassignRequest,
   setActiveMap,
   trainClassifier,
+  updateEngineerPosition,
   updateTransportPosition,
 } from "../lib/live.js";
 import { classifyRemark } from "../lib/mccApi.js";
@@ -42,7 +43,6 @@ import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { formatPollMs, relativeRu } from "../lib/format.js";
 import NetBanner from "../components/NetBanner.jsx";
-import StatusChain from "../components/StatusChain.jsx";
 import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { whenVisible } from "../lib/visibility.js";
@@ -87,10 +87,56 @@ function marginMinutes(seconds) {
   return Math.round(Number(seconds) / 60);
 }
 
-function dispatcherStatusStep(result, inbox, activeMcc) {
-  if (result?.type === "ok") return "назначен";
-  if (inbox.length || activeMcc) return "не назначен";
-  return "замечание";
+const DEMO_STAND_ID = "demo-stand";
+const STANDS_KEY = "oto-demo-stands";
+const VEHICLE_IDS_KEY = "oto-demo-vehicle-ids";
+const CLICK_VEHICLES = ["FuelTruck", "OilCart", "MaintenanceLift", "BorescopeCart", "AvionicsTestSet"];
+
+function readClickMode() {
+  const saved = localStorage.getItem("oto-click-mode");
+  return saved === "engineer" || saved === "transport" || saved === "stand" ? saved : "stand";
+}
+
+function readDemoStands() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STANDS_KEY) || "[]");
+    const rows = Array.isArray(raw) ? raw : [];
+    return rows
+      .map((row) => ({
+        id: String(row?.id || DEMO_STAND_ID),
+        point: Array.isArray(row?.point) && row.point.length >= 2
+          ? [Number(row.point[0]), Number(row.point[1])]
+          : null,
+      }))
+      .filter((row) => row.point && Number.isFinite(row.point[0]) && Number.isFinite(row.point[1]));
+  } catch {
+    return [];
+  }
+}
+
+function writeDemoStand(point, id) {
+  const row = { id: String(id || DEMO_STAND_ID), point: [Number(point[0]), Number(point[1])] };
+  const next = [row, ...readDemoStands().filter((item) => item.id !== row.id)].slice(0, 8);
+  localStorage.setItem(STANDS_KEY, JSON.stringify(next));
+  return next;
+}
+
+function demoVehicleId(type) {
+  let bag = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(VEHICLE_IDS_KEY) || "{}");
+    if (parsed && typeof parsed === "object") bag = parsed;
+  } catch { /* пусто */ }
+  if (!bag[type]) {
+    bag[type] = crypto.randomUUID();
+    localStorage.setItem(VEHICLE_IDS_KEY, JSON.stringify(bag));
+  }
+  return bag[type];
+}
+
+function mergePlanes(apiList, stands) {
+  const extra = stands.filter((stand) => !apiList.some((plane) => plane.id === stand.id));
+  return apiList.length ? [...apiList, ...extra] : stands;
 }
 
 export default function DispatcherPage() {
@@ -100,6 +146,7 @@ export default function DispatcherPage() {
   const mapNode = useRef(null);
   const actions = useRef({});
   const formRef = useRef({});
+  const clickRef = useRef({});
   const layersRef = useRef((() => {
     try {
       const saved = JSON.parse(localStorage.getItem("oto-map-layers") || "null");
@@ -120,8 +167,16 @@ export default function DispatcherPage() {
   const inboxCountRef = useRef(0);
 
   const [aircraft, setAircraft] = useState([]);
+  const [demoStands, setDemoStands] = useState(readDemoStands);
+  const [clickMode, setClickMode] = useState(readClickMode);
+  const [staffRows, setStaffRows] = useState([]);
+  const [clickEngineerId, setClickEngineerId] = useState(() => localStorage.getItem("oto-click-eng") || "");
+  const [clickVehicleType, setClickVehicleType] = useState(() => {
+    const saved = localStorage.getItem("oto-click-vehicle");
+    return CLICK_VEHICLES.includes(saved) ? saved : "FuelTruck";
+  });
   const [aogIds, setAogIds] = useState(() => new Set());
-  const [planeId, setPlaneId] = useState("");
+  const [planeId, setPlaneId] = useState(() => readDemoStands()[0]?.id || "");
   const [issue, setIssue] = useState(() => {
     const saved = localStorage.getItem("oto-last-issue");
     return saved && ISSUE_LABELS.has(saved) ? saved : FIRST_ISSUE;
@@ -129,7 +184,7 @@ export default function DispatcherPage() {
   const [description, setDescription] = useState(() => sessionStorage.getItem("oto-disp-draft") || "");
   const [hint, setHint] = useState("");
   const [live, setLive] = useState("Загрузка бортов, инженеров и техники…");
-  const [result, setResult] = useState({ type: "info", text: "Выберите борт из списка и тип неисправности." });
+  const [result, setResult] = useState({ type: "info", text: "Клик по карте ставит стоянку, инженера или технику. Затем назначьте." });
   const [inbox, setInbox] = useState(freshInbox);
   const [activeMcc, setActiveMcc] = useState(null);
   const [tileInfo, setTileInfo] = useState("Кликни по карте, чтобы выбрать клетку.");
@@ -197,6 +252,7 @@ export default function DispatcherPage() {
   const staleBeepAt = useRef(0);
 
   formRef.current = { issue, description, planeId, activeMcc };
+  clickRef.current = { mode: clickMode, engineerId: clickEngineerId, vehicleType: clickVehicleType, planeId };
   layersRef.current = layersOn;
 
   useEffect(() => {
@@ -279,15 +335,16 @@ export default function DispatcherPage() {
 
   useEffect(() => {
     const q = deferredPlaneFilter.trim().toLowerCase();
-    if (!q || !aircraft.length) return;
-    const list = aircraft.filter((plane) => {
+    const pool = aircraft.length ? aircraft : demoStands;
+    if (!q || !pool.length) return;
+    const list = pool.filter((plane) => {
       const hay = `${plane.id} ${plane.point?.[0]} ${plane.point?.[1]}`.toLowerCase();
       return hay.includes(q);
     });
     if (list.length && !list.some((plane) => plane.id === planeId)) {
       setPlaneId(list[0].id);
     }
-  }, [deferredPlaneFilter, aircraft, planeId]);
+  }, [deferredPlaneFilter, aircraft, demoStands, planeId]);
 
   useEffect(() => {
     const bits = ["ОТО · смена"];
@@ -304,7 +361,7 @@ export default function DispatcherPage() {
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault();
         const form = formRef.current;
-        if (!form?.planeId || !String(form.description || "").trim()) return;
+        if (!form?.planeId) return;
         actions.current.assign?.();
       }
       if (event.key === "Escape") {
@@ -418,6 +475,7 @@ export default function DispatcherPage() {
     let aircraftNow = [];
     let agents = [];
     let busyIds = new Set();
+    let lastAog = new Set();
     let showRoute = layersRef.current.route;
 
     (async () => {
@@ -573,15 +631,25 @@ export default function DispatcherPage() {
         if (cancelled) return;
         agents = staff.plotted;
         aircraftNow = await loadAircraft();
+        const standsNow = readDemoStands();
+        const shown = mergePlanes(aircraftNow, standsNow);
         const aog = await loadAogIds();
         fleet = await loadTransport();
         busyIds = await loadBusyEngineerIds();
         if (cancelled) return;
         for (const agent of agents) agent.busy = busyIds.has(String(agent.id));
+        lastAog = aog;
+        const rows = [
+          ...staff.plotted.map((agent) => ({ id: agent.id, name: agent.name, point: agent.point })),
+          ...staff.missing.map((agent) => ({ id: agent.id, name: agent.name, point: null })),
+        ];
+        setStaffRows(rows);
+        setClickEngineerId((prev) => (rows.some((row) => row.id === prev) ? prev : rows[0]?.id || ""));
         setAircraft(aircraftNow);
+        setDemoStands(standsNow);
         setAogIds(aog);
-        setPlaneId((prev) => (aircraftNow.some((plane) => plane.id === prev) ? prev : aircraftNow[0]?.id || ""));
-        renderAircraftMarkers(aircraftNow, aog);
+        setPlaneId((prev) => (shown.some((plane) => plane.id === prev) ? prev : shown[0]?.id || ""));
+        renderAircraftMarkers(shown, aog);
         renderStaffMarkers();
         renderTransportMarkers();
         const gap = staff.missing.length ? `, без координат: ${staff.missing.length}` : "";
@@ -590,7 +658,37 @@ export default function DispatcherPage() {
         setPollMs(Math.round(performance.now() - started));
         const free = agents.filter((agent) => !agent.busy).length;
         setCrewNote(`Свободно ${free} / ${agents.length}`);
-        setLive(`Бортов: ${aircraftNow.length} · инженеров на карте: ${agents.length}${gap} · техники: ${fleet.length} · AOG: ${aog.size}`);
+        const standNote = aircraftNow.length ? "" : ` · стоянок: ${standsNow.length}`;
+        setLive(`Бортов: ${aircraftNow.length}${standNote} · инженеров на карте: ${agents.length}${gap} · техники: ${fleet.length} · AOG: ${aog.size}`);
+      }
+
+      async function placeClick(cell) {
+        const point = [cell.col, cell.row];
+        const mode = clickRef.current.mode;
+        if (mode === "engineer") {
+          const id = clickRef.current.engineerId;
+          if (!id) return "Выберите инженера в списке";
+          await updateEngineerPosition(id, [[point, Math.floor(Date.now() / 1000)]]);
+          await refresh();
+          return `Инженер · [${point[0]}, ${point[1]}]`;
+        }
+        if (mode === "transport") {
+          const type = CLICK_VEHICLES.includes(clickRef.current.vehicleType) ? clickRef.current.vehicleType : "FuelTruck";
+          const id = demoVehicleId(type);
+          await updateTransportPosition(id, type, point);
+          fleet = await loadTransport();
+          setFleet(fleet);
+          renderTransportMarkers();
+          return `${vehicleLabel(type)} · [${point[0]}, ${point[1]}]`;
+        }
+        const known = readDemoStands();
+        const selected = clickRef.current.planeId;
+        const id = known.some((stand) => stand.id === selected) ? selected : (known[0]?.id || DEMO_STAND_ID);
+        const stands = writeDemoStand(point, id);
+        setDemoStands(stands);
+        setPlaneId(id);
+        renderAircraftMarkers(mergePlanes(aircraftNow, stands), lastAog);
+        return `Стоянка ${String(id).slice(0, 8)} · [${point[0]}, ${point[1]}]`;
       }
 
       map.on("click", (event) => {
@@ -606,17 +704,21 @@ export default function DispatcherPage() {
         sessionStorage.setItem("oto-transport-y", String(cell.row));
         const cells = grid[cell.row][cell.col];
         const hintText = roadHint(cells);
-        if (!cells.length) {
-          setTileInfo(`Point [${cell.col}, ${cell.row}]${hintText}`);
-          return;
-        }
         const lines = cells.map((item) => {
           const flip = item.flippedH || item.flippedV || item.flippedD
             ? ` (flip h:${item.flippedH} v:${item.flippedV} d:${item.flippedD})`
             : "";
           return `${item.layerName}: gid=${item.gid}${flip}`;
         });
-        setTileInfo(`Point [${cell.col}, ${cell.row}]${hintText}\n${lines.join("\n")}`);
+        const detail = cells.length
+          ? `Point [${cell.col}, ${cell.row}]${hintText}\n${lines.join("\n")}`
+          : `Point [${cell.col}, ${cell.row}]${hintText}`;
+        setTileInfo(detail);
+        placeClick(cell).then((note) => {
+          if (note) setTileInfo(`${note}\n${detail}`);
+        }).catch((error) => {
+          setTileInfo(`${detail}\n${error.message || "Не удалось поставить точку"}`);
+        });
       });
 
       actions.current = {
@@ -651,9 +753,15 @@ export default function DispatcherPage() {
         },
         async assign() {
           const form = formRef.current;
-          const plane = aircraftNow.find((item) => item.id === form.planeId);
-          if (!plane) {
-            setResult({ type: "info", text: "Нет воздушного судна. Борта приходят из /api/aircraft, фронт их не создаёт." });
+          const standsNow = readDemoStands();
+          // plane_point — клетка выбранной стоянки из oto-demo-stands.
+          const stand = standsNow.find((item) => item.id === form.planeId)
+            || (!aircraftNow.length ? standsNow[0] : null);
+          const plane = stand?.point
+            ? stand
+            : (aircraftNow.find((item) => item.id === form.planeId) || null);
+          if (!plane?.point) {
+            setResult({ type: "info", text: "Поставьте стоянку ВС кликом по карте." });
             return;
           }
           if (navigator.onLine === false) {
@@ -662,24 +770,28 @@ export default function DispatcherPage() {
             return;
           }
           const issueValue = form.issue;
-          const text = form.description.trim() || issueLabel(issueValue);
+          const text = String(form.description || "").trim() || "Замечание";
           const busyBefore = new Set(busyIds);
           setPending(true);
           setResult({ type: "info", text: "Поиск свободного инженера и спецтранспорта..." });
           try {
-            // Контракт assign: classifier_text + note + plane_uuid; issue и request_id опциональны.
-            const mccItem = listMcc().find((item) => item.id === form.activeMcc);
+            // Живой assign: issue, plane_point, description.
             const response = await apiRequest("/api/assign", {
               method: "POST",
               body: {
-                classifier_text: text,
-                note: text,
-                plane_uuid: plane.id,
                 issue: issueValue,
-                request_id: mccItem?.serverId || null,
+                plane_point: [Number(plane.point[0]), Number(plane.point[1])],
+                description: text,
               },
             });
             const gridRoute = normalizeRoute(response.route);
+            const travelMin = marginMinutes(response.time ?? response.eta_seconds) ?? 0;
+            // Статус «назначена» только после HTTP 200, не по клику и не по очереди.
+            if (form.activeMcc) {
+              markMccAssigned(form.activeMcc);
+              setActiveMcc(null);
+              setInbox(freshInbox());
+            }
             const assignedName = await engineerName(response.engineer_uuid);
             routeExtrasLayer.clearLayers();
             startWalk(response.engineer_uuid, assignedName, gridRoute);
@@ -703,7 +815,7 @@ export default function DispatcherPage() {
             if (!showRoute) map.removeLayer(routeExtrasLayer);
             await refresh();
             const skipped = [...busyBefore].filter((id) => id !== String(response.engineer_uuid)).length;
-            // Таблица только из ответа; пустой/отсутствующий candidates не заполняем.
+            // На старом ответе candidates нет — строки не собираем.
             const chosenId = String(response.engineer_uuid ?? "");
             const rawCandidates = Array.isArray(response.candidates) ? response.candidates : [];
             const candidates = await Promise.all(rawCandidates.map(async (row) => ({
@@ -720,12 +832,6 @@ export default function DispatcherPage() {
               if (a.eligible !== b.eligible) return Number(b.eligible) - Number(a.eligible);
               return Number(a.etaSeconds ?? 1e9) - Number(b.etaSeconds ?? 1e9);
             });
-            // Очередь ЦПУ помечаем assigned только здесь, после успешного assign — не при выборе строки.
-            if (form.activeMcc && chosenId) {
-              markMccAssigned(form.activeMcc);
-              setActiveMcc(null);
-              setInbox(freshInbox());
-            }
             setResult({
               type: "ok",
               name: assignedName,
@@ -733,16 +839,16 @@ export default function DispatcherPage() {
               issue: issueLabel(issueValue),
               onSite: gridRoute.length < 2,
               cells: Math.max(0, gridRoute.length - 1),
-              minutes: Math.max(0, Math.round(Number(response.eta_seconds ?? response.time ?? 0) / 60)),
+              minutes: travelMin,
               pickup: pickup ? pickup.label : "",
               needed: pickup ? "" : (ISSUE_REQUIRED_VEHICLE[issueValue] ? vehicleLabel(ISSUE_REQUIRED_VEHICLE[issueValue]) : ""),
               skipped,
-              sla: Boolean(response.sla_exceeded ?? response.time_limit_exceeded),
+              sla: Boolean(response.time_limit_exceeded ?? response.sla_exceeded),
               chosenId,
               candidates,
               candidateMs: response.candidate_ms,
             });
-            softBeep(response.sla_exceeded ? 420 : 880, 160);
+            softBeep(response.time_limit_exceeded || response.sla_exceeded ? 420 : 880, 160);
             sessionStorage.removeItem("oto-disp-draft");
             {
               const nextAuto = `Обнаружена неисправность: ${issueLabel(issueValue).toLowerCase()}. Требуется осмотр и устранение.`;
@@ -758,8 +864,8 @@ export default function DispatcherPage() {
                 planeId: plane.id,
                 issue: issueValue,
                 description: String(form.description || "").trim(),
-                minutes: Math.max(0, Math.round(Number(response.eta_seconds ?? response.time ?? 0) / 60)),
-                sla: Boolean(response.sla_exceeded ?? response.time_limit_exceeded),
+                minutes: travelMin,
+                sla: Boolean(response.time_limit_exceeded ?? response.sla_exceeded),
               };
               setAssignHistory((prev) => {
                 const next = [entry, ...prev].slice(0, 8);
@@ -797,30 +903,29 @@ export default function DispatcherPage() {
 
   if (!allowed) return <Navigate to="/" replace />;
 
+  const planeOptions = mergePlanes(aircraft, demoStands);
+  const selectedStand = planeOptions.find((plane) => plane.id === planeId) || null;
+
   function chooseMcc(item) {
-    const known = aircraft.some((plane) => plane.id === item.planeUuid);
-    skipAuto.current = item.issue !== issue;
-    lastAuto.current = item.description;
+    const text = String(item.description || "").trim();
+    const stand = readDemoStands().find((row) => row.id === item.planeUuid);
+    skipAuto.current = true;
     softBeep(item.urgency === "urgent" ? 780 : 560, 100);
     setActiveMcc(item.id);
-    if (known) setPlaneId(item.planeUuid);
-    setIssue(item.issue);
-    setDescription(item.description);
-    sessionStorage.setItem("oto-disp-draft", item.description || "");
+    if (stand) setPlaneId(stand.id);
+    if (item.issue) setIssue(item.issue);
+    setDescription(text);
+    sessionStorage.setItem("oto-disp-draft", text);
     if (item.serverId) setReassignId(String(item.serverId));
     setResult({
       type: "info",
-      text: known
-        ? `Замечание ЦПУ подставлено${item.urgency === "urgent" ? " · срочно" : ""}. Назначьте инженера.`
-        : "Этого борта нет в /api/aircraft. Замечание не назначено, назначить его нельзя.",
+      text: "Замечание подставлено в заявку. Можно назначать без очереди.",
     });
-    if (known) {
-      window.queueMicrotask?.(() => {
-        const btn = document.getElementById("assign-button");
-        btn?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        btn?.focus();
-      });
-    }
+    window.queueMicrotask?.(() => {
+      const btn = document.getElementById("assign-button");
+      btn?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      btn?.focus();
+    });
   }
 
   function toggleLayer(name, on) {
@@ -1010,7 +1115,7 @@ export default function DispatcherPage() {
   }
 
   async function onDepartPlane() {
-    if (!planeId) {
+    if (!aircraft.some((plane) => plane.id === planeId)) {
       setDepartNote("Выберите борт.");
       return;
     }
@@ -1111,27 +1216,28 @@ export default function DispatcherPage() {
   }
 
   async function onPreviewRoute(withVia = false) {
-    const plane = aircraft.find((item) => item.id === planeId);
-    if (!plane?.point) {
-      setRouteNote("Выберите борт.");
+    const stand = mergePlanes(aircraft, demoStands).find((item) => item.id === planeId);
+    if (!stand?.point) {
+      setRouteNote("Поставьте стоянку кликом по карте.");
       return;
     }
     setRoutePending(true);
     setRouteNote("");
     try {
-      const [staff, busy, fleetNow] = await Promise.all([
+      const [staff, fleetNow] = await Promise.all([
         loadStaff(),
-        loadBusyEngineerIds(),
         withVia ? loadTransport() : Promise.resolve(fleet),
       ]);
-      const free = (staff.plotted || []).find((agent) => !busy.has(String(agent.id)) && Array.isArray(agent.point));
-      if (!free?.point) {
-        setRouteNote("Нет свободного инженера с координатами для пробы маршрута.");
+      const plotted = (staff.plotted || []).filter((agent) => Array.isArray(agent.point));
+      const chosen = plotted.find((agent) => String(agent.id) === String(clickEngineerId));
+      const startAgent = chosen || plotted[0];
+      if (!startAgent?.point) {
+        setRouteNote("Нет инженера с координатами для пробы маршрута.");
         return;
       }
       let route = [];
       let cells = 0;
-      let label = `${free.name || "инженер"} → борт`;
+      let label = `${startAgent.name || "инженер"} → стоянка`;
       let note = "";
       if (withVia) {
         const needType = ISSUE_REQUIRED_VEHICLE[issue];
@@ -1143,13 +1249,13 @@ export default function DispatcherPage() {
           setRouteNote("Нет спецтранспорта на карте для пробы через промежуточную точку.");
           return;
         }
-        const data = await getRouteVia([free.point, pick.point, plane.point]);
+        const data = await getRouteVia([startAgent.point, pick.point, stand.point]);
         route = normalizeRoute(data?.route);
         cells = Number(data?.distance);
-        label = `${free.name || "инженер"} → ${pick.label} → борт`;
+        label = `${startAgent.name || "инженер"} → ${pick.label} → стоянка`;
         note = `Проба via: ${label} · ${Number.isFinite(cells) ? cells : Math.max(0, route.length - 1)} клеток · ${data?.legs || 2} плеча · OpenAPI getRoute`;
       } else {
-        const data = await getRoute(free.point, plane.point);
+        const data = await getRoute(startAgent.point, stand.point);
         route = normalizeRoute(data?.route);
         cells = Number(data?.distance);
         note = `Проба: ${label} · ${Number.isFinite(cells) ? cells : Math.max(0, route.length - 1)} клеток · OpenAPI getRoute`;
@@ -1224,7 +1330,6 @@ export default function DispatcherPage() {
             {staleLive ? `STALE · ${clock}` : clock}
           </span>
         </div>
-        <StatusChain current={dispatcherStatusStep(result, inbox, activeMcc)} />
         <details className="request-panel">
           <summary>Карта локации</summary>
           <form onSubmit={onSelectMap}>
@@ -1370,7 +1475,7 @@ export default function DispatcherPage() {
                 >
                   <button type="button" className="mcc-item-pick" onClick={() => chooseMcc(item)}>
                     <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
-                    <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status || "не назначена"} · {relativeRu(item.createdAt, nowTick)}</span>
+                    <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status === "assigned" ? "назначена" : "не назначена"} · {relativeRu(item.createdAt, nowTick)}</span>
                     <span>{item.description}</span>
                   </button>
                   {item.serverId ? (
@@ -1462,6 +1567,50 @@ export default function DispatcherPage() {
         </details>
         <section className="request-panel">
           <div className="section-heading"><h2>Новая заявка</h2><span className="live-label">LIVE</span></div>
+          <label>Клик по карте
+            <select
+              value={clickMode}
+              onChange={(event) => {
+                const next = event.target.value;
+                setClickMode(next);
+                localStorage.setItem("oto-click-mode", next);
+              }}
+            >
+              <option value="engineer">инженер</option>
+              <option value="transport">транспорт</option>
+              <option value="stand">стоянка ВС</option>
+            </select>
+          </label>
+          {clickMode === "engineer" ? (
+            <label>Инженер на карте
+              <select
+                value={staffRows.some((row) => row.id === clickEngineerId) ? clickEngineerId : ""}
+                onChange={(event) => {
+                  setClickEngineerId(event.target.value);
+                  localStorage.setItem("oto-click-eng", event.target.value);
+                }}
+              >
+                {staffRows.length ? staffRows.map((row) => (
+                  <option key={row.id} value={row.id}>{row.name}{row.point ? "" : " · нет точки"}</option>
+                )) : <option value="">Нет инженеров</option>}
+              </select>
+            </label>
+          ) : null}
+          {clickMode === "transport" ? (
+            <label>Тип техники
+              <select
+                value={clickVehicleType}
+                onChange={(event) => {
+                  setClickVehicleType(event.target.value);
+                  localStorage.setItem("oto-click-vehicle", event.target.value);
+                }}
+              >
+                {CLICK_VEHICLES.map((type) => (
+                  <option key={type} value={type}>{vehicleLabel(type)}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label>Фильтр бортов
             <input
               id="plane-filter"
@@ -1486,26 +1635,28 @@ export default function DispatcherPage() {
           ) : null}
           <label>Воздушное судно
             <select
-              value={planeId}
-              disabled={!aircraft.length}
+              value={planeOptions.some((plane) => plane.id === planeId) ? planeId : ""}
               className={deferredPlaneFilter !== planeFilter ? "plane-select-pending" : undefined}
               onChange={(event) => setPlaneId(event.target.value)}
             >
               {(() => {
                 const q = deferredPlaneFilter.trim().toLowerCase();
                 const filtered = q
-                  ? aircraft.filter((plane) => {
+                  ? planeOptions.filter((plane) => {
                     const hay = `${plane.id} ${plane.point?.[0]} ${plane.point?.[1]}`.toLowerCase();
                     return hay.includes(q);
                   })
-                  : aircraft;
+                  : planeOptions;
                 const list = filtered.slice().sort((a, b) => Number(aogIds.has(b.id)) - Number(aogIds.has(a.id)));
-                if (!list.length) return <option value="">Нет совпадений</option>;
-                return list.map((plane) => (
-                  <option key={plane.id} value={plane.id}>
-                    {plane.id.slice(0, 8)} · {plane.point[0]}, {plane.point[1]}{aogIds.has(plane.id) ? " · AOG" : ""}
-                  </option>
-                ));
+                if (!list.length) return <option value="">{planeOptions.length ? "Нет совпадений" : "Стоянка с карты"}</option>;
+                return list.map((plane) => {
+                  const demo = !aircraft.some((item) => item.id === plane.id);
+                  return (
+                    <option key={plane.id} value={plane.id}>
+                      {demo ? "Стоянка" : plane.id.slice(0, 8)} · {plane.point[0]}, {plane.point[1]}{aogIds.has(plane.id) ? " · AOG" : ""}
+                    </option>
+                  );
+                });
               })()}
             </select>
           </label>
@@ -1553,7 +1704,7 @@ export default function DispatcherPage() {
               Вставить UUID из буфера
             </button>
           {planeId && aogIds.has(planeId) ? <p className="fault-hint stale-live">Выбранный борт в AOG.</p> : null}
-          {!aircraft.length ? <p className="fault-hint stale-live">Нет бортов в Redis. Список приходит из /api/aircraft.</p> : null}
+          {!aircraft.length ? <p className="fault-hint">Список бортов пуст. Стоянка с карты достаточна для назначения.</p> : null}
           <p className="fault-hint">{live}</p>
           <label>Тип неисправности
             <select value={issue} onChange={(event) => setIssue(event.target.value)}>
@@ -1585,29 +1736,29 @@ export default function DispatcherPage() {
             {classifyPending ? "Классификация…" : "Подсказать тип инженера"}
           </button>
           {classifyHint ? <p className="fault-hint">{classifyHint}</p> : null}
-          <button type="button" className="shift-button" disabled={arrivePending || !planeId || pending || departPending} onClick={onArrivePlane}>
+          <button type="button" className="shift-button" disabled={arrivePending || !aircraft.some((plane) => plane.id === planeId) || pending || departPending} onClick={onArrivePlane}>
             {arrivePending ? "Фиксация…" : "Зафиксировать прибытие борта"}
           </button>
           {arriveNote ? <p className="fault-hint">{arriveNote}</p> : null}
-          <button type="button" className="shift-button" disabled={departPending || !planeId || pending || arrivePending} onClick={onDepartPlane}>
+          <button type="button" className="shift-button" disabled={departPending || !aircraft.some((plane) => plane.id === planeId) || pending || arrivePending} onClick={onDepartPlane}>
             {departPending ? "Фиксация…" : "Зафиксировать вылет борта"}
           </button>
           {departNote ? <p className="fault-hint">{departNote}</p> : null}
-          <button type="button" className="shift-button" disabled={routePending || !planeId || pending || arrivePending || departPending} onClick={() => onPreviewRoute(false)}>
+          <button type="button" className="shift-button" disabled={routePending || !selectedStand?.point || pending || arrivePending || departPending} onClick={() => onPreviewRoute(false)}>
             {routePending ? "Считаем…" : "Проба маршрута getRoute"}
           </button>
-          <button type="button" className="shift-button" disabled={routePending || !planeId || pending || arrivePending || departPending} onClick={() => onPreviewRoute(true)}>
+          <button type="button" className="shift-button" disabled={routePending || !selectedStand?.point || pending || arrivePending || departPending} onClick={() => onPreviewRoute(true)}>
             {routePending ? "Считаем…" : "Проба через спецтранспорт (via)"}
           </button>
           {routeNote ? <p className="fault-hint">{routeNote}</p> : null}
           <button
             id="assign-button"
             type="button"
-            disabled={pending || !planeId || !description.trim()}
+            disabled={pending || !selectedStand?.point}
             aria-busy={pending}
-            title={!planeId ? "Выберите борт" : !description.trim() ? "Нужно описание" : "Ctrl+Enter"}
+            title={selectedStand?.point ? "Ctrl+Enter" : "Поставьте стоянку на карте"}
             onClick={() => {
-              if (pending || !planeId || !description.trim()) return;
+              if (pending || !selectedStand?.point) return;
               actions.current.assign?.();
             }}
           >
@@ -1641,7 +1792,7 @@ export default function DispatcherPage() {
                 {result.pickup ? <><br />Маршрут заезжает за спецтранспорт: <strong>{result.pickup}</strong>.</> : null}
                 {result.needed ? <><br />Для неисправности нужен: <strong>{result.needed}</strong>.</> : null}
                 {result.skipped ? <><br /><em>Занятые инженеры пропущены ({result.skipped}).</em></> : null}
-                {result.sla ? <><br /><em>Время в пути больше 15 минут.</em></> : null}
+                {result.sla ? <><br /><em>Время в пути больше 15 минут. · {result.minutes} мин</em></> : null}
                 <button
                   type="button"
                   className="ghost-copy"
@@ -1652,7 +1803,7 @@ export default function DispatcherPage() {
                       `борт ${result.plane}`,
                       result.issue,
                       result.onSite ? "на месте" : `ETA ${result.minutes} мин`,
-                      result.sla ? "SLA превышен" : null,
+                      result.sla ? `SLA превышен · ${result.minutes} мин` : null,
                     ].filter(Boolean).join(" · ");
                     const ok = await copyText(line);
                     setLive(ok ? "Итог назначения скопирован" : live);
