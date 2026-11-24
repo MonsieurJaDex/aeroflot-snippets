@@ -1,7 +1,7 @@
 info:
   name: getRoute
   type: http
-  seq: 7
+  seq: 13
 
 http:
   method: POST
@@ -13,12 +13,18 @@ http:
     type: json
     data: |-
       {
-        "start_point": [10, 10],
-        "end_point": [18, 24]
+        "start_point": [6, 6],
+        "end_point": [10, 10]
       }
   auth:
     type: bearer
-    token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxNjdmNTMwYy0wNzVmLTRjY2EtYjQ0NS03YWNiN2Y4MWYzMDMiLCJyb2xlIjoiRGlzcGF0Y2hlciIsImV4cCI6MTc5NDUyOTU3NSwidG9rZW5fdHlwZSI6IkFjY2VzcyJ9.goWaio-UYaCTQsfYzbZkWdvvLNy6oJunA6ERclHtdck
+    token: "{{dispatcher_token}}"
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
 
 settings:
   encodeUrl: true

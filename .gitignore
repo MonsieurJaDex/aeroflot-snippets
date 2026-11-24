@@ -6,7 +6,7 @@
 
 /backend/build/*
 
-*/.DS_Store
+.DS_Store
 
 # tools/parser
 /tools/parser/assets/*

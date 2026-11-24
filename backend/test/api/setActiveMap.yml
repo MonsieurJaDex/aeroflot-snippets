@@ -1,7 +1,7 @@
 info:
   name: setActiveMap
   type: http
-  seq: 23
+  seq: 11
 
 http:
   method: PUT
@@ -13,11 +13,21 @@ http:
     type: json
     data: |-
       {
-        "id": "map2"
+        "id": "{{map_id}}"
       }
   auth:
     type: bearer
-    token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxNjdmNTMwYy0wNzVmLTRjY2EtYjQ0NS03YWNiN2Y4MWYzMDMiLCJyb2xlIjoiRGlzcGF0Y2hlciIsImV4cCI6MTc5NDUyOTU3NSwidG9rZW5fdHlwZSI6IkFjY2VzcyJ9.goWaio-UYaCTQsfYzbZkWdvvLNy6oJunA6ERclHtdck
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Оставляет текущую карту активной. Идентификатор берётся из listMaps.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
 
 settings:
   encodeUrl: true

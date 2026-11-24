@@ -2895,7 +2895,7 @@
     },
     "/api/getRoute": {
       "post": {
-        "description": "Classic point-to-point BFS route",
+        "description": "Time-optimal route on the road graph, using per-edge speeds",
         "operationId": "getRoute",
         "requestBody": {
           "content": {
@@ -3455,7 +3455,7 @@
                 }
               }
             },
-            "description": "Current active task, or null if the engineer has none"
+            "description": "Current active task"
           },
           "401": {
             "content": {

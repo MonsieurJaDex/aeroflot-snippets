@@ -1,0 +1,24 @@
+info:
+  name: listAlerts
+  type: http
+  seq: 31
+
+http:
+  method: GET
+  url: "{{HOST}}/alerts"
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

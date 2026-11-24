@@ -5,7 +5,7 @@
 //! sensitive material (passwords, tokens) provide a **redacted** [`Debug`]
 //! implementation to avoid accidental leakage in logs.
 
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use crate::types::{
     enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
@@ -38,9 +38,13 @@ pub struct MapResponse {
 #[derive(Debug, Serialize, ToSchema)]
 #[schema(description = "A map file discovered next to the CLI map.")]
 pub struct MapSummary {
+    /// File stem of the map, used as the switchable id.
     pub id: String,
+    /// Display name, equal to the file stem.
     pub name: String,
+    /// Map width in cells.
     pub width: i64,
+    /// Map height in cells.
     pub height: i64,
     /// True for the map routing and Redis positions currently use.
     pub active: bool,
@@ -49,17 +53,24 @@ pub struct MapSummary {
 /// Catalog of maps and the id that is active.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MapListResponse {
+    /// All map files the server can switch to.
     pub maps: Vec<MapSummary>,
+    /// Id of the map currently active.
     pub active_id: String,
 }
 
 /// Active map without the matrix.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ActiveMapResponse {
+    /// File stem of the active map.
     pub id: String,
+    /// Display name, equal to the file stem.
     pub name: String,
+    /// Map width in cells.
     pub width: i64,
+    /// Map height in cells.
     pub height: i64,
+    /// When the server loaded the map file.
     #[schema(format = "date-time")]
     pub updated_at: String,
 }
@@ -202,8 +213,10 @@ pub struct AircraftMovementResponse {
     pub map_id: String,
     /// Stand used at arrival.
     pub point: Point,
+    /// When the aircraft arrived on the map.
     #[schema(format = "date-time")]
     pub arrived_at: String,
+    /// When the aircraft left the map. `null` while it is still parked.
     #[schema(format = "date-time", nullable)]
     pub departed_at: Option<String>,
 }
@@ -211,6 +224,7 @@ pub struct AircraftMovementResponse {
 /// Arrival and departure records for the active map.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AircraftMovementListResponse {
+    /// Recorded aircraft stays on the active map.
     pub movements: Vec<AircraftMovementResponse>,
     /// Number of rows before `limit` and `offset` are applied.
     pub total: u64,
@@ -219,6 +233,7 @@ pub struct AircraftMovementListResponse {
 /// Aircraft positions visible to a dispatcher.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AircraftListResponse {
+    /// Aircraft currently present on the active map.
     pub aircraft: Vec<AircraftEntry>,
     /// Number of aircraft before `limit` and `offset` are applied.
     pub total: u64,
@@ -243,6 +258,7 @@ pub struct AssignEngineerResponse {
     /// Previous name of `sla_exceeded`. Kept for one release.
     #[schema(deprecated)]
     pub time_limit_exceeded: bool,
+    /// Engineers considered for the task, with the reason for each verdict.
     pub candidates: Vec<AssignmentCandidate>,
     /// Milliseconds spent building the candidate list.
     pub candidate_ms: i32,
@@ -253,10 +269,15 @@ pub struct AssignEngineerResponse {
 /// One row of the assignment comparison.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AssignmentCandidate {
+    /// UUID of the engineer.
     pub engineer_id: String,
+    /// Whether this engineer can take the task.
     pub eligible: bool,
+    /// Why the engineer was accepted or rejected.
     pub reason: String,
+    /// Estimated travel time in seconds.
     pub eta_seconds: u64,
+    /// Whether the route requires a special vehicle.
     pub uses_vehicle: bool,
 }
 
@@ -275,13 +296,19 @@ pub struct CurrentTaskResponse {
     pub plane_uuid: Option<String>,
     /// Route from the engineer to the aircraft.
     pub route: Route,
+    /// Current task status, for example `assigned` or `in_progress`.
     pub status: String,
+    /// Estimated travel time in seconds.
     pub eta_seconds: u64,
+    /// ATA chapter the issue belongs to, when known.
     #[schema(nullable)]
     pub ata_chapter: Option<String>,
+    /// MEL category that applies to the issue, when known.
     #[schema(nullable)]
     pub mel_category: Option<String>,
+    /// Whether the engineer has reached the aircraft.
     pub arrived: bool,
+    /// Whether the engineer has collected the required tools.
     pub tools_picked: bool,
 }
 
@@ -322,11 +349,15 @@ pub struct ClassifyRequest {
 /// Profile of the authenticated user. Never includes the password hash.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MeResponse {
+    /// User UUID.
     #[schema(format = "uuid")]
     pub id: String,
+    /// Email of the authenticated user.
     #[schema(format = "email")]
     pub email: String,
+    /// Display name of the authenticated user.
     pub name: String,
+    /// Role granted to the account.
     pub user_role: UserRole,
     /// Set only when the caller is an engineer.
     pub engineer_type: Option<EngineerType>,
@@ -406,6 +437,7 @@ impl fmt::Debug for LoginRequest {
 /// OAuth token type. The API only issues bearer tokens.
 #[derive(Debug, Clone, Copy, Serialize, ToSchema)]
 pub enum OAuthTokenType {
+    /// Token sent in the `Authorization: Bearer <token>` header.
     Bearer,
 }
 
@@ -560,3 +592,20 @@ pub struct UpdateTransportPositionRequest {
     /// New position on the map.
     pub new_point: Point,
 }
+
+/// Request ids grouped by the aircraft they belong to.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlaneRequests {
+    /// UUID of the aircraft.
+    pub plane_id: String,
+    /// Request ids attached to this aircraft.
+    pub request_ids: Vec<String>,
+}
+
+/// All request ids keyed by aircraft UUID.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(transparent)]
+pub struct AllRequests(
+    /// Map of aircraft UUID to the request ids attached to it.
+    pub BTreeMap<String, Vec<String>>,
+);

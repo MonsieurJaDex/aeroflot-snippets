@@ -1,0 +1,24 @@
+info:
+  name: acceptReassign
+  type: http
+  seq: 49
+
+http:
+  method: POST
+  url: "{{HOST}}/tasks/current/accept"
+  auth:
+    type: bearer
+    token: "{{engineer_token}}"
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
