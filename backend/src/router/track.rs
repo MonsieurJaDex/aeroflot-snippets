@@ -439,6 +439,12 @@ fn apply_point(
             t: stamp,
         });
     };
+    // A pin corrects where the object is on the map, not what the tracker
+    // reported: `lat`/`lon` below stay the raw values.
+    let grid = match crate::calibration::load(redis_conn, &active.id, &obj) {
+        Some(pin) if pin.kind.agrees_with(agent_kind) => pin.point,
+        _ => grid,
+    };
     let stored = serde_json::json!({
         "lat": lat,
         "lon": lon,

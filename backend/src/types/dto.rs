@@ -8,7 +8,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use crate::types::{
-    enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
+    enums::{AircraftIssue, EngineerType, ObjectKind, UserRole, VehicleType},
     map::{Point, Route},
 };
 use serde::{Deserialize, Serialize};

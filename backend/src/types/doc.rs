@@ -23,7 +23,9 @@ use crate::router::{
         __path_register_handler, __path_update_access_token,
     },
     geo::{
-        __path_active_engineers, __path_get_engineers_positions, __path_get_transport_positions,
+        __path_active_engineers, __path_calibrate_object_handler,
+        __path_clear_object_calibration_handler, __path_get_engineers_positions,
+        __path_get_object_calibrations, __path_get_transport_positions,
         __path_update_engineer_position_handler, __path_update_transport_position_handler,
         ActiveEngineersResponse, EngineerPositionEntry, EngineersPositionsResponse,
         TransportPositionEntry, TransportPositionsResponse,
@@ -41,7 +43,9 @@ use crate::types::{
     dto::{
         ActiveMapResponse, AircraftEntry, AircraftListResponse, AircraftMovementListResponse,
         AircraftMovementResponse, AogListResponse, ArriveAircraftRequest, AssignEngineerRequest,
-        AssignEngineerResponse, AssignmentCandidate, ClassifyRequest, ClassifyResponse,
+        AssignEngineerResponse, AssignmentCandidate, CalibrateObjectRequest, CalibrationEntry,
+        CalibrationListResponse, ClassifyRequest, ClassifyResponse, ClearCalibrationRequest,
+        Coordinate,
         CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest,
         EngineerPositionSample, ErrorResponse, GetRouteRequest, GetRouteResponse,
         GetUserNameResponse, LoginRequest, LoginResponse, MapListResponse, MapResponse, MapSummary,
@@ -50,7 +54,7 @@ use crate::types::{
         UpdateAccessRequest, UpdateAccessResponse, UpdateEngineerPositionRequest,
         UpdateTransportPositionRequest,
     },
-    enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
+    enums::{AircraftIssue, EngineerType, ObjectKind, UserRole, VehicleType},
     map::{MapMatrix, Point, Route},
 };
 
@@ -113,6 +117,9 @@ use crate::types::{
         active_engineers,
         get_transport_positions,
         update_transport_position_handler,
+        calibrate_object_handler,
+        clear_object_calibration_handler,
+        get_object_calibrations,
     ),
     components(schemas(
         // --- Domain types ---
@@ -130,6 +137,7 @@ use crate::types::{
         EngineerType,
         VehicleType,
         UserRole,
+        ObjectKind,
         // --- DTOs: routes ---
         GetRouteRequest,
         GetRouteResponse,
@@ -170,6 +178,11 @@ use crate::types::{
         TransportPositionEntry,
         TransportPositionsResponse,
         UpdateTransportPositionRequest,
+        CalibrateObjectRequest,
+        ClearCalibrationRequest,
+        CalibrationEntry,
+        CalibrationListResponse,
+        Coordinate,
         TrackPoint,
         TrackBatch,
         TrackAck,

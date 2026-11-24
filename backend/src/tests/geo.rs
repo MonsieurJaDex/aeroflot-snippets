@@ -598,3 +598,309 @@ async fn ingests_gpslogger_custom_url_query() {
         StatusCode::BAD_REQUEST,
     );
 }
+
+/// A cell of the active map that carries a graph node, together with its
+/// WGS-84 form. Picking it from the graph keeps the test independent of the
+/// bundled map, whose nodes differ between `assets/map2.json` and the v2 maps.
+fn graph_cell_and_geo(ctx: &TestContext) -> (Point, f64, f64) {
+    let active = ctx.state.active.read().expect("map lock");
+    let graph = &active.location.graph;
+    let cell = &active.location.objects[0];
+    let point = Point(cell.x, cell.y);
+    assert!(
+        graph.is_node(point),
+        "the first map object is expected to sit on a graph node, got {point:?}"
+    );
+    let (lat, lon) = graph.project(point.0, point.1);
+    (point, lat, lon)
+}
+
+#[tokio::test]
+async fn calibrated_object_reports_the_pinned_cell() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    let (point, lat, lon) = graph_cell_and_geo(&ctx);
+    let position_key = format!("map:{}:position:{}", ctx.active_id(), engineer.id);
+
+    let entry = expect_status(
+        ctx.post(
+            "/api/geo/calibrateObject",
+            &dispatcher.token,
+            json!({ "obj": engineer.id, "kind": "engineer", "point": [point.0, point.1] }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(entry["obj"], engineer.id.to_string());
+    assert_eq!(entry["kind"], "engineer");
+    assert_eq!(entry["point"], json!([point.0, point.1]));
+    assert_eq!(entry["on_graph"], true);
+    // `project` answers `(lat, lon)`, in that order.
+    assert!((entry["geo"]["lat"].as_f64().unwrap() - lat).abs() < 1e-9);
+    assert!((entry["geo"]["lon"].as_f64().unwrap() - lon).abs() < 1e-9);
+
+    // A tracker point far from the pin is still ingested, and the stored
+    // position is the pin rather than the snapped cell. `t` is explicit so the
+    // jump passes the ingest's own speed check.
+    let far = json!({
+        "obj": engineer.id,
+        "lat": lat + 0.01,
+        "lon": lon + 0.01,
+        "t": "2026-11-24T08:00:00Z"
+    });
+    let ack = expect_status(
+        ctx.request(Method::POST, "/api/v1/track", None, Some(far)).await,
+        StatusCode::OK,
+    );
+    assert_eq!(ack["applied"], true);
+    assert_eq!(
+        ctx.redis_get(&position_key),
+        Some(point.as_value()),
+        "the pin should override the snapped cell"
+    );
+    // The raw report stays raw: the pin fixes the map cell, not the tracker.
+    let stored = ctx
+        .redis_get(&format!("map:{}:track:{}", ctx.active_id(), engineer.id))
+        .expect("track should be stored");
+    let stored: serde_json::Value = serde_json::from_str(&stored).expect("track json");
+    assert_eq!(stored["x"], json!(point.0), "the pin should be the stored cell");
+    // The raw report is what the tracker sent, not the pin.
+    assert!((stored["lat"].as_f64().unwrap() - (lat + 0.01)).abs() < 1e-9);
+    assert!((stored["lon"].as_f64().unwrap() - (lon + 0.01)).abs() < 1e-9);
+
+    // The pin is listed with the map's own total.
+    let listed = expect_status(
+        ctx.get("/api/geo/getObjectCalibrations", &engineer.token).await,
+        StatusCode::OK,
+    );
+    assert_eq!(listed["total"], 1);
+    assert_eq!(listed["calibrations"][0]["obj"], engineer.id.to_string());
+
+    // Clearing puts the object back on the snapped cell.
+    expect_status(
+        ctx.post(
+            "/api/geo/clearObjectCalibration",
+            &dispatcher.token,
+            json!({ "obj": engineer.id }),
+        )
+        .await,
+        StatusCode::NO_CONTENT,
+    );
+    assert_eq!(ctx.redis_get(&position_key), Some(point.as_value()));
+
+    let later = json!({
+        "obj": engineer.id,
+        "lat": lat + 0.02,
+        "lon": lon + 0.02,
+        "t": "2026-11-24T09:00:00Z"
+    });
+    expect_status(
+        ctx.request(Method::POST, "/api/v1/track", None, Some(later)).await,
+        StatusCode::OK,
+    );
+    let snapped = ctx.redis_get(&position_key).expect("position should be stored");
+    assert_ne!(
+        snapped,
+        point.as_value(),
+        "without a pin the snapped cell should win again"
+    );
+
+    // A second clear finds nothing to remove.
+    expect_status(
+        ctx.post(
+            "/api/geo/clearObjectCalibration",
+            &dispatcher.token,
+            json!({ "obj": engineer.id }),
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+    );
+}
+
+#[tokio::test]
+async fn calibration_requires_a_dispatcher_and_a_usable_target() {
+    let ctx = TestContext::new().await;
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    let (point, _lat, _lon) = graph_cell_and_geo(&ctx);
+
+    // An engineer may not calibrate.
+    let denied = expect_status(
+        ctx.post(
+            "/api/geo/calibrateObject",
+            &engineer.token,
+            json!({ "obj": engineer.id, "kind": "engineer", "point": [point.0, point.1] }),
+        )
+        .await,
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(denied["code"], "NOT_A_DISPATCHER");
+    expect_status(
+        ctx.post(
+            "/api/geo/clearObjectCalibration",
+            &engineer.token,
+            json!({ "obj": engineer.id }),
+        )
+        .await,
+        StatusCode::FORBIDDEN,
+    );
+
+    let dispatcher = ctx.dispatcher();
+
+    // Outside the map bounds.
+    let (width, height) = {
+        let active = ctx.state.active.read().expect("map lock");
+        (active.map.width() as i64, active.map.height() as i64)
+    };
+    expect_status(
+        ctx.post(
+            "/api/geo/calibrateObject",
+            &dispatcher.token,
+            json!({ "obj": "e-01", "kind": "engineer", "point": [width, height] }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+
+    // Neither a cell nor a coordinate pair.
+    expect_status(
+        ctx.post(
+            "/api/geo/calibrateObject",
+            &dispatcher.token,
+            json!({ "obj": "e-01", "kind": "engineer" }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+
+    // Both at once.
+    let (_, lat, lon) = graph_cell_and_geo(&ctx);
+    expect_status(
+        ctx.post(
+            "/api/geo/calibrateObject",
+            &dispatcher.token,
+            json!({
+                "obj": "e-01",
+                "kind": "engineer",
+                "point": [point.0, point.1],
+                "lat": lat,
+                "lon": lon
+            }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+
+    // Only half a coordinate pair.
+    expect_status(
+        ctx.post(
+            "/api/geo/calibrateObject",
+            &dispatcher.token,
+            json!({ "obj": "e-01", "kind": "engineer", "lat": lat }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+}
+
+#[tokio::test]
+async fn calibration_accepts_wgs84_and_rounds_it_to_the_nearest_cell() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let (point, lat, lon) = graph_cell_and_geo(&ctx);
+
+    let entry = expect_status(
+        ctx.post(
+            "/api/geo/calibrateObject",
+            &dispatcher.token,
+            json!({ "obj": "e-01", "kind": "engineer", "lat": lat, "lon": lon }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(entry["point"], json!([point.0, point.1]));
+
+    expect_status(
+        ctx.post(
+            "/api/geo/clearObjectCalibration",
+            &dispatcher.token,
+            json!({ "obj": "e-01" }),
+        )
+        .await,
+        StatusCode::NO_CONTENT,
+    );
+    assert!(!ctx.redis_exists(&format!(
+        "map:{}:calibration:e-01",
+        ctx.active_id()
+    )));
+}
+
+#[test]
+fn unproject_inverts_the_projection() {
+    let graph = crate::graph::GraphBuilder::new(12.0, 55.83, 37.63).finish();
+    for (x, y) in [(0_i64, 0_i64), (1, 1), (17, 43), (120, 7)] {
+        let (lat, lon) = graph.project(x, y);
+        let (back_x, back_y) = graph.unproject(lat, lon);
+        assert!(
+            (back_x - x as f64).abs() < 1e-6 && (back_y - y as f64).abs() < 1e-6,
+            "cell ({x},{y}) should survive project/unproject, got ({back_x},{back_y})"
+        );
+    }
+}
+
+const REAL_MAP: &str = "assets/it2026_aero.json";
+
+/// A cell inside the map bounds that carries no graph node. The palette map
+/// leaves obstacles and unknown cells out of the routing graph, so a pin there
+/// would be silently moved by `nearest_node` — which is what the handler refuses.
+fn cell_without_node(ctx: &TestContext) -> Point {
+    let active = ctx.state.active.read().expect("map lock");
+    let graph = &active.location.graph;
+    for y in 0..active.map.height() as i64 {
+        for x in 0..active.map.width() as i64 {
+            let candidate = Point(x, y);
+            if active.map.in_bounds(candidate) && !graph.is_node(candidate) {
+                return candidate;
+            }
+        }
+    }
+    panic!("the palette map is expected to leave cells out of the routing graph");
+}
+
+#[tokio::test]
+async fn calibration_refuses_a_cell_that_carries_no_graph_node() {
+    let ctx = TestContext::with_map(Some(REAL_MAP)).await;
+    let dispatcher = ctx.dispatcher();
+    let bare = cell_without_node(&ctx);
+
+    expect_status(
+        ctx.post(
+            "/api/geo/calibrateObject",
+            &dispatcher.token,
+            json!({ "obj": "e-01", "kind": "engineer", "point": [bare.0, bare.1] }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+    assert!(ctx.redis_get(&format!("map:{}:calibration:e-01", ctx.active_id())).is_none());
+
+    // A node of the same map is accepted, so the refusal is about the cell and
+    // not about the request.
+    let node = {
+        let active = ctx.state.active.read().expect("map lock");
+        let graph = &active.location.graph;
+        (0..active.map.height() as i64)
+            .flat_map(|y| (0..active.map.width() as i64).map(move |x| Point(x, y)))
+            .find(|candidate| graph.is_node(*candidate))
+            .expect("the palette map is expected to have graph nodes")
+    };
+    expect_status(
+        ctx.post(
+            "/api/geo/calibrateObject",
+            &dispatcher.token,
+            json!({ "obj": "e-01", "kind": "engineer", "point": [node.0, node.1] }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+}

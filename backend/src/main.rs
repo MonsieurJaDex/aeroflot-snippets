@@ -34,6 +34,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::router::get_map;
 
+mod calibration;
 mod database;
 mod graph;
 mod journal;
@@ -264,6 +265,18 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route(
             "/updateEngineerPosition",
             post(router::geo::update_engineer_position_handler),
+        )
+        .route(
+            "/calibrateObject",
+            post(router::geo::calibrate_object_handler),
+        )
+        .route(
+            "/clearObjectCalibration",
+            post(router::geo::clear_object_calibration_handler),
+        )
+        .route(
+            "/getObjectCalibrations",
+            get(router::geo::get_object_calibrations),
         )
         .route(
             "/updateTransportPosition",
