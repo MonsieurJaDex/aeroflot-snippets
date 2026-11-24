@@ -6,8 +6,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Query, Request, State};
-use axum::http::Response;
+use axum::body::Body;
+use axum::extract::{FromRequest, Query, Request, State};
+use axum::http::{Response, StatusCode, header};
 use axum::response::IntoResponse;
 use chrono::{DateTime, SecondsFormat, Utc};
 use redis::TypedCommands;
@@ -23,8 +24,10 @@ use crate::types::enums::VehicleType;
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct TrackPoint {
     pub obj: String,
-    pub lat: Option<f64>,
-    pub lon: Option<f64>,
+    /// Required latitude in degrees.
+    pub lat: f64,
+    /// Required longitude in degrees.
+    pub lon: f64,
     pub t: Option<String>,
     pub acc: Option<f64>,
     pub spd: Option<f64>,
@@ -32,7 +35,32 @@ pub struct TrackPoint {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct TrackBatch {
+    /// contract: a malformed element is dropped instead of failing the batch, so
+    /// one bad point does not reject the points around it.
+    #[serde(deserialize_with = "lenient_points")]
     pub points: Vec<TrackPoint>,
+}
+
+/// Drops the elements of `points` that do not parse into a [`TrackPoint`].
+fn lenient_points<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<TrackPoint>, D::Error> {
+    Ok(Vec::<serde_json::Value>::deserialize(deserializer)?
+        .into_iter()
+        .filter_map(|point| match serde_json::from_value(point) {
+            Ok(point) => Some(point),
+            Err(error) => {
+                tracing::warn!(%error, "skipping a track point that does not match the contract");
+                None
+            }
+        })
+        .collect())
+}
+
+/// Whether the request carried one point or `points`, which decides the shape of
+/// the answer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    Single,
+    Batch,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -48,6 +76,42 @@ pub struct TrackAck {
 pub enum TrackBody {
     Many(TrackBatch),
     One(TrackPoint),
+}
+
+/// Body guard of the POST endpoint: it owns the media-type check and the error
+/// mapping of a body that does not parse.
+pub struct TrackJson(TrackBody);
+
+impl<S: Send + Sync> FromRequest<S> for TrackJson {
+    type Rejection = Response<Body>;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        // contract: a missing Content-Type or one that is not JSON is 415, and the
+        // handler never runs; parameters such as `charset=utf-8` are allowed.
+        if !json_content_type(req.headers().get(header::CONTENT_TYPE)) {
+            return Err(super::api_error(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "UNSUPPORTED_MEDIA_TYPE",
+                "Content-Type must be application/json",
+            ));
+        }
+        // contract: an unparseable body is 400, not axum's own 415/422, so the
+        // client sees the same shape as a business-rule rejection.
+        let Json(body) = Json::<TrackBody>::from_request(req, state)
+            .await
+            .map_err(|rejection| bad_request(rejection.body_text()))?;
+        Ok(TrackJson(body))
+    }
+}
+
+/// Accepts `application/json` and any `+json` media type, ignoring parameters.
+fn json_content_type(raw: Option<&axum::http::HeaderValue>) -> bool {
+    raw.and_then(|value| value.to_str().ok())
+        .map(|value| value.split(';').next().unwrap_or_default().trim())
+        .is_some_and(|essence| {
+            essence.eq_ignore_ascii_case("application/json")
+                || essence.to_ascii_lowercase().ends_with("+json")
+        })
 }
 
 /// Query of a GPSLogger *Custom URL* callback.
@@ -119,8 +183,11 @@ impl TrackPoint {
     fn into_sample(self) -> TrackSample {
         TrackSample {
             obj: self.obj,
-            lat: self.lat,
-            lon: self.lon,
+            // contract: the JSON body requires both coordinates, so they are always
+            // present here. `TrackSample` itself stays optional because
+            // `TrackQuery::into_sample` yields `None` for a missing or `NaN` value.
+            lat: Some(self.lat),
+            lon: Some(self.lon),
             when: rfc3339(self.t.as_deref()),
             acc: self.acc,
             spd: self.spd,
@@ -178,23 +245,29 @@ fn epoch_seconds(raw: Option<&str>) -> Option<DateTime<Utc>> {
     request_body = TrackPoint,
     responses(
         (status = 200, description = "Point or batch accepted", body = TrackAck),
-        (status = 400, description = "lat/lon missing or not numeric"),
+        (status = 400, description = "Malformed JSON, missing obj or non-numeric lat/lon"),
+        (status = 415, description = "Content-Type is not application/json"),
+        (status = 500, description = "Internal storage failure"),
     ),
 )]
 pub async fn ingest(
     State(app_state): State<Arc<AppState>>,
-    Json(body): Json<TrackBody>,
+    TrackJson(body): TrackJson,
 ) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
-    println!("{:#?}", &body);
-    let samples = match body {
-        TrackBody::Many(batch) => batch
-            .points
-            .into_iter()
-            .map(TrackPoint::into_sample)
-            .collect(),
-        TrackBody::One(point) => vec![point.into_sample()],
+    // contract: one point answers with a single object, `{ "points": [...] }` with
+    // an array in request order — even when the array holds a single point.
+    let (samples, shape) = match body {
+        TrackBody::Many(batch) => (
+            batch
+                .points
+                .into_iter()
+                .map(TrackPoint::into_sample)
+                .collect(),
+            Shape::Batch,
+        ),
+        TrackBody::One(point) => (vec![point.into_sample()], Shape::Single),
     };
-    ingest_samples(&app_state, samples).await
+    ingest_samples(&app_state, samples, shape).await
 }
 
 /// Accepts one point of a GPSLogger *Custom URL* callback.
@@ -219,19 +292,21 @@ pub async fn ingest_query(
     State(app_state): State<Arc<AppState>>,
     Query(query): Query<TrackQuery>,
 ) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
-    ingest_samples(&app_state, vec![query.into_sample()]).await
+    ingest_samples(&app_state, vec![query.into_sample()], Shape::Single).await
 }
 
 /// Validates, applies and acknowledges the samples of one request.
 async fn ingest_samples(
     app_state: &AppState,
     samples: Vec<TrackSample>,
+    shape: Shape,
 ) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
-    if samples
-        .iter()
-        .any(|sample| sample.lat.is_none() || sample.lon.is_none())
-    {
-        return Err(bad_request("lat and lon are required numbers"));
+    // contract: a batch already dropped its malformed points while parsing, so a
+    // request reaching storage is either valid or a single point that has to be
+    // rejected as a whole. Checking before the first write keeps a rejected
+    // request out of Redis and the database.
+    if let Some(reason) = samples.iter().find_map(invalid_reason) {
+        return Err(bad_request(reason));
     }
     let active = active_map(app_state)?;
     let mut redis_conn = app_state
@@ -246,10 +321,21 @@ async fn ingest_samples(
     for sample in samples {
         acks.push(apply_point(&active, &mut redis_conn, &mut pg_conn, sample)?);
     }
-    if acks.len() == 1 {
+    if shape == Shape::Single {
         Ok(Json(acks.pop().expect("one ack")).into_response())
     } else {
         Ok(Json(acks).into_response())
+    }
+}
+
+/// Why a sample cannot be placed, or `None` when it can.
+fn invalid_reason(sample: &TrackSample) -> Option<&'static str> {
+    if sample.obj.trim().is_empty() {
+        Some("obj is required")
+    } else if sample.lat.is_none() || sample.lon.is_none() {
+        Some("lat and lon are required numbers")
+    } else {
+        None
     }
 }
 

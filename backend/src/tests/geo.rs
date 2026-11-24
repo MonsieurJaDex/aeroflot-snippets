@@ -222,6 +222,15 @@ async fn ingests_track_points_for_known_objects_only() {
     assert_eq!(single["accepted"], true);
     assert_eq!(single["applied"], true);
     assert_eq!(single["obj"], "e-01");
+    // contract: one point answers with an object, not an array, and `t` is an
+    // ISO 8601 UTC string with milliseconds.
+    assert!(single.is_object());
+    let stamp = single["t"].as_str().expect("t should be a string");
+    assert!(stamp.ends_with('Z'), "t should be UTC, got {stamp}");
+    assert!(
+        stamp.split('.').nth(1).is_some_and(|fraction| fraction.len() >= 4),
+        "t should carry milliseconds, got {stamp}"
+    );
 
     let track_key = format!("map:{}:track:e-01", ctx.active_id());
     let stored = ctx.redis_get(&track_key).expect("track should be stored");
@@ -259,7 +268,7 @@ async fn ingests_track_points_for_known_objects_only() {
             None,
             Some(json!({
                 "points": [
-                    { "obj": "e-01", "lat": 55.831, "lon": 37.636 },
+                    { "obj": "unknown-object", "lat": 55.831, "lon": 37.636 },
                     { "obj": "RA-73142", "lat": 55.8311, "lon": 37.6361 }
                 ]
             })),
@@ -267,7 +276,231 @@ async fn ingests_track_points_for_known_objects_only() {
         .await,
         StatusCode::OK,
     );
-    assert_eq!(batch.as_array().unwrap().len(), 2);
+    let batch = batch.as_array().expect("a batch answers with an array");
+    assert_eq!(batch.len(), 2);
+    // contract: the batch keeps the request order and echoes each `obj`, mixing a
+    // known and an unknown object without failing the whole request.
+    assert_eq!(batch[0]["obj"], "unknown-object");
+    assert_eq!(batch[0]["applied"], false);
+    assert_eq!(batch[1]["obj"], "RA-73142");
+    assert_eq!(batch[1]["applied"], true);
+
+    // contract: the shape follows the request, not the number of points, so a
+    // one-point batch still answers with an array.
+    let single_in_batch = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({
+                "points": [{ "obj": "RA-73142", "lat": 55.8312, "lon": 37.6362 }]
+            })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let single_in_batch = single_in_batch
+        .as_array()
+        .expect("a batch answers with an array even when it holds one point");
+    assert_eq!(single_in_batch.len(), 1);
+    assert_eq!(single_in_batch[0]["obj"], "RA-73142");
+}
+
+#[tokio::test]
+async fn rejects_track_bodies_that_break_the_post_contract() {
+    let ctx = TestContext::new().await;
+
+    // `lat` is a string, not a number.
+    expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "obj": "e-01", "lat": "abc", "lon": 37.636 })),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+    // `lat` is null and then absent: both are a missing required number.
+    expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "obj": "e-01", "lat": null, "lon": 37.636 })),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+    expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "obj": "e-01", "lon": 37.636 })),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+    // `obj` is required and cannot be blank.
+    expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "lat": 55.831, "lon": 37.636 })),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+    expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "obj": "   ", "lat": 55.831, "lon": 37.636 })),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+    // A blank `obj` is rejected before storage, so nothing is written.
+    assert!(!ctx.redis_exists(&format!("map:{}:track:e-01", ctx.active_id())));
+
+    // A malformed point inside a batch is dropped; the valid one around it is
+    // still applied (contract: одна неверная точка не роняет пакет).
+    let mixed = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({
+                "points": [
+                    { "obj": "e-01", "lat": 55.831, "lon": 37.636 },
+                    { "obj": "e-01", "lat": "abc", "lon": 37.636 },
+                    { "obj": "e-01", "lon": 37.636 }
+                ]
+            })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let acks = mixed.as_array().expect("a batch answers with an array");
+    assert_eq!(acks.len(), 1);
+    assert_eq!(acks[0]["obj"], "e-01");
+    assert_eq!(acks[0]["applied"], true);
+    assert!(ctx.redis_exists(&format!("map:{}:track:e-01", ctx.active_id())));
+
+    // Malformed JSON is 400, not 500 or axum's 422.
+    let point = br#"{"obj":"e-01","lat":55.831,"lon":37.636}"#.to_vec();
+    let truncated = br#"{"obj": "e-01", "lat": "#.to_vec();
+    let (status, body) = ctx
+        .raw_bytes(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            truncated,
+            Some("application/json"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+
+    // A body that is not declared as JSON is 415.
+    let (status, body) = ctx
+        .raw_bytes(Method::POST, "/api/v1/track", None, point.clone(), Some("text/plain"))
+        .await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "body: {body}");
+    let (status, body) = ctx
+        .raw_bytes(Method::POST, "/api/v1/track", None, point.clone(), None)
+        .await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "body: {body}");
+
+    // A charset parameter is part of a valid JSON media type.
+    let (status, body) = ctx
+        .raw_bytes(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            point,
+            Some("application/json; charset=utf-8"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    let ack: serde_json::Value = serde_json::from_str(&body).expect("ack should be JSON");
+    assert_eq!(ack["obj"], "e-01");
+    assert_eq!(ack["applied"], true);
+}
+
+#[tokio::test]
+async fn drops_outliers_without_losing_the_previous_point() {
+    let ctx = TestContext::new().await;
+    let track_key = format!("map:{}:track:e-01", ctx.active_id());
+    let seeded = ctx.journal_count();
+
+    let first = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({
+                "obj": "e-01",
+                "lat": 55.831,
+                "lon": 37.636,
+                "acc": 5.0,
+                "t": "2026-12-03T09:14:20.123Z"
+            })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(first["applied"], true);
+    let kept = ctx.redis_get(&track_key).expect("track should be stored");
+
+    // contract: an accuracy coarser than `max_accuracy_m` (80 m in map2) is an
+    // outlier — accepted syntactically, refused semantically, previous point kept.
+    let coarse = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({
+                "obj": "e-01",
+                "lat": 55.8311,
+                "lon": 37.6361,
+                "acc": 500.0,
+                "t": "2026-12-03T09:14:21.123Z"
+            })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(coarse["accepted"], true);
+    assert_eq!(coarse["applied"], false);
+    assert_eq!(ctx.redis_get(&track_key).as_deref(), Some(kept.as_str()));
+
+    // contract: jumping ~8 km in one second exceeds `max_speed_mps` (12 m/s), so
+    // the point is an outlier as well.
+    let jump = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({
+                "obj": "e-01",
+                "lat": 55.9,
+                "lon": 37.636,
+                "acc": 5.0,
+                "t": "2026-12-03T09:14:22.123Z"
+            })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(jump["accepted"], true);
+    assert_eq!(jump["applied"], false);
+    assert_eq!(ctx.redis_get(&track_key).as_deref(), Some(kept.as_str()));
+
+    // Both refusals are journalled, not silently dropped.
+    assert_eq!(ctx.journal_count(), seeded + 2);
 }
 
 #[tokio::test]

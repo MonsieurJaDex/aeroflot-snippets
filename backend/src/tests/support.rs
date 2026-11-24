@@ -162,12 +162,28 @@ impl TestContext {
         token: Option<&str>,
         body: Option<Value>,
     ) -> (StatusCode, String) {
+        let content_type = body.is_some().then_some("application/json");
         let bytes = body
             .map(|value| serde_json::to_vec(&value).expect("request body serializes"))
             .unwrap_or_default();
+        self.raw_bytes(method, path, token, bytes, content_type)
+            .await
+    }
+
+    /// Sends a request with a literal body and, when given, an explicit
+    /// `Content-Type`. `None` leaves the header out entirely; an empty string
+    /// sends `Content-Type:` with no value.
+    pub async fn raw_bytes(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        bytes: Vec<u8>,
+        content_type: Option<&str>,
+    ) -> (StatusCode, String) {
         let mut builder = Request::builder().method(method).uri(path);
-        if !bytes.is_empty() {
-            builder = builder.header(header::CONTENT_TYPE, "application/json");
+        if let Some(content_type) = content_type {
+            builder = builder.header(header::CONTENT_TYPE, content_type);
         }
         if let Some(token) = token {
             builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
