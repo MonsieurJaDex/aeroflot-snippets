@@ -642,6 +642,130 @@ async fn candidates_preview_is_read_only() {
     assert_eq!(second["chapter"], "30");
 }
 
+/// The preview takes the request and nothing else: the fields a real
+/// assignment reads (`classifier_text`, `plane_uuid`) are not part of its body,
+/// so a client still sending them is refused instead of silently ignored.
+#[tokio::test]
+async fn candidates_preview_takes_only_the_request_id() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let _engineer = ctx.engineer(EngineerType::AvionicsEngineer);
+    let plane = Uuid::new_v4();
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
+
+    expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({
+                "issue": "other",
+                "classifier_text": "заклинило клапан ПОС",
+                "note": "Замечание экипажа",
+                "plane_uuid": plane,
+                "request_id": request
+            }),
+        )
+        .await,
+        StatusCode::UNPROCESSABLE_ENTITY,
+    );
+    expect_status(
+        ctx.post("/api/assign/candidates", &dispatcher.token, json!({}))
+            .await,
+        StatusCode::UNPROCESSABLE_ENTITY,
+    );
+
+    let preview = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({ "request_id": request }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(preview["request_id"], request.to_string());
+    assert!(preview["candidates"].as_array().unwrap().len() > 0);
+}
+
+/// A refused row explains itself too, but carries no score breakdown: the
+/// contract promises an empty `factors` for `eligible: false`, so a table can
+/// render fixed columns without a divide by a missing score.
+#[tokio::test]
+async fn rejected_candidate_publishes_no_factors() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engine = ctx.engineer(EngineerType::EngineTechnician);
+    let avionics = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engine.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), avionics.id),
+        "5,6",
+    );
+    let plane = Uuid::new_v4();
+    // Chapter 72 admits engine technicians only, so the avionics engineer is
+    // ranked and refused.
+    let created = expect_status(
+        ctx.post(
+            "/api/requests",
+            &dispatcher.token,
+            json!({
+                "text": "двигатель: падение давления масла",
+                "plane_uuid": plane,
+                "point": [10, 10],
+                "ata_chapter": "72"
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let request: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request}/queue"),
+            &dispatcher.token,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    let preview = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({ "request_id": request }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let rows = preview["candidates"].as_array().expect("candidates array");
+    let refused = rows
+        .iter()
+        .find(|row| row["engineer_id"] == avionics.id.to_string())
+        .expect("the refused engineer is still ranked");
+    assert_eq!(refused["eligible"], false);
+    assert!(
+        !refused["reason"].as_str().unwrap().is_empty(),
+        "a refused row explains itself"
+    );
+    assert!(
+        refused["factors"].as_array().expect("factors array").is_empty(),
+        "a refused row carries no factors: {refused:?}"
+    );
+    assert_eq!(refused["score"].as_f64().unwrap(), f64::MAX);
+
+    let accepted = rows
+        .iter()
+        .find(|row| row["engineer_id"] == engine.id.to_string())
+        .expect("the admitted engineer is ranked");
+    assert_eq!(accepted["eligible"], true);
+    let factors = accepted["factors"].as_array().expect("factors array");
+    assert_eq!(factors.len(), 7, "seven names, always: {factors:?}");
+}
+
 /// B2: a named engineer gets the job even when a nearer one is eligible, and
 /// the refunded engineer receives the route and the ETA built for them.
 #[tokio::test]

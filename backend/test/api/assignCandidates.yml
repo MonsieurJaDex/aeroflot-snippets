@@ -13,10 +13,6 @@ http:
     type: json
     data: |-
       {
-        "issue": "other",
-        "classifier_text": "заклинило клапан ПОС",
-        "note": "Замечание экипажа",
-        "plane_uuid": "{{aircraft_id}}",
         "request_id": "{{candidates_id}}"
       }
   auth:
@@ -48,15 +44,26 @@ runtime:
         test("lists the engineers and keeps the request in the pool", function () {
           expect(res.body.request_id).to.equal(bru.getVar("candidates_id"));
           expect(res.body.candidates.length).to.be.greaterThan(0);
-          const row = res.body.candidates[0];
+          // Rejected rows come first in the array and carry no factors, so the
+          // score breakdown is checked on an accepted row.
+          const row = res.body.candidates.find((c) => c.eligible);
+          expect(row, "at least one eligible engineer").to.be.an("object");
           expect(row).to.have.property("eta_seconds");
           expect(row).to.have.property("score");
           expect(row).to.have.property("eligible");
           expect(row).to.have.property("factors");
           expect(row).to.have.property("urgency_bonus");
           expect(row).to.have.property("mel_bonus");
+          const names = row.factors.map((f) => f.name);
+          expect(names).to.have.members([
+            "eta", "late", "load", "aog_bonus", "arrival_bonus",
+            "urgency_bonus", "mel_bonus",
+          ]);
           const sum = row.factors.reduce((acc, f) => acc + f.seconds, 0);
           expect(Math.abs(sum - row.score)).to.be.lessThan(0.000001);
+          res.body.candidates.filter((c) => !c.eligible).forEach((c) => {
+            expect(c.factors).to.be.an("array").that.is.empty;
+          });
         });
     - type: after-response
       code: |-

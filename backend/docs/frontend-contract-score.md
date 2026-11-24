@@ -7,7 +7,9 @@
 
 ## 1. `POST /api/assign/candidates` и `POST /api/assign` — новое в строке кандидата
 
-Строка `candidates[]` получила три поля; остальные прежние.
+Строка `candidates[]` получила три поля; остальные прежние. Тело самого превью —
+только `{ "request_id": "<uuid>" }`: `classifier_text`, `plane_uuid` и `note` —
+поля `/api/assign`, и превью отвечает на них `422` (см. `frontend-contract-b.md`).
 
 ```json
 {

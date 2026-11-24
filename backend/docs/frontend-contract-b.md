@@ -21,11 +21,16 @@
 
 ## 1. Превью кандидатов — `POST /api/assign/candidates`
 
-Body — тот же `AssignEngineerRequest`, что у `/api/assign`:
+Body — только заявка, которую ранжируем:
 
 ```json
-{ "classifier_text": "…", "plane_uuid": "<uuid>", "note": "…", "request_id": "<uuid>" }
+{ "request_id": "<uuid>" }
 ```
+
+Больше ничего не принимается: тело объявлено со строгим набором полей, и
+`classifier_text` / `plane_uuid` / `note` — поля назначения, а не превью, —
+отвечают `422`. Превью ничего не пишет, поэтому ему и не нужно то, что читает
+назначение.
 
 Ответ `200`:
 
