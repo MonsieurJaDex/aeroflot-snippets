@@ -48,7 +48,7 @@ use crate::{
         (status = 200, description = "Batch applied, or ignored because a newer position is already stored"),
         (status = 400, description = "Invalid UUID, empty batch, or out-of-bounds coordinate", body = ErrorResponse),
         (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
-        (status = 403, description = "Authenticated user is not an engineer", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not an engineer, or the batch names another engineer", body = ErrorResponse),
         (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
         (status = 500, description = "Server-side error", body = ErrorResponse),
     ),
@@ -62,6 +62,9 @@ pub async fn update_engineer_position_handler(
         return Err(forbidden("only engineers can update an engineer position"));
     }
     let uuid = Uuid::parse_str(&payload.id).map_err(|_| bad_request("invalid UUID format"))?;
+    if uuid != auth_user.id {
+        return Err(forbidden("engineers may only update their own position"));
+    }
 
     if payload.batch.is_empty() {
         return Err(bad_request("batch is empty"));

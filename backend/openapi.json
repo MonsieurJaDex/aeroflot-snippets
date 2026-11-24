@@ -3088,7 +3088,7 @@
                 }
               }
             },
-            "description": "Authenticated user is not an engineer"
+            "description": "Authenticated user is not an engineer, or the batch names another engineer"
           },
           "422": {
             "content": {

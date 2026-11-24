@@ -566,9 +566,53 @@ async fn stores_defects_and_exports_the_journal() {
         csv.contains("defect_added"),
         "journal should contain the event"
     );
+    // `params` is JSON, so its commas must stay inside one quoted column: split
+    // on commas only outside quoted fields, where a doubled `""` is a literal.
+    for line in csv.lines().skip(1) {
+        let fields = csv_fields(line);
+        assert_eq!(fields.len(), 6, "journal row should have 6 columns: {line}");
+        serde_json::from_str::<serde_json::Value>(&fields[5])
+            .expect("params should stay valid JSON");
+    }
+    let defect_row = csv
+        .lines()
+        .find(|line| line.contains("defect_added"))
+        .expect("defect_added row");
+    let params = csv_fields(defect_row)
+        .pop()
+        .expect("params column");
+    let params: serde_json::Value =
+        serde_json::from_str(&params).expect("params should stay valid JSON");
+    assert!(
+        params["ata_chapter"].as_str().is_some(),
+        "params must keep their comma-separated shape: {params}"
+    );
 
     expect_status(
         ctx.get("/api/journal.csv", &engineer.token).await,
         StatusCode::FORBIDDEN,
     );
+}
+
+/// Splits one RFC 4180 row: commas separate fields only outside quotes, and a
+/// doubled `""` inside a quoted field is a literal quote.
+fn csv_fields(line: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' if in_quotes && chars.peek() == Some(&'"') => {
+                current.push('"');
+                chars.next();
+            }
+            '"' => in_quotes = !in_quotes,
+            ',' if !in_quotes => fields.push(std::mem::take(&mut current)),
+            _ => current.push(ch),
+        }
+    }
+    assert!(!in_quotes, "unbalanced quotes in journal row: {line}");
+    fields.push(current);
+    fields
 }
