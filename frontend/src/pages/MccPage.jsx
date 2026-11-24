@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { AIRCRAFT_ISSUES, engineerTypeLabel, issueLabel } from "../lib/catalog.js";
 import NetBanner from "../components/NetBanner.jsx";
-import StatusChain from "../components/StatusChain.jsx";
-import { softBeep } from "../lib/beep.js";
+import PasswordField from "../components/PasswordField.jsx";
 import { copyText } from "../lib/copyText.js";
 import { relativeRu } from "../lib/format.js";
 import { classifyRemark, createRemark, trainClassifier } from "../lib/mccApi.js";
@@ -42,6 +41,8 @@ function confidenceLabel(value) {
   return `${Math.round(pct)}%`;
 }
 
+const EMAIL_RE = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i;
+
 function remarkBody({ description, planeUuid, ata, note, urgency }) {
   const body = { text: description, source: "mcc" };
   if (planeUuid) body.plane_uuid = planeUuid;
@@ -52,6 +53,7 @@ function remarkBody({ description, planeUuid, ata, note, urgency }) {
 }
 
 export default function MccPage() {
+  const navigate = useNavigate();
   const formRef = useRef(null);
   const [items, setItems] = useState(freshList);
   const [error, setError] = useState("");
@@ -62,7 +64,9 @@ export default function MccPage() {
   const [sessionName, setSessionName] = useState(() => getSession()?.name || "");
   const [authPending, setAuthPending] = useState(false);
   const [trainPending, setTrainPending] = useState(false);
-  const [savedEmail, setSavedEmail] = useState(() => localStorage.getItem("oto-last-email") || "");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [savedPlane, setSavedPlane] = useState(() => localStorage.getItem("oto-last-plane") || "");
   const [draftText, setDraftText] = useState(() => sessionStorage.getItem("oto-mcc-draft") || "");
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -84,23 +88,6 @@ export default function MccPage() {
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  useEffect(() => {
-    function onKey(event) {
-      if (event.key === "Escape") {
-        setError("");
-        setStatus("");
-        setHint("");
-        return;
-      }
-      if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") return;
-      if (!formRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return;
-      event.preventDefault();
-      formRef.current?.requestSubmit();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   function readForm() {
@@ -138,7 +125,6 @@ export default function MccPage() {
       sessionStorage.removeItem("oto-mcc-draft");
       setDraftText("");
       setHint("");
-      softBeep(480, 140);
       setError("Нужен вход, чтобы записать замечание на сервер. Оно осталось в локальной очереди.");
       setItems(freshList());
       return;
@@ -159,13 +145,10 @@ export default function MccPage() {
       sessionStorage.removeItem("oto-mcc-draft");
       setDraftText("");
       setHint("");
-      softBeep(720, 120);
-      try { navigator.vibrate?.(40); } catch { /* телефон */ }
       setStatus("Замечание записано на сервере. Инженера не назначали.");
       setItems(freshList());
     } catch (err) {
       setError(readError(err));
-      softBeep(320, 200);
     } finally {
       setPending(false);
     }
@@ -174,37 +157,42 @@ export default function MccPage() {
   async function onAuth(event) {
     event.preventDefault();
     setError("");
+    if (!EMAIL_RE.test(authEmail.trim())) {
+      setError("Почта: имя@сервис.домен, например ivan@mail.ru");
+      setAuthPending(false);
+      return;
+    }
     setAuthPending(true);
-    const form = new FormData(event.currentTarget);
     try {
-      // Токен любой роли бэка — для POST /api/requests нужен bearer.
-      const email = String(form.get("email") || "").trim();
-      const session = await login(email, String(form.get("password") || ""));
-      localStorage.setItem("oto-last-email", email);
-      setSavedEmail(email);
+      const session = await login(authEmail.trim(), authPassword);
       setSessionName(session?.name || "");
-      softBeep(680, 100);
+      setAuthPassword("");
+      setShowPassword(false);
       setStatus(`Вход: ${session?.name || "ок"}. Можно писать замечания на сервер.`);
     } catch (err) {
       setError(readError(err));
-      softBeep(320, 200);
     } finally {
       setAuthPending(false);
     }
   }
 
   function onLogout() {
-    softBeep(360, 100);
     clearSession();
     setSessionName("");
+    setAuthPassword("");
+    setShowPassword(false);
     setStatus("Вышли. Серверные замечания снова недоступны без входа.");
+  }
+
+  function backToRoles() {
+    localStorage.removeItem("oto-last-role");
+    navigate("/", { state: { resetRoles: true } });
   }
 
   async function onTrain() {
     setError("");
     if (!signedIn()) {
       setError("Нужен вход, чтобы переобучить классификатор.");
-      softBeep(320, 160);
       return;
     }
     if (!window.confirm("Переобучить классификатор на сервере?")) return;
@@ -212,11 +200,9 @@ export default function MccPage() {
     try {
       const data = await trainClassifier();
       const acc = data?.accuracy == null ? "—" : `${Math.round(Number(data.accuracy) * 100)}%`;
-      softBeep(600, 140);
       setStatus(`Классификатор обучен: ${data?.documents ?? "?"} док. · accuracy ${acc}`);
     } catch (err) {
       setError(readError(err));
-      softBeep(320, 200);
     } finally {
       setTrainPending(false);
     }
@@ -237,206 +223,211 @@ export default function MccPage() {
     setClassifying(true);
     try {
       const data = await classifyRemark(description);
-      const name = engineerTypeLabel(data.engineer_type) || data.engineer_type;
-      softBeep(720, 100);
-      setHint(`${name}, уверенность ${confidenceLabel(data.confidence)}. Подсказка, не назначение.`);
+      const typeName = engineerTypeLabel(data.engineer_type) || data.engineer_type;
+      setHint(`${typeName}, уверенность ${confidenceLabel(data.confidence)}. Подсказка, не назначение.`);
     } catch (err) {
       setHint("");
       setError(readError(err));
-      softBeep(320, 200);
     } finally {
       setClassifying(false);
     }
   }
 
   return (
-    <main id="app-main" className="role-page" tabIndex={-1}>
+    <main id="app-main" className="mcc-page" tabIndex={-1}>
       <NetBanner />
-      <div className="role-shell">
-        <div className="role-hero">
-          <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
-          <h1>ЦПУ</h1>
-          <p className="role-copy">Фиксация замечания без назначения инженера. Для записи на сервер нужен вход.</p>
-        </div>
-        <p className="mcc-back"><Link className="role-link" to="/">К ролям</Link></p>
-        <StatusChain current={items.some((item) => !isMccAssigned(item)) ? "не назначен" : items.length ? "назначен" : "замечание"} />
-        {!sessionName ? (
-          <form className="auth-panel auth-form" onSubmit={onAuth}>
-            <p className="section-label">Вход для записи на сервер</p>
-            <label>Email<input type="email" name="email" required autoComplete="username" defaultValue={savedEmail} /></label>
-            <label>Пароль<input type="password" name="password" required autoComplete="current-password" /></label>
-            <button type="submit" disabled={authPending}>{authPending ? "Вход…" : "Войти"}</button>
-          </form>
-        ) : (
-          <div className="auth-panel" style={{ marginBottom: 12 }}>
-            <p className="section-label">Сессия</p>
-            <div className="account-name">{sessionName}</div>
-            <button type="button" className="role-link" style={{ marginTop: 10 }} onClick={onLogout}>Выйти</button>
-          </div>
-        )}
-        <form className="auth-panel auth-form" ref={formRef} onSubmit={onSubmit}>
-          <label>UUID воздушного судна
-            <input name="plane" type="text" spellCheck={false} autoComplete="off" placeholder="необязательно, если борт ещё не известен" defaultValue={savedPlane} />
-          </label>
-          <button
-            type="button"
-            className="mcc-classify"
-            onClick={async () => {
-              try {
-                const text = (await navigator.clipboard.readText()).trim();
-                const match = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-                const plane = formRef.current?.elements?.namedItem("plane");
-                if (!match || !plane) {
-                  setError("В буфере нет UUID.");
-                  softBeep(320, 200);
-                  return;
-                }
-                plane.value = match[0];
-                localStorage.setItem("oto-last-plane", match[0]);
-                setSavedPlane(match[0]);
-                setStatus(`UUID из буфера: ${match[0].slice(0, 8)}…`);
-                softBeep(640, 100);
-              } catch {
-                setError("Нет доступа к буферу обмена.");
-                softBeep(320, 200);
-              }
-            }}
-          >
-            Вставить UUID из буфера
-          </button>
-          <label>Тип неисправности
-            <select
-              name="issue"
-              required
-              defaultValue={localStorage.getItem("oto-mcc-issue") || ISSUES[0][0]}
-              onChange={(event) => localStorage.setItem("oto-mcc-issue", event.target.value)}
-            >
-              {ISSUES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
-          <label>Описание
-            <textarea
-              name="description"
-              rows={3}
-              required
-              enterKeyHint="done"
-              placeholder="Что сообщил экипаж или сотрудник"
-              value={draftText}
-              onChange={(event) => {
-                const next = event.target.value;
-                setDraftText(next);
-                sessionStorage.setItem("oto-mcc-draft", next);
-              }}
-            />
-          </label>
-          <label>Глава ATA<input name="ata" type="text" placeholder="необязательно, например 28" /></label>
-          <label>Срочность
-            <select
-              name="urgency"
-              defaultValue={localStorage.getItem("oto-mcc-urgency") || ""}
-              onChange={(event) => {
-                const next = event.target.value;
-                localStorage.setItem("oto-mcc-urgency", next);
-                if (next === "urgent") softBeep(780, 80);
-              }}
-            >
-              <option value="">не указана</option>
-              <option value="normal">обычная</option>
-              <option value="urgent">срочная</option>
-            </select>
-          </label>
-          <label>Примечание<input name="note" type="text" placeholder="необязательно" /></label>
-          <button type="button" className="mcc-classify" onClick={onClassify} disabled={classifying || pending || trainPending || !draftText.trim() || !sessionName}>
-            {classifying ? "Классификация…" : "Подсказать тип инженера"}
-          </button>
-          <button type="button" className="mcc-classify" onClick={onTrain} disabled={trainPending || pending || classifying || !sessionName}>
-            {trainPending ? "Обучение…" : "Переобучить классификатор"}
-          </button>
-          {hint ? <p className="mcc-hint">{hint}</p> : null}
-          <button type="submit" disabled={pending || !draftText.trim()} aria-busy={pending} title="Ctrl+Enter">
-            {pending ? "Запись…" : "Передать начальнику смены · Ctrl+Enter"}
-          </button>
-          {error ? <div className="auth-error">{error}</div> : null}
-          <div className="auth-status">{status}</div>
-        </form>
-        <section className="auth-panel mcc-filed">
-          <div className="section-heading">
-            <p className="section-label">Переданные замечания</p>
-            <div className="mcc-list-actions">
-              {items.some(isMccAssigned) ? (
-                <button
-                  type="button"
-                  className="ghost-copy"
-                  onClick={() => {
-                    clearAssignedMcc();
-                    setItems(freshList());
-                    setStatus("Назначенные убраны из локального списка.");
-                  }}
-                >
-                  Убрать назначенные
-                </button>
-              ) : null}
-              {items.length ? (
-                <button
-                  type="button"
-                  className="ghost-copy"
-                  onClick={() => {
-                    const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement("a");
-                    link.href = url;
-                    link.download = `mcc-queue-${new Date().toISOString().slice(0, 10)}.json`;
-                    document.body.appendChild(link);
-                    link.click();
-                    link.remove();
-                    URL.revokeObjectURL(url);
-                    softBeep(560, 80);
-                    setStatus("Локальная очередь ЦПУ сохранена в JSON.");
-                  }}
-                >
-                  Экспорт JSON
-                </button>
-              ) : null}
-              {items.length ? (
-                <button
-                  type="button"
-                  className="ghost-copy"
-                  onClick={() => {
-                    if (!window.confirm("Очистить весь локальный список ЦПУ?")) return;
-                    clearAllMcc();
-                    setItems(freshList());
-                    setStatus("Локальный список очищен.");
-                  }}
-                >
-                  Очистить всё
-                </button>
-              ) : null}
+      <div className="mcc-layout">
+        <aside className="mcc-sidebar">
+          <div className="brand-row">
+            <div>
+              <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
+              <h1>ЦПУ</h1>
             </div>
+            <button type="button" className="role-link" onClick={backToRoles}>К ролям</button>
           </div>
-          <div className="mcc-inbox">
-            {items.length ? items.map((item) => (
-              <div className={item.urgency === "urgent" ? "mcc-item urgent" : "mcc-item"} key={item.id}>
-                <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
-                <span>
-                  {String(item.planeUuid || "").slice(0, 8)} · {isMccAssigned(item) ? "назначена" : "не назначена"}
-                  {item.serverId ? ` · сервер ${item.status}` : " · локально"}
-                  {item.createdAt ? ` · ${relativeRu(item.createdAt, nowTick)}` : ""}
-                </span>
-                {item.serverId ? (
+          <p className="mcc-intro">Фиксация замечания без назначения инженера. Для записи на сервер нужен вход.</p>
+
+          {!sessionName ? (
+            <form className="auth-panel auth-form" autoComplete="off" onSubmit={onAuth}>
+              <p className="section-label">Вход для записи на сервер</p>
+              <label>Email
+                <input type="email" name="email" required autoComplete="username" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} />
+              </label>
+              <PasswordField
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                show={showPassword}
+                onToggle={() => setShowPassword((prev) => !prev)}
+              />
+              <button type="submit" disabled={authPending}>{authPending ? "Вход…" : "Войти"}</button>
+            </form>
+          ) : (
+            <div className="auth-panel mcc-session-panel">
+              <p className="section-label">Сессия</p>
+              <div className="account-name">{sessionName}</div>
+              <button type="button" className="role-link" onClick={onLogout}>Выйти</button>
+            </div>
+          )}
+        </aside>
+
+        <section className="mcc-main">
+          <form className="auth-panel auth-form mcc-form" ref={formRef} onSubmit={onSubmit}>
+            <p className="section-label">Новое замечание</p>
+            <label>UUID воздушного судна
+              <input name="plane" type="text" spellCheck={false} autoComplete="off" placeholder="необязательно, если борт ещё не известен" defaultValue={savedPlane} />
+            </label>
+            <button
+              type="button"
+              className="mcc-classify"
+              onClick={async () => {
+                try {
+                  const text = (await navigator.clipboard.readText()).trim();
+                  const match = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+                  const plane = formRef.current?.elements?.namedItem("plane");
+                  if (!match || !plane) {
+                    setError("В буфере нет UUID.");
+                    return;
+                  }
+                  plane.value = match[0];
+                  localStorage.setItem("oto-last-plane", match[0]);
+                  setSavedPlane(match[0]);
+                  setStatus(`UUID из буфера: ${match[0].slice(0, 8)}…`);
+                } catch {
+                  setError("Нет доступа к буферу обмена.");
+                }
+              }}
+            >
+              Вставить UUID из буфера
+            </button>
+            <label>Тип неисправности
+              <select
+                name="issue"
+                required
+                defaultValue={localStorage.getItem("oto-mcc-issue") || ISSUES[0][0]}
+                onChange={(event) => localStorage.setItem("oto-mcc-issue", event.target.value)}
+              >
+                {ISSUES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label>Описание
+              <textarea
+                name="description"
+                rows={3}
+                required
+                placeholder="Что сообщил экипаж или сотрудник"
+                value={draftText}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setDraftText(next);
+                  sessionStorage.setItem("oto-mcc-draft", next);
+                }}
+              />
+            </label>
+            <label>Глава ATA<input name="ata" type="text" placeholder="необязательно, например 28" /></label>
+            <label>Срочность
+              <select
+                name="urgency"
+                defaultValue={localStorage.getItem("oto-mcc-urgency") || ""}
+                onChange={(event) => localStorage.setItem("oto-mcc-urgency", event.target.value)}
+              >
+                <option value="">не указана</option>
+                <option value="normal">обычная</option>
+                <option value="urgent">срочная</option>
+              </select>
+            </label>
+            <label>Примечание<input name="note" type="text" placeholder="необязательно" /></label>
+            <button type="button" className="mcc-classify" onClick={onClassify} disabled={classifying || pending || trainPending || !draftText.trim() || !sessionName}>
+              {classifying ? "Классификация…" : "Подсказать тип инженера"}
+            </button>
+            <button type="button" className="mcc-classify" onClick={onTrain} disabled={trainPending || pending || classifying || !sessionName}>
+              {trainPending ? "Обучение…" : "Переобучить классификатор"}
+            </button>
+            {hint ? <p className="mcc-hint">{hint}</p> : null}
+            <button type="submit" disabled={pending || !draftText.trim()} aria-busy={pending}>
+              {pending ? "Запись…" : "Передать начальнику смены"}
+            </button>
+            {error ? <div className="auth-error">{error}</div> : null}
+            {status ? <div className="auth-status">{status}</div> : null}
+          </form>
+
+          <section className="auth-panel mcc-filed">
+            <div className="section-heading">
+              <p className="section-label">Переданные замечания</p>
+              <div className="mcc-list-actions">
+                {items.some(isMccAssigned) ? (
                   <button
                     type="button"
                     className="ghost-copy"
-                    onClick={async () => {
-                      const ok = await copyText(item.serverId);
-                      setStatus(ok ? `Скопирован id ${String(item.serverId).slice(0, 8)}` : "Не удалось скопировать id");
+                    onClick={() => {
+                      clearAssignedMcc();
+                      setItems(freshList());
+                      setStatus("Назначенные убраны из локального списка.");
                     }}
                   >
-                    Копировать id
+                    Убрать назначенные
+                  </button>
+                ) : null}
+                {items.length ? (
+                  <button
+                    type="button"
+                    className="ghost-copy"
+                    onClick={() => {
+                      const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
+                      const url = URL.createObjectURL(blob);
+                      const link = document.createElement("a");
+                      link.href = url;
+                      link.download = `mcc-queue-${new Date().toISOString().slice(0, 10)}.json`;
+                      document.body.appendChild(link);
+                      link.click();
+                      link.remove();
+                      URL.revokeObjectURL(url);
+                      setStatus("Локальная очередь ЦПУ сохранена в JSON.");
+                    }}
+                  >
+                    Экспорт JSON
+                  </button>
+                ) : null}
+                {items.length ? (
+                  <button
+                    type="button"
+                    className="ghost-copy"
+                    onClick={() => {
+                      if (!window.confirm("Очистить весь локальный список ЦПУ?")) return;
+                      clearAllMcc();
+                      setItems(freshList());
+                      setStatus("Локальный список очищен.");
+                    }}
+                  >
+                    Очистить всё
                   </button>
                 ) : null}
               </div>
-            )) : <p className="mcc-empty">Пока ничего не передано.</p>}
-          </div>
+            </div>
+            <div className="mcc-inbox">
+              {items.length ? items.map((item) => (
+                <div className={item.urgency === "urgent" ? "mcc-item urgent" : "mcc-item"} key={item.id}>
+                  <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
+                  <span>
+                    {String(item.planeUuid || "").slice(0, 8)} · {isMccAssigned(item) ? "назначена" : "не назначена"}
+                    {item.serverId ? ` · сервер ${item.status}` : " · локально"}
+                    {item.createdAt ? ` · ${relativeRu(item.createdAt, nowTick)}` : ""}
+                  </span>
+                  {item.serverId ? (
+                    <button
+                      type="button"
+                      className="ghost-copy"
+                      onClick={async () => {
+                        const ok = await copyText(item.serverId);
+                        setStatus(ok ? `Скопирован id ${String(item.serverId).slice(0, 8)}` : "Не удалось скопировать id");
+                      }}
+                    >
+                      Копировать id
+                    </button>
+                  ) : null}
+                </div>
+              )) : <p className="mcc-empty">Пока ничего не передано.</p>}
+            </div>
+          </section>
         </section>
       </div>
     </main>

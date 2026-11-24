@@ -8,7 +8,7 @@ import { formatEta, relativeRu } from "../lib/format.js";
 import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
-import { normalizeRoute, postTrackPoint, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
+import { getRoute, loadStaff, normalizeRoute, postTrackPoint, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { whenVisible } from "../lib/visibility.js";
 import { CELL_METERS, expandRouteOnRoads, pointAt, totalMeters, turnHint, WALK_MPS } from "../lib/walk.js";
@@ -86,9 +86,32 @@ function deferUntilIso(value) {
   return parsed.toISOString();
 }
 
-function normalizeCurrentTask(body) {
+// Статус только из is_accepted: этот сервер task.status не отдаёт.
+function normalizeCurrentTask(body, prev = null) {
   if (body == null || typeof body !== "object" || !body.id) return null;
-  return body;
+  const rawPlane = Array.isArray(body.plane_point) ? body.plane_point : null;
+  const planePoint = rawPlane
+    ? [Number(rawPlane[0]), Number(rawPlane[1])]
+    : null;
+  const accepted = Boolean(body.is_accepted);
+  let route = normalizeRoute(body.route);
+  if (route.length < 2 && prev && String(prev.id) === String(body.id)) {
+    const kept = normalizeRoute(prev.route);
+    if (kept.length >= 2) route = kept;
+  }
+  return {
+    ...body,
+    description: typeof body.description === "string" ? body.description : "",
+    issue: body.issue == null || typeof body.issue === "object" ? "" : body.issue,
+    is_accepted: accepted,
+    status: accepted ? "in_progress" : "assigned",
+    plane_point: planePoint && Number.isFinite(planePoint[0]) && Number.isFinite(planePoint[1]) ? planePoint : null,
+    route,
+  };
+}
+
+function endpointMissing(error) {
+  return Number(error?.status) === 404;
 }
 
 function patchTaskRouteEta(prev, taskId, data) {
@@ -153,6 +176,9 @@ export default function WorkerPage() {
   const [gpsAcc, setGpsAcc] = useState(null);
   const lastTrackAt = useRef(0);
   const gpsWatchId = useRef(null);
+  const gpsTrackNoted = useRef(false);
+  const routeFillKey = useRef("");
+  const [selfCell, setSelfCell] = useState(null);
 
   taskRef.current = task;
 
@@ -177,11 +203,12 @@ export default function WorkerPage() {
       try {
         const next = await apiRequest("/api/tasks/current");
         if (cancelled) return;
-        const normalized = normalizeCurrentTask(next);
+        const normalized = normalizeCurrentTask(next, taskRef.current);
         setTask((prev) => {
-          if (!normalized && !prev) return prev;
-          if (normalized && sameTask(prev, normalized)) return prev;
-          return normalized;
+          const merged = normalizeCurrentTask(next, prev);
+          if (!merged && !prev) return prev;
+          if (merged && sameTask(prev, merged)) return prev;
+          return merged;
         });
         lastPollAt.current = Date.now();
         setPollStale(false);
@@ -207,19 +234,16 @@ export default function WorkerPage() {
       const current = getSession();
       if (!current?.userId) return;
       try {
-        const engineers = await apiRequest("/api/geo/getEngineersPositions");
-        if (cancelled || !Array.isArray(engineers)) return;
-        const mine = engineers.find((entry) => String(entry.id) === String(current.userId));
-        if (!mine || !Array.isArray(mine.position)) return;
-        // Пока идёт ход по маршруту, точку не дёргаем с Redis (там часто уже стоим у ВС).
-        lastSelfRef.current = mine.position;
-        mapApi.current.showSelfPoint?.(mine.position, { fromServer: true });
-        setNotice((prev) => (prev.startsWith("Нет связи")
-          ? "Связь восстановлена. Позиция снова с сервера."
-          : prev));
+        const staff = await loadStaff();
+        if (cancelled) return;
+        const mine = (staff?.plotted || []).find((entry) => String(entry.id) === String(current.userId));
+        if (!mine?.point) return;
+        // Пока идёт ход по маршруту, точку не дёргаем с сервера.
+        lastSelfRef.current = mine.point;
+        setSelfCell((prev) => (prev && prev[0] === mine.point[0] && prev[1] === mine.point[1] ? prev : mine.point));
+        mapApi.current.showSelfPoint?.(mine.point, { fromServer: true });
       } catch (error) {
         console.warn("[worker] своя позиция", error);
-        if (!cancelled) setNotice("Нет связи с геосервером. Показана последняя известная позиция.");
       }
     }
 
@@ -341,7 +365,12 @@ export default function WorkerPage() {
         t,
         acc: Number.isFinite(acc) ? acc : null,
         spd: spd != null && Number.isFinite(spd) ? spd : null,
-      }).catch((error) => console.warn("[worker] track", error));
+      }).catch((error) => {
+        console.warn("[worker] track", error);
+        if (gpsTrackNoted.current) return;
+        gpsTrackNoted.current = true;
+        setNotice("GPS-трек недоступен.");
+      });
     };
 
     const onErr = (error) => {
@@ -679,33 +708,28 @@ export default function WorkerPage() {
       if (!bag.map || !tmj) return;
       if (!nextTask || route.length < 2) {
         stopWalk({ keepSelf: true });
-        if (nextTask && Array.isArray(nextTask.plane_point)) {
-          const end = [nextTask.plane_point[0] + 0.5, nextTask.plane_point[1] + 0.5];
+        const px = Number(nextTask?.plane_point?.[0]);
+        const py = Number(nextTask?.plane_point?.[1]);
+        if (nextTask && Number.isFinite(px) && Number.isFinite(py)) {
+          const end = [px + 0.5, py + 0.5];
           walk = {
             taskId: nextTask.id,
             routeSig: JSON.stringify(route),
-            centers: [end],
+            centers: [],
             startedAt: performance.now(),
             done: true,
-            line: L.polyline([centerToLatLng(tmj, end)], {
-              color: "#c5161c",
-              weight: 5,
-              opacity: 0.95,
-              lineJoin: "round",
-            }).addTo(bag.map),
+            line: null,
             dest: L.marker(centerToLatLng(tmj, end), { icon: mapIcon("worker-map-stand") })
               .bindTooltip(`ВС ${planeLabel(nextTask)}`, { permanent: true, direction: "top", className: "map-label" })
               .addTo(bag.map),
           };
-          ensureSelfMarker(centerToLatLng(tmj, end));
-          selfPoint = [Number(nextTask.plane_point[0]), Number(nextTask.plane_point[1])];
-          setSelfText(`ВЫ: ${selfPoint[0]}, ${selfPoint[1]}`);
-          setDistance("УЖЕ НА МЕСТЕ");
-          setRouteHint("Вы уже у воздушного судна");
+          setDistance("НЕТ МАРШРУТА");
+          setRouteHint("Маршрут до ВС строится");
         } else {
-          setDistance(nextTask ? "УЖЕ НА МЕСТЕ" : "НЕТ МАРШРУТА");
-          setRouteHint(nextTask ? "Вы уже у воздушного судна" : "");
+          setDistance("НЕТ МАРШРУТА");
+          setRouteHint("");
         }
+        if (selfPoint) placeSelfMarker();
         focus();
         return;
       }
@@ -720,6 +744,12 @@ export default function WorkerPage() {
       stopWalk({ keepSelf: true });
       // Только по дорожным клеткам TMJ — без диагоналей сквозь стены.
       const roadRoute = expandRouteOnRoads(route, walkMask);
+      if (roadRoute.length < 2) {
+        setDistance("НЕТ МАРШРУТА");
+        setRouteHint("Маршрут до ВС строится");
+        focus();
+        return;
+      }
       const centers = roadRoute.map(([x, y]) => [x + 0.5, y + 0.5]);
       walk = {
         taskId: nextTask.id,
@@ -787,6 +817,34 @@ export default function WorkerPage() {
     mapApi.current.renderRoute?.(task);
   }, [task]);
 
+  useEffect(() => {
+    if (!task?.id || !selfCell) return undefined;
+    if (normalizeRoute(task.route).length >= 2) return undefined;
+    const end = task.plane_point;
+    if (!Array.isArray(end) || !Number.isFinite(end[0]) || !Number.isFinite(end[1])) return undefined;
+    if (selfCell[0] === end[0] && selfCell[1] === end[1]) return undefined;
+    const key = `${task.id}|${selfCell[0]},${selfCell[1]}|${end[0]},${end[1]}`;
+    if (routeFillKey.current === key) return undefined;
+    routeFillKey.current = key;
+    let cancelled = false;
+    const taskId = task.id;
+    getRoute(selfCell, end)
+      .then((data) => {
+        if (cancelled) return;
+        const built = normalizeRoute(data?.route);
+        if (built.length < 2) return;
+        setTask((prev) => {
+          if (!prev || String(prev.id) !== String(taskId)) return prev;
+          if (normalizeRoute(prev.route).length >= 2) return prev;
+          return { ...prev, route: built };
+        });
+      })
+      .catch((error) => {
+        if (!cancelled) console.warn("[worker] getRoute", error);
+      });
+    return () => { cancelled = true };
+  }, [task?.id, task?.route, task?.plane_point, selfCell]);
+
   if (!allowed) return <Navigate to="/" replace />;
 
   const skill = engineerTypeLabel(profile?.engineerType) || "Инженер ОТО";
@@ -797,7 +855,7 @@ export default function WorkerPage() {
     .slice(0, 2)
     .toUpperCase() || "--";
   const route = task ? normalizeRoute(task.route) : [];
-  const routeText = !task ? "" : route.length < 2 ? "Вы уже у воздушного судна." : `Маршрут: ${Math.max(0, route.length - 1)} клеток`;
+  const routeText = !task ? "" : route.length < 2 ? "Маршрут до ВС строится." : `Маршрут: ${Math.max(0, route.length - 1)} клеток`;
   const step = chainStep(task, statusStep);
   const minutes = task ? etaMinutes(task.eta_seconds) : null;
   const etaClock = formatEta(etaLeft);
@@ -806,14 +864,24 @@ export default function WorkerPage() {
   const slaHint = slaRisk && etaForSla != null ? slaNormHint(etaForSla) : null;
   const canDecide = task?.status === "assigned";
 
+  function noteMissing(error, missingLine, failLine) {
+    if (endpointMissing(error)) {
+      setNotice(missingLine);
+      return;
+    }
+    setNotice(`${failLine}: ${error?.message || "ошибка"}`);
+    flash(failLine, "err");
+    softBeep(320, 200);
+  }
+
   async function refreshTask() {
     try {
       const next = await apiRequest("/api/tasks/current");
-      const normalized = normalizeCurrentTask(next);
+      const normalized = normalizeCurrentTask(next, taskRef.current);
       setTask(normalized);
       return normalized;
     } catch (error) {
-      if (error.status === 404) {
+      if (endpointMissing(error)) {
         setTask(null);
         return null;
       }
@@ -825,7 +893,8 @@ export default function WorkerPage() {
     setBusyAction("accept");
     try {
       await apiRequest("/api/tasks/current/accept", { method: "POST" });
-      await refreshTask();
+      const loaded = await refreshTask();
+      setTask((prev) => normalizeCurrentTask({ ...(loaded || prev || {}), is_accepted: true }, prev));
       flash("Задача принята");
       softBeep(720, 120);
       try { navigator.vibrate?.(80); } catch { /* телефон */ }
@@ -849,9 +918,7 @@ export default function WorkerPage() {
       flash("Задача отклонена", "err");
       softBeep(380, 180);
     } catch (error) {
-      setNotice(`Не удалось отклонить задачу: ${error.message}`);
-      flash("Ошибка отклонения", "err");
-      softBeep(320, 200);
+      noteMissing(error, "Отклонение недоступно.", "Ошибка отклонения");
     } finally {
       setBusyAction("");
     }
@@ -865,9 +932,7 @@ export default function WorkerPage() {
       flash("Инструмент получен");
       softBeep(640, 100);
     } catch (error) {
-      setNotice(`Не удалось отметить инструмент: ${error.message}`);
-      flash("Ошибка инструмента", "err");
-      softBeep(320, 200);
+      noteMissing(error, "Отметка инструмента недоступна.", "Ошибка инструмента");
     } finally {
       setBusyAction("");
     }
@@ -884,9 +949,7 @@ export default function WorkerPage() {
       flash("Ожидание запчасти");
       softBeep(480, 140);
     } catch (error) {
-      setNotice(`Не удалось отметить ожидание запчасти: ${error.message}`);
-      flash("Ошибка ожидания", "err");
-      softBeep(320, 200);
+      noteMissing(error, "Ожидание запчасти недоступно.", "Ошибка ожидания");
     } finally {
       setBusyAction("");
     }
@@ -904,9 +967,7 @@ export default function WorkerPage() {
       flash(`MEL ${category} сохранён`);
       softBeep(660, 100);
     } catch (error) {
-      setNotice(`Не удалось сохранить MEL: ${error.message}`);
-      flash("Ошибка MEL", "err");
-      softBeep(320, 200);
+      noteMissing(error, "MEL недоступен.", "Ошибка MEL");
     } finally {
       setBusyAction("");
     }
@@ -923,9 +984,7 @@ export default function WorkerPage() {
       setStatusStep("выполнено");
       setTask(null);
     } catch (error) {
-      setNotice(`Не удалось завершить задачу: ${error.message}`);
-      flash("Ошибка завершения", "err");
-      softBeep(320, 200);
+      noteMissing(error, "Завершение недоступно.", "Ошибка завершения");
     } finally {
       setBusyAction("");
     }
@@ -945,9 +1004,7 @@ export default function WorkerPage() {
       softBeep(data?.aog ? 420 : 700, 140);
       try { navigator.vibrate?.(data?.aog ? [80, 40, 80] : 40); } catch { /* телефон */ }
     } catch (error) {
-      setNotice(`Не удалось обновить AOG: ${error.message}`);
-      flash("Ошибка AOG", "err");
-      softBeep(320, 200);
+      noteMissing(error, "AOG недоступен.", "Ошибка AOG");
     } finally {
       setBusyAction("");
     }
@@ -962,9 +1019,7 @@ export default function WorkerPage() {
       flash("Маршрут пересчитан на сервере");
       softBeep(600, 100);
     } catch (error) {
-      setNotice(`Не удалось обновить маршрут: ${error.message}`);
-      flash("Ошибка маршрута", "err");
-      softBeep(320, 200);
+      noteMissing(error, "Пересчёт маршрута недоступен.", "Ошибка маршрута");
     } finally {
       setBusyAction("");
     }
