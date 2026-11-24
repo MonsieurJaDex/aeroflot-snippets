@@ -1,0 +1,54 @@
+info:
+  name: assignManual
+  type: http
+  seq: 60
+
+http:
+  method: POST
+  url: "{{HOST}}/assign"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "issue": "other",
+        "classifier_text": "заклинило клапан ПОС",
+        "note": "Назначение вручную",
+        "plane_uuid": "{{aircraft_id}}",
+        "request_id": "{{candidates_id}}",
+        "engineer_id": "{{candidate_engineer_id}}"
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Ручное назначение: диспетчер называет инженера полем `engineer_id`, и
+    назначается именно он, а не ближайший. Маршрут и `eta_seconds` строятся
+    для названного инженера. Если он не допущен к главе ATA задачи или занят
+    начатой работой — 400 с причиной в теле.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.engineer_uuid
+      operator: isString
+
+  scripts:
+    - type: tests
+      code: |-
+        test("assigns the named engineer", function () {
+          expect(res.body.engineer_uuid).to.equal(bru.getVar("candidate_engineer_id"));
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

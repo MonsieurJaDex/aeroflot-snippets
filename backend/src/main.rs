@@ -2,7 +2,7 @@ use crate::{
     database::{establish_pg_connection, establish_redis_connection},
     logging::init_logger,
     router::{
-        arrive_aircraft, assign_engineer, classify_problem, complete_current_task,
+        arrive_aircraft, assign_candidates, assign_engineer, classify_problem, complete_current_task,
         current_task_aog, current_task_aog_post, depart_aircraft, get_active_map, get_current_task,
         get_route, list_aircraft, list_aircraft_movements, list_aog, list_maps, set_active_map,
         train_classifier,
@@ -220,6 +220,7 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route("/maps/active", get(get_active_map).put(set_active_map))
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
+        .route("/assign/candidates", post(assign_candidates))
         .route("/requests", post(router::ops::create_request))
         .route("/requests/all", get(router::ops::list_all_requests))
         .route(
@@ -230,6 +231,10 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route(
             "/requests/{id}/reassign",
             post(router::ops::reassign_request),
+        )
+        .route(
+            "/requests/{id}/unassign",
+            post(router::ops::unassign_request),
         )
         .route("/alerts", get(router::ops::list_alerts))
         .route("/defects", post(router::ops::create_defect))

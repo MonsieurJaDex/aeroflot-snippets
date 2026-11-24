@@ -13,7 +13,8 @@ use utoipa::openapi::{Deprecated, RefOr};
 use utoipa::{Modify, OpenApi};
 
 use crate::router::{
-    __path_arrive_aircraft, __path_assign_engineer, __path_classify_problem,
+    __path_arrive_aircraft, __path_assign_candidates, __path_assign_engineer,
+    __path_classify_problem,
     __path_complete_current_task, __path_current_task_aog, __path_current_task_aog_post,
     __path_depart_aircraft, __path_get_active_map, __path_get_current_task, __path_get_map,
     __path_get_route, __path_list_aircraft, __path_list_aircraft_movements, __path_list_aog,
@@ -33,7 +34,8 @@ use crate::router::{
     ops::{
         __path_accept_current, __path_create_defect, __path_create_request, __path_export_journal,
         __path_list_alerts, __path_pick_tools, __path_queue_request, __path_reassign_request,
-        __path_refresh_route, __path_reject_current, __path_set_mel, __path_wait_for_part,
+        __path_refresh_route, __path_reject_current, __path_set_mel, __path_unassign_request,
+        __path_wait_for_part,
         AlertItem, AlertList, CreateRequest, MelRequest, NewDefect, ReassignRequest,
         RequestCreated,
     },
@@ -43,7 +45,8 @@ use crate::types::{
     dto::{
         ActiveMapResponse, AircraftEntry, AircraftListResponse, AircraftMovementListResponse,
         AircraftMovementResponse, AogListResponse, ArriveAircraftRequest, AssignEngineerRequest,
-        AssignEngineerResponse, AssignmentCandidate, CalibrateObjectRequest, CalibrationEntry,
+        AssignEngineerResponse, AssignmentCandidate, AssignmentCandidatesResponse,
+        CalibrateObjectRequest, CalibrationEntry,
         CalibrationListResponse, ClassifyRequest, ClassifyResponse, ClearCalibrationRequest,
         Coordinate,
         CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest,
@@ -82,6 +85,7 @@ use crate::types::{
         set_active_map,
         get_route,
         assign_engineer,
+        assign_candidates,
         classify_problem,
         train_classifier,
         list_aircraft,
@@ -97,6 +101,7 @@ use crate::types::{
         set_mel,
         wait_for_part,
         refresh_route,
+        unassign_request,
         list_alerts,
         create_defect,
         export_journal,
@@ -146,6 +151,7 @@ use crate::types::{
         AssignmentCandidate,
         AssignEngineerRequest,
         AssignEngineerResponse,
+        AssignmentCandidatesResponse,
         ClassifyRequest,
         ClassifyResponse,
         TrainClassifierResponse,

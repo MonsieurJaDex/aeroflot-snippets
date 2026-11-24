@@ -31,7 +31,8 @@ use crate::{
         dto::{
             ActiveMapResponse, AircraftEntry, AircraftListResponse, AircraftMovementListResponse,
             AircraftMovementResponse, AogListResponse, ArriveAircraftRequest,
-            AssignEngineerRequest, AssignEngineerResponse, AssignmentCandidate, ClassifyRequest,
+            AssignEngineerRequest, AssignEngineerResponse, AssignmentCandidate,
+            AssignmentCandidatesResponse, ClassifyRequest,
             ClassifyResponse, CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse,
             DepartAircraftRequest, ErrorResponse, GetRouteRequest, GetRouteResponse,
             MapListResponse, MapResponse, MapSummary, PageQuery, SelectMapRequest,
@@ -1210,18 +1211,227 @@ pub async fn assign_engineer(
         internal_error()
     })?;
 
-    let active = active_map(&app_state)?;
-    let request_id = payload
-        .request_id
+    let task = load_request_for_assignment(&mut pg_conn, payload.request_id.as_deref())?;
+    let plan = build_candidates(
+        &app_state,
+        &mut pg_conn,
+        &mut redis_conn,
+        &task,
+        auth_user.id,
+    )
+    .await?;
+    let candidates: Vec<AssignmentCandidate> = plan
+        .outcome
+        .candidates
+        .iter()
+        .map(assignment_candidate)
+        .collect();
+    crate::journal::record(
+        &mut pg_conn,
+        "candidates_built",
+        Some(&auth_user.id.to_string()),
+        Some(task.id),
+        serde_json::json!({ "count": candidates.len(), "candidates": candidates }),
+        Some(plan.outcome.elapsed_ms),
+    );
+
+    // A named engineer is assigned as told; without one the best eligible row
+    // wins. Neither path asks whether the engineer is the nearest.
+    let chosen = match payload
+        .engineer_id
         .as_deref()
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+    {
+        None => plan
+            .outcome
+            .candidates
+            .iter()
+            .find(|row| row.eligible)
+            .ok_or_else(|| not_found("no suitable engineer available"))?,
+        Some(raw) => {
+            let engineer_id = Uuid::from_str(raw).map_err(|_| bad_request("invalid engineer id"))?;
+            let row = plan
+                .outcome
+                .candidates
+                .iter()
+                .find(|row| row.engineer_id == engineer_id)
+                .ok_or_else(|| bad_request("engineer was not found"))?;
+            if !row.eligible {
+                return Err(bad_request(format!(
+                    "engineer cannot take this request: {}",
+                    row.reason
+                )));
+            }
+            row
+        }
+    };
+
+    let travel = chosen.eta_seconds;
+    let sla_exceeded = travel >= plan.active.location.sla_secs;
+    let route_json = serde_json::to_string(&chosen.route).expect("route serializes");
+    diesel::update(tasks::table.find(task.id))
+        .set((
+            tasks::assigned_engineer.eq(Some(chosen.engineer_id)),
+            tasks::status.eq("assigned"),
+            tasks::task_route.eq(&route_json),
+            tasks::eta_seconds.eq(Some(travel as i32)),
+            tasks::candidate_ms.eq(Some(plan.outcome.elapsed_ms)),
+            tasks::ata_chapter.eq(&plan.chapter),
+            tasks::ends_at
+                .eq(task.recorded_at + chrono::Duration::seconds(plan.active.location.sla_secs as i64)),
+            tasks::is_active.eq(true),
+            tasks::waiting_part.eq(false),
+            tasks::arrived_at.eq(None::<DateTime<Utc>>),
+            tasks::tools_picked.eq(false),
+        ))
+        .execute(&mut pg_conn)
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to assign request");
+            internal_error()
+        })?;
+    crate::journal::record(
+        &mut pg_conn,
+        "engineer_assigned",
+        Some(&auth_user.id.to_string()),
+        Some(task.id),
+        serde_json::json!({
+            "engineer_id": chosen.engineer_id,
+            "eta_seconds": travel,
+            "uses_vehicle": chosen.uses_vehicle,
+            "reason": chosen.reason,
+            "manual": payload.engineer_id.is_some(),
+        }),
+        None,
+    );
+    crate::journal::record(
+        &mut pg_conn,
+        "route_built",
+        Some(&auth_user.id.to_string()),
+        Some(task.id),
+        serde_json::json!({ "points": chosen.route.len(), "eta_seconds": travel }),
+        None,
+    );
+
+    Ok(Json(AssignEngineerResponse {
+        engineer_uuid: chosen.engineer_id.to_string(),
+        eta_seconds: travel,
+        sla_exceeded,
+        distance: chosen.route.len() as u64,
+        time: travel,
+        time_limit_exceeded: sla_exceeded,
+        candidates,
+        candidate_ms: plan.outcome.elapsed_ms,
+        route: chosen.route.clone(),
+    })
+    .into_response())
+}
+
+/// Ranks the engineers for one request without changing it: the dispatcher
+/// reads this before deciding who to assign, and nothing here writes a row.
+#[utoipa::path(
+    post,
+    path = "/api/assign/candidates",
+    tag = "Assign",
+    operation_id = "assignCandidates",
+    description = "Ranks every engineer for a request. Read-only: the task is not modified.",
+    security(("bearerAuth" = [])),
+    request_body = AssignEngineerRequest,
+    responses(
+        (status = 200, description = "Ranked candidates", body = AssignmentCandidatesResponse),
+        (status = 400, description = "Invalid input or route error", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 404, description = "Request was not found", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn assign_candidates(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<AssignEngineerRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can rank engineers"));
+    }
+
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    let task = load_request_for_assignment(&mut pg_conn, payload.request_id.as_deref())?;
+    let plan = build_candidates(
+        &app_state,
+        &mut pg_conn,
+        &mut redis_conn,
+        &task,
+        auth_user.id,
+    )
+    .await?;
+
+    Ok(Json(AssignmentCandidatesResponse {
+        request_id: task.id.to_string(),
+        chapter: plan.chapter.clone(),
+        candidates: plan
+            .outcome
+            .candidates
+            .iter()
+            .map(assignment_candidate)
+            .collect(),
+        candidate_ms: plan.outcome.elapsed_ms,
+    })
+    .into_response())
+}
+
+// ---------------------------------------------------------------------------
+// assign_engineer helpers
+// ---------------------------------------------------------------------------
+
+/// What [`build_candidates`] produced: the ranking, the ATA chapter it ranked
+/// for and the map it ranked on. Shared by the preview and the assignment.
+pub(crate) struct AssignmentPlan {
+    pub outcome: crate::rank::RankOutcome,
+    pub chapter: Option<String>,
+    pub active: ActiveMap,
+}
+
+/// One published row of the ranking. Both handlers must publish the same
+/// fields, so the mapping lives here once.
+pub(crate) fn assignment_candidate(row: &crate::rank::CandidateScore) -> AssignmentCandidate {
+    AssignmentCandidate {
+        engineer_id: row.engineer_id.to_string(),
+        eligible: row.eligible,
+        reason: row.reason.clone(),
+        eta_seconds: row.eta_seconds,
+        uses_vehicle: row.uses_vehicle,
+        late_seconds: row.components.late,
+        load_penalty: row.components.load,
+        aog_bonus: row.components.aog_bonus,
+        arrival_bonus: row.components.arrival_bonus,
+        score: row.score,
+    }
+}
+
+/// Loads the request that is being assigned, refusing anything that is not
+/// waiting for an engineer.
+fn load_request_for_assignment(
+    pg_conn: &mut diesel::PgConnection,
+    request_id: Option<&str>,
+) -> Result<Task, Response<Body>> {
+    let request_id = request_id
         .filter(|raw| !raw.is_empty())
         .ok_or_else(|| unprocessable("request_id is required"))?;
     let request_id = Uuid::from_str(request_id).map_err(|_| bad_request("invalid request id"))?;
-
     let task = tasks::table
         .find(request_id)
         .select(Task::as_select())
-        .first::<Task>(&mut pg_conn)
+        .first::<Task>(pg_conn)
         .optional()
         .map_err(|e| {
             tracing::error!(error = %e, "failed to load request");
@@ -1233,6 +1443,21 @@ pub async fn assign_engineer(
     if task.status != "unassigned" {
         return Err(bad_request("request is not waiting for assignment"));
     }
+    Ok(task)
+}
+
+/// Ranks every engineer for `task`. Reads only: the classification hint, the
+/// engineer roster and positions, the open-task load and the transport
+/// positions — no `tasks` row is touched.
+pub(crate) async fn build_candidates(
+    app_state: &AppState,
+    pg_conn: &mut diesel::PgConnection,
+    redis_conn: &mut redis::Connection,
+    task: &Task,
+    actor: Uuid,
+) -> Result<AssignmentPlan, Response<Body>> {
+    let _ = actor;
+    let active = active_map(app_state)?;
     let plane_point = Point::new(task.plane_x, task.plane_y);
     if !active.map.in_bounds(plane_point) {
         return Err(bad_request("aircraft position is outside of map bounds"));
@@ -1262,13 +1487,13 @@ pub async fn assign_engineer(
 
     let roster: Vec<(Uuid, crate::types::enums::EngineerType)> = engineers::table
         .select((engineers::id, engineers::engineer_type))
-        .load(&mut pg_conn)
+        .load(pg_conn)
         .map_err(|e| {
             tracing::error!(error = %e, "failed to load engineers");
             internal_error()
         })?;
     let ids: Vec<Uuid> = roster.iter().map(|(id, _)| *id).collect();
-    let by_point = load_engineer_positions(&mut redis_conn, &active, &ids)?;
+    let by_point = load_engineer_positions(redis_conn, &active, &ids)?;
     let mut positions = HashMap::new();
     for (point, id) in by_point {
         positions.insert(id, point);
@@ -1276,9 +1501,10 @@ pub async fn assign_engineer(
 
     let open_rows: Vec<(Option<Uuid>, String, Option<Uuid>)> = tasks::table
         .filter(tasks::is_active.eq(true))
+        .filter(tasks::id.ne(task.id))
         .filter(tasks::map_id.is_null().or(tasks::map_id.eq(&active.id)))
         .select((tasks::assigned_engineer, tasks::status, tasks::plane_id))
-        .load(&mut pg_conn)
+        .load(pg_conn)
         .map_err(|e| {
             tracing::error!(error = %e, "failed to load open requests");
             internal_error()
@@ -1301,8 +1527,8 @@ pub async fn assign_engineer(
 
     let aircraft = match task.plane_id {
         Some(plane_uuid) => crate::aircraft_context::aircraft_context(
-            &mut pg_conn,
-            &mut redis_conn,
+            pg_conn,
+            redis_conn,
             &active,
             plane_uuid,
         )
@@ -1321,11 +1547,7 @@ pub async fn assign_engineer(
         VehicleType::BorescopeCart,
         VehicleType::AvionicsTestSet,
     ] {
-        transports.extend(load_transport_positions(
-            &mut redis_conn,
-            &active,
-            vehicle_type,
-        )?);
+        transports.extend(load_transport_positions(redis_conn, &active, vehicle_type)?);
     }
 
     let outcome = crate::rank::rank(crate::rank::RankInput {
@@ -1341,88 +1563,11 @@ pub async fn assign_engineer(
         transports,
         needs_tools: !task.tools_picked && active.location.object_point("warehouse").is_some(),
     });
-    let candidates: Vec<AssignmentCandidate> = outcome
-        .candidates
-        .iter()
-        .map(|row| AssignmentCandidate {
-            engineer_id: row.engineer_id.to_string(),
-            eligible: row.eligible,
-            reason: row.reason.clone(),
-            eta_seconds: row.eta_seconds,
-            uses_vehicle: row.uses_vehicle,
-            late_seconds: row.components.late,
-            load_penalty: row.components.load,
-            aog_bonus: row.components.aog_bonus,
-            arrival_bonus: row.components.arrival_bonus,
-            score: row.score,
-        })
-        .collect();
-    crate::journal::record(
-        &mut pg_conn,
-        "candidates_built",
-        Some(&auth_user.id.to_string()),
-        Some(task.id),
-        serde_json::json!({ "count": candidates.len(), "candidates": candidates }),
-        Some(outcome.elapsed_ms),
-    );
-    let Some(chosen) = outcome.candidates.iter().find(|row| row.eligible) else {
-        return Err(not_found("no suitable engineer available"));
-    };
-
-    let travel = chosen.eta_seconds;
-    let sla_exceeded = travel >= active.location.sla_secs;
-    let route_json = serde_json::to_string(&chosen.route).expect("route serializes");
-    diesel::update(tasks::table.find(task.id))
-        .set((
-            tasks::assigned_engineer.eq(Some(chosen.engineer_id)),
-            tasks::status.eq("assigned"),
-            tasks::task_route.eq(&route_json),
-            tasks::eta_seconds.eq(Some(travel as i32)),
-            tasks::candidate_ms.eq(Some(outcome.elapsed_ms)),
-            tasks::ata_chapter.eq(&chapter),
-            tasks::ends_at
-                .eq(task.recorded_at + chrono::Duration::seconds(active.location.sla_secs as i64)),
-            tasks::is_active.eq(true),
-        ))
-        .execute(&mut pg_conn)
-        .map_err(|e| {
-            tracing::error!(error = %e, "failed to assign request");
-            internal_error()
-        })?;
-    crate::journal::record(
-        &mut pg_conn,
-        "engineer_assigned",
-        Some(&auth_user.id.to_string()),
-        Some(task.id),
-        serde_json::json!({
-            "engineer_id": chosen.engineer_id,
-            "eta_seconds": travel,
-            "uses_vehicle": chosen.uses_vehicle,
-            "reason": chosen.reason,
-        }),
-        None,
-    );
-    crate::journal::record(
-        &mut pg_conn,
-        "route_built",
-        Some(&auth_user.id.to_string()),
-        Some(task.id),
-        serde_json::json!({ "points": chosen.route.len(), "eta_seconds": travel }),
-        None,
-    );
-
-    Ok(Json(AssignEngineerResponse {
-        engineer_uuid: chosen.engineer_id.to_string(),
-        eta_seconds: travel,
-        sla_exceeded,
-        distance: chosen.route.len() as u64,
-        time: travel,
-        time_limit_exceeded: sla_exceeded,
-        candidates,
-        candidate_ms: outcome.elapsed_ms,
-        route: chosen.route.clone(),
+    Ok(AssignmentPlan {
+        outcome,
+        chapter,
+        active,
     })
-    .into_response())
 }
 
 // ---------------------------------------------------------------------------

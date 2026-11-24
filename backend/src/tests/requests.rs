@@ -167,7 +167,18 @@ async fn reassigns_an_in_progress_request() {
     let ctx = TestContext::new().await;
     let dispatcher = ctx.dispatcher();
     let first = ctx.engineer(EngineerType::AvionicsEngineer);
-    let second = ctx.engineer(EngineerType::AviationTechnician);
+    // `seeded issue` classifies as a chapter 28 task, so only a fueling crew or
+    // an engine technician is admitted; the receiving engineer must also have a
+    // position, or no route can be built for them.
+    let second = ctx.engineer(EngineerType::EngineTechnician);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), first.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), second.id),
+        "5,30",
+    );
     let request_id = ctx.seed_task(
         dispatcher.id,
         Some(first.id),
@@ -190,16 +201,12 @@ async fn reassigns_an_in_progress_request() {
     let task = ctx.task(request_id);
     assert_eq!(task.assigned_engineer, Some(second.id));
     assert_eq!(task.status, "assigned");
-
-    expect_status(
-        ctx.post(
-            &format!("/api/requests/{request_id}/reassign"),
-            &dispatcher.token,
-            json!({ "engineer_id": first.id, "reason": "again" }),
-        )
-        .await,
-        StatusCode::BAD_REQUEST,
+    assert_ne!(task.task_route, "[]");
+    assert!(
+        task.eta_seconds.expect("eta is rebuilt") > 0,
+        "the ETA must be rebuilt for the engineer who receives the job"
     );
+
     expect_status(
         ctx.post(
             &format!("/api/requests/{request_id}/reassign"),
@@ -210,6 +217,7 @@ async fn reassigns_an_in_progress_request() {
         StatusCode::BAD_REQUEST,
     );
 
+    // A job in `assigned` is still the dispatcher's to move.
     let assigned = ctx.seed_task(
         dispatcher.id,
         Some(first.id),
@@ -221,7 +229,35 @@ async fn reassigns_an_in_progress_request() {
         ctx.post(
             &format!("/api/requests/{assigned}/reassign"),
             &dispatcher.token,
-            json!({ "engineer_id": second.id, "reason": "too early" }),
+            json!({ "engineer_id": second.id, "reason": "before the walk" }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(ctx.task(assigned).assigned_engineer, Some(second.id));
+
+    // A finished job is terminal for both reassign and unassign.
+    let done = ctx.seed_task(
+        dispatcher.id,
+        Some(first.id),
+        "done",
+        None,
+        Point::new(1, 1),
+    );
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{done}/reassign"),
+            &dispatcher.token,
+            json!({ "engineer_id": second.id, "reason": "too late" }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{done}/unassign"),
+            &dispatcher.token,
+            json!(null),
         )
         .await,
         StatusCode::BAD_REQUEST,

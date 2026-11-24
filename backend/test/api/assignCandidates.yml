@@ -1,0 +1,62 @@
+info:
+  name: assignCandidates
+  type: http
+  seq: 59
+
+http:
+  method: POST
+  url: "{{HOST}}/assign/candidates"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "issue": "other",
+        "classifier_text": "заклинило клапан ПОС",
+        "note": "Замечание экипажа",
+        "plane_uuid": "{{aircraft_id}}",
+        "request_id": "{{candidates_id}}"
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Превью кандидатов: диспетчер смотрит рейтинг инженеров до решения.
+    Ручка только читает — строки `tasks` после вызова не меняются, поэтому её
+    можно звать сколько угодно раз. `eligible` показывает, кому можно отдать
+    заявку; `score` — сумма `eta_seconds + late_seconds + load_penalty -
+    aog_bonus - arrival_bonus`, меньше — лучше.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.candidates
+      operator: isArray
+
+  scripts:
+    - type: tests
+      code: |-
+        test("lists the engineers and keeps the request in the pool", function () {
+          expect(res.body.request_id).to.equal(bru.getVar("candidates_id"));
+          expect(res.body.candidates.length).to.be.greaterThan(0);
+          const row = res.body.candidates[0];
+          expect(row).to.have.property("eta_seconds");
+          expect(row).to.have.property("score");
+          expect(row).to.have.property("eligible");
+        });
+    - type: after-response
+      code: |-
+        bru.setVar("candidate_engineer_id", res.body.candidates[0].engineer_id);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

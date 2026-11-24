@@ -610,3 +610,339 @@ async fn candidate_score_is_the_sum_of_its_published_components() {
         - first["arrival_bonus"].as_f64().unwrap();
     assert!((first["score"].as_f64().unwrap() - row_total).abs() < 1e-6);
 }
+
+/// B1: the preview ranks the engineers and writes nothing. Two calls in a row
+/// must leave the `tasks` table exactly as it was.
+#[tokio::test]
+async fn candidates_preview_is_read_only() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let near = ctx.engineer(EngineerType::AvionicsEngineer);
+    let far = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), near.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), far.id),
+        "5,40",
+    );
+    let plane = Uuid::new_v4();
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
+
+    let body = json!({
+        "classifier_text": "уход гироплатформы ИНС",
+        "plane_uuid": plane,
+        "request_id": request
+    });
+    let first = expect_status(
+        ctx.post("/api/assign/candidates", &dispatcher.token, body.clone())
+            .await,
+        StatusCode::OK,
+    );
+    let snapshot = ctx.task(request);
+    let second = expect_status(
+        ctx.post("/api/assign/candidates", &dispatcher.token, body).await,
+        StatusCode::OK,
+    );
+    let after = ctx.task(request);
+
+    assert_eq!(snapshot.status, "unassigned");
+    assert_eq!(after.status, "unassigned");
+    assert_eq!(after.assigned_engineer, None);
+    assert_eq!(after.task_route, snapshot.task_route);
+    assert_eq!(after.eta_seconds, snapshot.eta_seconds);
+
+    let rows = second["candidates"].as_array().expect("candidates array");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(first["candidates"].as_array().unwrap().len(), rows.len());
+    assert_eq!(rows[0]["engineer_id"], near.id.to_string());
+    assert!(rows[0]["score"].as_f64().unwrap() < rows[1]["score"].as_f64().unwrap());
+    assert_eq!(second["request_id"], request.to_string());
+    assert_eq!(second["chapter"], "30");
+}
+
+/// B2: a named engineer gets the job even when a nearer one is eligible, and
+/// the refunded engineer receives the route and the ETA built for them.
+#[tokio::test]
+async fn manual_assignment_takes_the_named_engineer() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let near = ctx.engineer(EngineerType::AvionicsEngineer);
+    let named = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), near.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), named.id),
+        "5,38",
+    );
+    let plane = Uuid::new_v4();
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
+
+    let assigned = expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane,
+                "request_id": request,
+                "engineer_id": named.id
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(assigned["engineer_uuid"], named.id.to_string());
+    let task = ctx.task(request);
+    assert_eq!(task.assigned_engineer, Some(named.id));
+    assert_eq!(task.status, "assigned");
+    assert_ne!(task.task_route, "[]");
+    assert!(task.eta_seconds.unwrap() > 0);
+}
+
+/// B2: an engineer who is not admitted to the task's ATA chapter is refused,
+/// identified by id or not.
+#[tokio::test]
+async fn manual_assignment_refuses_an_unadmitted_engineer() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engine = ctx.engineer(EngineerType::EngineTechnician);
+    let avionics = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engine.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), avionics.id),
+        "5,6",
+    );
+    let plane = Uuid::new_v4();
+    // Chapter 72 admits engine technicians only.
+    let created = expect_status(
+        ctx.post(
+            "/api/requests",
+            &dispatcher.token,
+            json!({
+                "text": "двигатель: падение давления масла",
+                "plane_uuid": plane,
+                "point": [10, 10],
+                "ata_chapter": "72"
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let request: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request}/queue"),
+            &dispatcher.token,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "двигатель: падение давления масла",
+                "plane_uuid": plane,
+                "request_id": request,
+                "engineer_id": avionics.id
+            }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+    assert_eq!(ctx.task(request).assigned_engineer, None);
+    assert_eq!(ctx.task(request).status, "unassigned");
+}
+
+/// B3: a job in `assigned` moves to another engineer, and the route and the
+/// ETA are rebuilt for the one who receives it.
+#[tokio::test]
+async fn reassignment_leaves_assigned_and_rebuilds_the_route() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let first = ctx.engineer(EngineerType::AvionicsEngineer);
+    let second = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), first.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), second.id),
+        "5,38",
+    );
+    let plane = Uuid::new_v4();
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
+
+    let assigned = expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane,
+                "request_id": request
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(assigned["engineer_uuid"], first.id.to_string());
+    let before = ctx.task(request).eta_seconds.expect("eta is set");
+
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request}/reassign"),
+            &dispatcher.token,
+            json!({ "engineer_id": second.id, "reason": "ближе по смене" }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    let task = ctx.task(request);
+    assert_eq!(task.assigned_engineer, Some(second.id));
+    assert_eq!(task.status, "assigned");
+    let after = task.eta_seconds.expect("eta is set");
+    assert_ne!(after, before, "the ETA must follow the new engineer");
+    assert_ne!(task.task_route, "[]");
+}
+
+/// B3: a job that has already started may still be moved — `in_progress` is
+/// not terminal for the dispatcher.
+#[tokio::test]
+async fn reassignment_leaves_in_progress() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let first = ctx.engineer(EngineerType::AvionicsEngineer);
+    let second = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), first.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), second.id),
+        "5,38",
+    );
+    let plane = Uuid::new_v4();
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
+    expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane,
+                "request_id": request
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    expect_status(
+        ctx.post("/api/tasks/current/accept", &first.token, json!(null))
+            .await,
+        StatusCode::OK,
+    );
+    assert_eq!(ctx.task(request).status, "in_progress");
+
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request}/reassign"),
+            &dispatcher.token,
+            json!({ "engineer_id": second.id, "reason": "передаю смене" }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let task = ctx.task(request);
+    assert_eq!(task.assigned_engineer, Some(second.id));
+    assert_eq!(task.status, "assigned");
+}
+
+/// B4: unassign clears the engineer and the route, the job returns to the
+/// pool and appears in the preview; a second unassign is a 400.
+#[tokio::test]
+async fn unassign_returns_the_request_to_the_pool_once() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+        "5,5",
+    );
+    let plane = Uuid::new_v4();
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
+    expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane,
+                "request_id": request
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request}/unassign"),
+            &dispatcher.token,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let task = ctx.task(request);
+    assert_eq!(task.status, "unassigned");
+    assert_eq!(task.assigned_engineer, None);
+    assert_eq!(task.task_route, "[]");
+    assert_eq!(task.eta_seconds, None);
+
+    let preview = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane,
+                "request_id": request
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let listed = preview["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["engineer_id"] == engineer.id.to_string());
+    assert!(listed, "the freed engineer must be ranked again");
+    assert_eq!(
+        preview["candidates"][0]["eligible"].as_bool(),
+        Some(true),
+        "the engineer is free after the unassign"
+    );
+
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request}/unassign"),
+            &dispatcher.token,
+            json!(null),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+}

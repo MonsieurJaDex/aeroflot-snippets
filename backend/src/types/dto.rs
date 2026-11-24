@@ -208,6 +208,25 @@ pub struct AssignEngineerRequest {
     /// Existing request in status `unassigned`.
     #[serde(default)]
     pub request_id: Option<String>,
+    /// Engineer to assign by hand. When omitted the best eligible candidate wins.
+    #[schema(format = "uuid", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
+    #[serde(default)]
+    pub engineer_id: Option<String>,
+}
+
+/// Answer of `POST /api/assign/candidates`: the ranking a dispatcher reads
+/// before choosing an engineer. Nothing is assigned by it.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AssignmentCandidatesResponse {
+    /// Request the ranking was built for.
+    pub request_id: String,
+    /// ATA chapter the engineers were checked against, when it could be resolved.
+    #[schema(nullable)]
+    pub chapter: Option<String>,
+    /// Engineers ordered from best to worst; `eligible` tells who can take it.
+    pub candidates: Vec<AssignmentCandidate>,
+    /// Milliseconds spent building the ranking.
+    pub candidate_ms: i32,
 }
 
 /// One aircraft currently stored in Redis.
