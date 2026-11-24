@@ -34,6 +34,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::router::get_map;
 
+mod aircraft_context;
 mod calibration;
 mod database;
 mod graph;

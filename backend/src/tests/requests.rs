@@ -300,7 +300,8 @@ async fn engineer_moves_current_task_through_its_states() {
     let task = ctx.task(request_id);
     assert_eq!(task.status, "waiting_part");
     assert!(task.waiting_part);
-    assert_eq!(task.assigned_engineer, None);
+    // Waiting for a part keeps the engineer attached to the aircraft.
+    assert_eq!(task.assigned_engineer, Some(engineer.id));
 }
 
 #[tokio::test]
@@ -615,4 +616,130 @@ fn csv_fields(line: &str) -> Vec<String> {
     assert!(!in_quotes, "unbalanced quotes in journal row: {line}");
     fields.push(current);
     fields
+}
+
+/// Files and queues a request through the public endpoints. Duplicated from
+/// `tests::assign` so this file does not depend on another module's helper.
+async fn create_queued_request(
+    ctx: &TestContext,
+    dispatcher: &str,
+    plane_id: Uuid,
+    point: Point,
+) -> Uuid {
+    let created = expect_status(
+        ctx.post(
+            "/api/requests",
+            dispatcher,
+            json!({
+                "text": "уход гироплатформы ИНС, курс смещается",
+                "plane_uuid": plane_id,
+                "point": [point.0, point.1],
+                "ata_chapter": "30"
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let request_id: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request_id}/queue"),
+            dispatcher,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    request_id
+}
+
+fn candidate_for<'a>(assigned: &'a serde_json::Value, engineer_id: Uuid) -> &'a serde_json::Value {
+    assigned["candidates"]
+        .as_array()
+        .expect("candidates array")
+        .iter()
+        .find(|row| row["engineer_id"] == engineer_id.to_string())
+        .expect("engineer is ranked")
+}
+
+/// An engineer waiting for a part stays attached to the aircraft, so the
+/// assignment builder still sees that attachment: the engineer is excluded
+/// from this aircraft only, not from the pool.
+#[tokio::test]
+async fn waiting_engineer_is_excluded_only_for_its_own_aircraft() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let waiting = ctx.engineer(EngineerType::AvionicsEngineer);
+    let free = ctx.engineer(EngineerType::AvionicsEngineer);
+    let plane_p = Uuid::new_v4();
+    let plane_q = Uuid::new_v4();
+    let point = Point::new(10, 10);
+    // The waiting engineer stands closer to the aircraft: without the
+    // exclusion it would be chosen, so each verdict below is meaningful.
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), waiting.id),
+        "8,8",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), free.id),
+        "2,2",
+    );
+
+    let waiting_task = ctx.seed_task(dispatcher.id, Some(waiting.id), "assigned", Some(plane_p), point);
+    expect_status(
+        ctx.post("/api/tasks/current/waiting-part", &waiting.token, json!(null))
+            .await,
+        StatusCode::OK,
+    );
+    let stored = ctx.task(waiting_task);
+    assert_eq!(stored.status, "waiting_part");
+    assert!(stored.waiting_part);
+    // The engineer keeps the aircraft: clearing this turns the exclusion below
+    // back into a dead branch.
+    assert_eq!(stored.assigned_engineer, Some(waiting.id));
+
+    let request_p = create_queued_request(&ctx, &dispatcher.token, plane_p, point).await;
+    let assigned_p = expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane_p,
+                "request_id": request_p
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let own = candidate_for(&assigned_p, waiting.id);
+    assert_eq!(own["eligible"], false);
+    assert!(
+        own["reason"]
+            .as_str()
+            .expect("reason is a string")
+            .contains("ожидает запчасть на этом борту"),
+        "unexpected reason: {}",
+        own["reason"]
+    );
+    assert_eq!(assigned_p["engineer_uuid"], free.id.to_string());
+
+    // Another aircraft is not affected by the waiting part on P.
+    let request_q = create_queued_request(&ctx, &dispatcher.token, plane_q, point).await;
+    let assigned_q = expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane_q,
+                "request_id": request_q
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let other = candidate_for(&assigned_q, waiting.id);
+    assert_eq!(other["eligible"], true, "reason: {}", other["reason"]);
+    assert_eq!(assigned_q["engineer_uuid"], waiting.id.to_string());
 }

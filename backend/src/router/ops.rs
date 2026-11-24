@@ -537,7 +537,7 @@ pub async fn set_mel(
     path = "/api/tasks/current/waiting-part",
     tag = "Tasks",
     operation_id = "waitForPart",
-    description = "Engineer waits for a part and returns to the assignment pool.",
+    description = "Engineer waits for a part and stays attached to the aircraft.",
     security(("bearerAuth" = [])),
     responses((status = 200, description = "Waiting for a part")),
 )]
@@ -549,10 +549,11 @@ pub async fn wait_for_part(
     let mut pg_conn = app_state.db_pool.get().map_err(|_| internal_error())?;
     let task = current_for(&mut pg_conn, auth_user.id)?;
     diesel::update(tasks::table.find(task.id))
+        // The engineer stays attached to the aircraft: the assignment builder
+        // reads `assigned_engineer` to exclude them from this aircraft only.
         .set((
             tasks::status.eq("waiting_part"),
             tasks::waiting_part.eq(true),
-            tasks::assigned_engineer.eq(None::<Uuid>),
         ))
         .execute(&mut pg_conn)
         .map_err(|_| internal_error())?;

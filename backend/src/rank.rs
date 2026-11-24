@@ -4,9 +4,11 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use chrono::Utc;
 use uuid::Uuid;
 
 use crate::{
+    aircraft_context::AircraftContext,
     graph::{AgentKind, TOOL_DELAY_SECS},
     location::Location,
     maps::ActiveMap,
@@ -16,6 +18,29 @@ use crate::{
     },
 };
 
+/// Every term the ranking adds up, in seconds. [`ScoreComponents::total`]
+/// subtracts the two bonuses, so a candidate row explains its own score.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScoreComponents {
+    /// Travel time to the aircraft.
+    pub eta: f64,
+    /// SLA penalty: `10_000 + (eta - sla)` only when the travel time is late.
+    pub late: f64,
+    /// Workload already multiplied by the per-task weight (seconds of travel).
+    pub load: f64,
+    /// Post-arrival bonus already faded by the age of the arrival.
+    pub arrival_bonus: f64,
+    /// AOG bonus actually applied to this candidate.
+    pub aog_bonus: f64,
+}
+
+impl ScoreComponents {
+    /// `score = eta + late + load - aog_bonus - arrival_bonus`.
+    pub fn total(self) -> f64 {
+        self.eta + self.late + self.load - self.aog_bonus - self.arrival_bonus
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CandidateScore {
     pub engineer_id: Uuid,
@@ -24,6 +49,9 @@ pub struct CandidateScore {
     pub eta_seconds: u64,
     pub uses_vehicle: bool,
     pub route: Route,
+    /// The terms that produced [`CandidateScore::score`].
+    pub components: ScoreComponents,
+    /// Sum of [`CandidateScore::components`]; lower is better.
     pub score: f64,
 }
 
@@ -36,7 +64,8 @@ pub struct RankInput<'a> {
     pub map: &'a ActiveMap,
     pub plane: Point,
     pub chapter: Option<&'a str>,
-    pub urgency: &'a str,
+    /// Arrival time from `aircraft_movements` and the AOG flag from Redis.
+    pub aircraft: AircraftContext,
     pub engineers: Vec<(Uuid, EngineerType)>,
     pub positions: HashMap<Uuid, Point>,
     pub in_progress: HashMap<Uuid, bool>,
@@ -73,6 +102,7 @@ fn score_one(input: &RankInput<'_>, id: Uuid, kind: EngineerType) -> CandidateSc
         eta_seconds: 0,
         uses_vehicle: false,
         route: Route::new(Vec::new()),
+        components: ScoreComponents::default(),
         score: f64::MAX,
     };
     if let Some(chapter) = input.chapter {
@@ -123,8 +153,14 @@ fn score_one(input: &RankInput<'_>, id: Uuid, kind: EngineerType) -> CandidateSc
     } else {
         0.0
     };
-    let urgency_bias = if input.urgency == "aog" { 0.0 } else { 0.0 };
-    let score = eta + late + f64::from(load) * 20.0 + urgency_bias;
+    let components = ScoreComponents {
+        eta,
+        late,
+        load: f64::from(load) * 20.0,
+        aog_bonus: aog_bonus(input),
+        arrival_bonus: arrival_bonus(input),
+    };
+    let score = components.total();
     let reason = if uses_vehicle {
         format!("допуск подходит, свободен, {eta_seconds} с со спецтранспортом, загрузка {load}")
     } else {
@@ -137,8 +173,38 @@ fn score_one(input: &RankInput<'_>, id: Uuid, kind: EngineerType) -> CandidateSc
         eta_seconds,
         uses_vehicle,
         route: Route::new(route),
+        components,
         score,
     }
+}
+
+/// AOG bonus for a grounded aircraft. `needs_tools` (a warehouse stop for
+/// tools or parts) carries the full weight, a request that needs no stop half
+/// of it — `needs_tools` is the closest the code gets to "parts required".
+fn aog_bonus(input: &RankInput<'_>) -> f64 {
+    if !input.aircraft.aog {
+        return 0.0;
+    }
+    let factor = if input.needs_tools { 1.0 } else { 0.5 };
+    input.map.location.aog_bonus_secs * factor
+}
+
+/// Bonus for an aircraft that has just arrived: full weight at touchdown,
+/// fading linearly to zero across the configured window. A departed aircraft
+/// carries no `arrived_at` at all (the loader drops it), an unknown one gets 0.
+fn arrival_bonus(input: &RankInput<'_>) -> f64 {
+    let window = input.map.location.arrival_window_secs as f64;
+    let Some(arrived_at) = input.aircraft.arrived_at else {
+        return 0.0;
+    };
+    if window <= 0.0 {
+        return 0.0;
+    }
+    let age = (Utc::now() - arrived_at).num_seconds().max(0) as f64;
+    if age >= window {
+        return 0.0;
+    }
+    input.map.location.arrival_bonus_secs * (1.0 - age / window)
 }
 
 fn admits(location: &Location, chapter: &str, kind: EngineerType) -> bool {

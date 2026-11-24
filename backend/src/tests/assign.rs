@@ -253,3 +253,360 @@ async fn toggles_aog_on_the_current_task_and_clears_it_with_the_legacy_post() {
         StatusCode::NOT_FOUND,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Weighted ranking: AOG and post-arrival bonuses
+// ---------------------------------------------------------------------------
+
+use chrono::Utc;
+use diesel::prelude::*;
+
+use crate::database::schema;
+use crate::models::aircraft_movement::AircraftMovement;
+
+/// Creates and queues a request for an aircraft parked at `point`.
+async fn create_request_at(
+    ctx: &TestContext,
+    dispatcher: &str,
+    plane_id: Uuid,
+    point: (i64, i64),
+) -> Uuid {
+    let created = expect_status(
+        ctx.post(
+            "/api/requests",
+            dispatcher,
+            json!({
+                "text": "уход гироплатформы ИНС, курс смещается",
+                "plane_uuid": plane_id,
+                "point": [point.0, point.1],
+                "ata_chapter": "30"
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let request_id: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request_id}/queue"),
+            dispatcher,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    request_id
+}
+
+/// Assigns `request_id` and picks the row of `engineer_id` out of the response.
+async fn assign_candidate(
+    ctx: &TestContext,
+    dispatcher: &str,
+    plane_id: Uuid,
+    request_id: Uuid,
+    engineer_id: Uuid,
+) -> serde_json::Value {
+    let assigned = expect_status(
+        ctx.post(
+            "/api/assign",
+            dispatcher,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane_id,
+                "request_id": request_id
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let candidates = assigned["candidates"]
+        .as_array()
+        .expect("candidates should be an array")
+        .clone();
+    candidates
+        .into_iter()
+        .find(|row| row["engineer_id"] == engineer_id.to_string())
+        .expect("the engineer should be listed among the candidates")
+}
+
+/// Seeds an `aircraft_movements` row for the active map.
+fn seed_movement(
+    ctx: &TestContext,
+    plane_id: Uuid,
+    point: (i64, i64),
+    arrived_at: chrono::DateTime<Utc>,
+    departed_at: Option<chrono::DateTime<Utc>>,
+) {
+    let movement = AircraftMovement {
+        id: Uuid::new_v4(),
+        aircraft_id: plane_id,
+        map_id: ctx.active_id(),
+        plane_x: point.0,
+        plane_y: point.1,
+        arrived_at,
+        departed_at,
+    };
+    diesel::insert_into(schema::aircraft_movements::table)
+        .values(&movement)
+        .execute(&mut ctx.db())
+        .expect("movement should be inserted");
+}
+
+/// The AOG bonus must outweigh a modestly longer walk: a grounded aircraft is
+/// served before a nearer healthy one. Fails when the bonus is zeroed.
+#[tokio::test]
+async fn aog_bonus_lets_a_farther_aircraft_outrank_a_closer_one() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+        "5,5",
+    );
+
+    let near_plane = Uuid::new_v4();
+    let near_request = create_request_at(&ctx, &dispatcher.token, near_plane, (10, 10)).await;
+    let near = assign_candidate(
+        &ctx,
+        &dispatcher.token,
+        near_plane,
+        near_request,
+        engineer.id,
+    )
+    .await;
+
+    let far_plane = Uuid::new_v4();
+    ctx.redis_set(&format!("map:{}:aog:{}", ctx.active_id(), far_plane), "1");
+    let far_request = create_request_at(&ctx, &dispatcher.token, far_plane, (13, 10)).await;
+    let far = assign_candidate(
+        &ctx,
+        &dispatcher.token,
+        far_plane,
+        far_request,
+        engineer.id,
+    )
+    .await;
+
+    assert_eq!(near["aog_bonus"].as_f64().unwrap(), 0.0);
+    assert_eq!(
+        far["aog_bonus"].as_f64().unwrap(),
+        120.0,
+        "a grounded aircraft with a warehouse stop carries the full AOG bonus"
+    );
+    assert!(
+        far["eta_seconds"].as_u64().unwrap() > near["eta_seconds"].as_u64().unwrap(),
+        "the AOG aircraft must be the farther one for this test to mean anything"
+    );
+    assert!(
+        far["score"].as_f64().unwrap() < near["score"].as_f64().unwrap(),
+        "the AOG bonus must outweigh the extra travel time and the load of the first task"
+    );
+}
+
+/// An aircraft that has just arrived outranks a nearer one that has been on the
+/// apron for long. Fails when the arrival bonus is zeroed.
+#[tokio::test]
+async fn a_fresh_arrival_outranks_a_nearer_older_aircraft() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+        "5,5",
+    );
+
+    let old_plane = Uuid::new_v4();
+    seed_movement(
+        &ctx,
+        old_plane,
+        (10, 10),
+        Utc::now() - chrono::Duration::hours(3),
+        None,
+    );
+    let old_request = create_request_at(&ctx, &dispatcher.token, old_plane, (10, 10)).await;
+    let old = assign_candidate(
+        &ctx,
+        &dispatcher.token,
+        old_plane,
+        old_request,
+        engineer.id,
+    )
+    .await;
+
+    let fresh_plane = Uuid::new_v4();
+    seed_movement(&ctx, fresh_plane, (13, 10), Utc::now(), None);
+    let fresh_request = create_request_at(&ctx, &dispatcher.token, fresh_plane, (13, 10)).await;
+    let fresh = assign_candidate(
+        &ctx,
+        &dispatcher.token,
+        fresh_plane,
+        fresh_request,
+        engineer.id,
+    )
+    .await;
+
+    assert_eq!(old["arrival_bonus"].as_f64().unwrap(), 0.0);
+    assert!(
+        fresh["arrival_bonus"].as_f64().unwrap() > 80.0,
+        "an aircraft that landed seconds ago keeps almost the whole bonus, got {}",
+        fresh["arrival_bonus"]
+    );
+    assert!(
+        fresh["eta_seconds"].as_u64().unwrap() > old["eta_seconds"].as_u64().unwrap(),
+        "the freshly arrived aircraft must be the farther one"
+    );
+    assert!(
+        fresh["score"].as_f64().unwrap() < old["score"].as_f64().unwrap(),
+        "the arrival bonus must outweigh the extra travel time and the load of the first task"
+    );
+}
+
+/// A departed aircraft is not a fresh arrival: `departed_at` drops the bonus.
+#[tokio::test]
+async fn a_departed_aircraft_gets_no_arrival_bonus() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+        "5,5",
+    );
+
+    let plane = Uuid::new_v4();
+    seed_movement(
+        &ctx,
+        plane,
+        (10, 10),
+        Utc::now() - chrono::Duration::minutes(2),
+        Some(Utc::now() - chrono::Duration::minutes(1)),
+    );
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
+    let row = assign_candidate(&ctx, &dispatcher.token, plane, request, engineer.id).await;
+
+    assert_eq!(row["arrival_bonus"].as_f64().unwrap(), 0.0);
+    assert_eq!(row["aog_bonus"].as_f64().unwrap(), 0.0);
+}
+
+/// Without AOG or an arrival the order is still the travel time: the nearest
+/// engineer wins and nothing is subtracted.
+#[tokio::test]
+async fn without_flags_the_ranking_is_still_the_travel_time() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let near = ctx.engineer(EngineerType::AvionicsEngineer);
+    let far = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), near.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), far.id),
+        "5,12",
+    );
+
+    let plane = Uuid::new_v4();
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
+    let assigned = expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane,
+                "request_id": request
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    assert_eq!(assigned["engineer_uuid"], near.id.to_string());
+    let mut scores = Vec::new();
+    for row in assigned["candidates"].as_array().unwrap() {
+        assert_eq!(row["aog_bonus"].as_f64().unwrap(), 0.0);
+        assert_eq!(row["arrival_bonus"].as_f64().unwrap(), 0.0);
+        if row["eligible"].as_bool().unwrap() {
+            scores.push((row["eta_seconds"].as_u64().unwrap(), row["score"].as_f64().unwrap()));
+        }
+    }
+    assert_eq!(scores.len(), 2, "both engineers must be eligible");
+    assert!(
+        scores[0].0 < scores[1].0 && scores[0].1 < scores[1].1,
+        "candidates are ordered by score, and score is the travel time when no bonus applies"
+    );
+}
+
+/// The published decomposition has to add up to the published score, including
+/// the load penalty of an engineer who already has a task.
+#[tokio::test]
+async fn candidate_score_is_the_sum_of_its_published_components() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let busy = ctx.engineer(EngineerType::AvionicsEngineer);
+    let idle = ctx.engineer(EngineerType::AvionicsEngineer);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), busy.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), idle.id),
+        "5,12",
+    );
+
+    let first_plane = Uuid::new_v4();
+    let first_request = create_request_at(&ctx, &dispatcher.token, first_plane, (10, 10)).await;
+    let first = assign_candidate(
+        &ctx,
+        &dispatcher.token,
+        first_plane,
+        first_request,
+        busy.id,
+    )
+    .await;
+
+    let plane = Uuid::new_v4();
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (12, 12)).await;
+    let assigned = expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane,
+                "request_id": request
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    let rows = assigned["candidates"].as_array().unwrap().clone();
+    let mut seen_load = false;
+    for row in &rows {
+        if !row["eligible"].as_bool().unwrap() {
+            continue;
+        }
+        let total = row["eta_seconds"].as_f64().unwrap()
+            + row["late_seconds"].as_f64().unwrap()
+            + row["load_penalty"].as_f64().unwrap()
+            - row["aog_bonus"].as_f64().unwrap()
+            - row["arrival_bonus"].as_f64().unwrap();
+        let score = row["score"].as_f64().unwrap();
+        assert!(
+            (score - total).abs() < 1e-6,
+            "score {score} must equal the sum of the components {total}"
+        );
+        if row["engineer_id"] == busy.id.to_string() {
+            assert_eq!(row["load_penalty"].as_f64().unwrap(), 20.0);
+            seen_load = true;
+        }
+    }
+    assert!(seen_load, "the busy engineer must be listed and eligible");
+
+    let row_total = first["eta_seconds"].as_f64().unwrap()
+        + first["late_seconds"].as_f64().unwrap()
+        + first["load_penalty"].as_f64().unwrap()
+        - first["aog_bonus"].as_f64().unwrap()
+        - first["arrival_bonus"].as_f64().unwrap();
+    assert!((first["score"].as_f64().unwrap() - row_total).abs() < 1e-6);
+}

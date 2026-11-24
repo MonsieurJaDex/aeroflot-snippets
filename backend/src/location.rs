@@ -73,6 +73,12 @@ struct LocationFile {
     max_speed_mps: f64,
     #[serde(default = "default_stale")]
     stale_after_secs: i64,
+    #[serde(default = "default_aog_bonus")]
+    aog_bonus_secs: f64,
+    #[serde(default = "default_arrival_bonus")]
+    arrival_bonus_secs: f64,
+    #[serde(default = "default_arrival_window")]
+    arrival_window_secs: u64,
     #[serde(default)]
     zones: Vec<Zone>,
     #[serde(default)]
@@ -115,6 +121,15 @@ fn default_speed() -> f64 {
 fn default_stale() -> i64 {
     45
 }
+fn default_aog_bonus() -> f64 {
+    120.0
+}
+fn default_arrival_bonus() -> f64 {
+    90.0
+}
+fn default_arrival_window() -> u64 {
+    3600
+}
 
 #[derive(Debug, Clone)]
 pub struct Location {
@@ -123,6 +138,14 @@ pub struct Location {
     pub alert_before_secs: u64,
     pub boarding_delay_secs: f64,
     pub tool_delay_secs: f64,
+    /// Seconds knocked off the score of every candidate when the aircraft is
+    /// AOG. Halved for a request that does not need a warehouse stop.
+    pub aog_bonus_secs: f64,
+    /// Full bonus (seconds) for an aircraft that has just arrived; it fades
+    /// linearly to zero over [`Location::arrival_window_secs`].
+    pub arrival_bonus_secs: f64,
+    /// Width of the post-arrival window in seconds.
+    pub arrival_window_secs: u64,
     pub max_accuracy_m: f64,
     pub max_speed_mps: f64,
     #[allow(dead_code)]
@@ -178,6 +201,9 @@ pub fn load_location(map_path: &Path, document: &MapDocument) -> Location {
             max_accuracy_m: default_accuracy(),
             max_speed_mps: default_speed(),
             stale_after_secs: default_stale(),
+            aog_bonus_secs: default_aog_bonus(),
+            arrival_bonus_secs: default_arrival_bonus(),
+            arrival_window_secs: default_arrival_window(),
             zones: Vec::new(),
             objects: Vec::new(),
             ata: Vec::new(),
@@ -294,6 +320,9 @@ pub fn load_location(map_path: &Path, document: &MapDocument) -> Location {
         alert_before_secs: file.alert_before_secs,
         boarding_delay_secs: file.boarding_delay_secs,
         tool_delay_secs: file.tool_delay_secs,
+        aog_bonus_secs: file.aog_bonus_secs,
+        arrival_bonus_secs: file.arrival_bonus_secs,
+        arrival_window_secs: file.arrival_window_secs,
         max_accuracy_m: file.max_accuracy_m,
         max_speed_mps: document.max_speed_mps(file.max_speed_mps),
         stale_after_secs: file.stale_after_secs,

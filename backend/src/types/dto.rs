@@ -325,6 +325,17 @@ pub struct AssignmentCandidate {
     pub eta_seconds: u64,
     /// Whether the route requires a special vehicle.
     pub uses_vehicle: bool,
+    /// SLA penalty in seconds; zero unless the travel time exceeds the SLA.
+    pub late_seconds: f64,
+    /// Workload penalty in seconds (open tasks times the per-task weight).
+    pub load_penalty: f64,
+    /// Seconds taken off for a grounded (AOG) aircraft; zero otherwise.
+    pub aog_bonus: f64,
+    /// Seconds taken off for a freshly arrived aircraft; fades over an hour.
+    pub arrival_bonus: f64,
+    /// Final ranking score: `eta_seconds + late_seconds + load_penalty -
+    /// aog_bonus - arrival_bonus`. Lower is better; `f64::MAX` for a rejection.
+    pub score: f64,
 }
 
 /// Response payload describing the engineer's current task.

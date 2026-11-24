@@ -1299,6 +1299,20 @@ pub async fn assign_engineer(
         }
     }
 
+    let aircraft = match task.plane_id {
+        Some(plane_uuid) => crate::aircraft_context::aircraft_context(
+            &mut pg_conn,
+            &mut redis_conn,
+            &active,
+            plane_uuid,
+        )
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load aircraft context");
+            internal_error()
+        })?,
+        None => crate::aircraft_context::AircraftContext::default(),
+    };
+
     let mut transports = HashMap::new();
     for vehicle_type in [
         VehicleType::FuelTruck,
@@ -1318,7 +1332,7 @@ pub async fn assign_engineer(
         map: &active,
         plane: plane_point,
         chapter: chapter.as_deref(),
-        urgency: &task.urgency,
+        aircraft,
         engineers: roster,
         positions,
         in_progress,
@@ -1336,6 +1350,11 @@ pub async fn assign_engineer(
             reason: row.reason.clone(),
             eta_seconds: row.eta_seconds,
             uses_vehicle: row.uses_vehicle,
+            late_seconds: row.components.late,
+            load_penalty: row.components.load,
+            aog_bonus: row.components.aog_bonus,
+            arrival_bonus: row.components.arrival_bonus,
+            score: row.score,
         })
         .collect();
     crate::journal::record(
