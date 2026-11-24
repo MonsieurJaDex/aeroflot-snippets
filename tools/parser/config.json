@@ -1,5 +1,7 @@
 {
   "source": "geojson",
+  "map_path": "",
+  "roads": [],
   "input_dir": "backend/assets/it2026_aero_geodata",
   "roads_file": "roads.geojson",
   "objects_file": "objects.geojson",
@@ -16,5 +18,11 @@
   "name": "it2026_aero",
   "out": "backend/assets/it2026_aero.json",
   "location_out": "backend/assets/it2026_aero.location.json",
-  "runtime_from": "backend/assets/map2.location.json"
+  "runtime_from": "backend/assets/map2.location.json",
+  "sla_secs": 900,
+  "alert_before_secs": 300,
+  "boarding_delay_secs": 10.0,
+  "tool_delay_secs": 30.0,
+  "max_accuracy_m": 80.0,
+  "stale_after_secs": 45
 }

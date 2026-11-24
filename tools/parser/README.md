@@ -17,7 +17,7 @@ That document is the contract; this tool and the backend both follow it.
 From the repository root:
 
 ```sh
-cargo run --manifest-path tools/parser/Cargo.toml -- init      # write a config skeleton
+cargo run --manifest-path tools/parser/Cargo.toml -- init      # write a config skeleton, only if config.json is missing
 cargo run --manifest-path tools/parser/Cargo.toml -- parse     # build the map
 cargo run --manifest-path tools/parser/Cargo.toml -- upgrade   # v1 file -> v2 document
 cargo test --manifest-path tools/parser/Cargo.toml             # acceptance tests

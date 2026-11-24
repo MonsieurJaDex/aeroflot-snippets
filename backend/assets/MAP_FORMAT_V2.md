@@ -43,7 +43,10 @@ the speed and which masks (road / walk) the entry belongs to.
   "zones": [
     { "id": "sz-0", "label": "Стоянка 1", "x": 12, "y": 14, "radius_m": 25.0 }
   ],
-  "closed_cells": []
+  "closed_cells": [],
+  "overlays": [
+    { "x": 203, "y": 113, "id": 6, "ids": [6, 5] }
+  ]
 }
 ```
 
@@ -74,11 +77,25 @@ Rules:
   **null** when `pass` is empty: such an entry is an obstacle (buildings and
   other `objects.geojson` polygons rasterised into `map`), traversable by
   nobody, and the graph emits no node for it.
-- Overlap: a cell holds one palette id, chosen by `priority` (parser config,
-  default `["runway", "taxi", "service", "pedestrian"]`, ties broken by higher
-  `spd_kmh`). The overlapped classes are not lost to routing because the walk
-  mask still contains the winning cell — i.e. a taxiway cell under a pedestrian
-  path stays walkable and drivable at taxi speed.
+- Overlap: a cell holds one palette id in `map`, chosen by `priority` (parser
+  config, default `["runway", "taxi", "service", "pedestrian"]`, ties broken by
+  higher `spd_kmh`). That single value cannot express two *speeds* on one cell,
+  so every cell claimed by more than one class is also listed in `overlays`:
+
+  ```json
+  "overlays": [
+    { "x": 203, "y": 113, "id": 6, "ids": [6, 5] }
+  ]
+  ```
+
+  `id` is the value stored in `map[y][x]`; `ids` lists every claiming palette id,
+  winner first, so `ids[0] == id`. Routing pays the **slowest drivable** class in
+  `ids` for that cell (`graph_from_grid_with_overlays`), so a taxiway crossing a
+  5 km/h service road costs 5 km/h there instead of the 10 km/h the matrix shows.
+  `overlays` is `[]` when nothing overlaps and may be absent in older files
+  (`#[serde(default)]`). A cell where a pedestrian path crosses a road needs no
+  special routing: both layers already contain the stored id (`walk ⊇ road`), and
+  the overlay records the pedestrian class alongside for completeness.
 - `objects[]` come from `objects.geojson` MultiPolygon bounding boxes in cells;
   `kind` mapping: `Терминал`→`terminal`, `Ангар`→`hangar`, `ВПП`→`runway`,
   `Стоянка спецтехники`→`parking`, `Склад`→`warehouse` (unknown names →
@@ -149,6 +166,18 @@ pub struct MapDocument {
     pub objects: Vec<MapObject>,
     pub zones: Vec<MapZone>,
     pub closed_cells: Vec<[i64; 2]>,
+    #[serde(default)]
+    pub overlays: Vec<CellOverlay>,
+}
+
+/// Every class that claimed one cell, when more than one did.
+pub struct CellOverlay {
+    pub x: i64,
+    pub y: i64,
+    /// The palette id stored in `map`.
+    pub id: i64,
+    /// All ids that claimed the cell, winner first.
+    pub ids: Vec<i64>,
 }
 
 impl MapDocument {
@@ -160,6 +189,8 @@ impl MapDocument {
     pub fn walk_ids(&self) -> std::collections::HashSet<i64>;
     /// Palette entry by cell value.
     pub fn entry(&self, id: i64) -> Option<&PaletteEntry>;
+    /// Ids co-located on `(x, y)`, `None` when a single class claimed it.
+    pub fn overlay_at(&self, x: i64, y: i64) -> Option<&[i64]>;
     /// Fastest legal speed in the palette, km/h (0.0 for v1/empty).
     pub fn max_spd_kmh(&self) -> f64;
     /// Validates: non-zero cells have a palette entry, `layers` agree with
@@ -189,10 +220,26 @@ impl SpeedClass {
 pub fn runway_speed_kmh() -> f64;                       // 300.0
 pub fn vehicle_speed_mps(at: Point, class: SpeedClass) -> f64;  // Runway arm added
 pub fn max_vehicle_speed_mps() -> f64;                  // includes Runway / palette max
+#[cfg(test)]
 pub fn graph_from_grid(
     matrix: &MapMatrix,
     road_of: &dyn Fn(i64) -> Option<SpeedClass>,    // palette lookup; None = no vehicle
     walk_of: &dyn Fn(i64) -> Option<SpeedClass>,    // palette lookup; None = not walkable
+    closed: &HashSet<(i64, i64)>,
+    cell_size_m: f64,
+    origin_lat: f64,
+    origin_lon: f64,
+) -> RoadGraph;
+
+/// `graph_from_grid` plus the classes co-located on each cell. An edge through a
+/// cell listed in `overlays` costs the slowest drivable class there, which is
+/// why the loader (`location.rs`) calls this one; `graph_from_grid` is the
+/// no-overlay case and is `#[cfg(test)]` since nothing in production wants it.
+pub fn graph_from_grid_with_overlays(
+    matrix: &MapMatrix,
+    road_of: &dyn Fn(i64) -> Option<SpeedClass>,
+    walk_of: &dyn Fn(i64) -> Option<SpeedClass>,
+    overlay_of: &dyn Fn(i64, i64) -> Option<Vec<i64>>,
     closed: &HashSet<(i64, i64)>,
     cell_size_m: f64,
     origin_lat: f64,

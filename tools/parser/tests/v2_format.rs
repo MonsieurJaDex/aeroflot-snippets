@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use parser::{geo::Grid, parser::JsonMatrix, types::MapDocument};
+use parser::{geo::Grid, types::MapDocument};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -195,6 +195,74 @@ fn overlap_cells_are_present_and_keep_the_lower_priority_class_walkable() {
         &walk[..walk.len().min(8)]
     );
     assert!(walk[0] > 2000, "walk mask unexpectedly small: {}", walk[0]);
+}
+
+/// The customer's complaint: the old parser flattened everything into one layer,
+/// so where a fast section crosses a slow road the second speed vanished. The
+/// matrix still stores one id, but `overlays` must keep both.
+#[test]
+fn overlapping_cells_keep_every_colocated_speed() {
+    let doc = load_v2();
+    assert!(
+        !doc.overlays.is_empty(),
+        "the real map has overlapping roads, so overlays must not be empty"
+    );
+    let mut two_speeds = 0;
+    for overlay in &doc.overlays {
+        assert_eq!(
+            doc.map.0[overlay.y as usize][overlay.x as usize], overlay.id,
+            "overlay must point at the cell it describes"
+        );
+        assert_eq!(
+            overlay.ids.first(),
+            Some(&overlay.id),
+            "the stored id must come first"
+        );
+        assert!(overlay.ids.len() >= 2, "an overlay is at least two ids");
+        let entries: Vec<_> = overlay
+            .ids
+            .iter()
+            .map(|id| doc.entry(*id).expect("palette entry"))
+            .collect();
+        // Nothing is lost: every claimant is still in the palette, and both
+        // remain reachable through the layers they belong to.
+        for entry in &entries {
+            let reachable = doc.walk_ids().contains(&entry.id)
+                || doc.road_ids().contains(&entry.id);
+            assert!(reachable, "overlay id {} became unreachable", entry.id);
+        }
+        let road_speeds: std::collections::BTreeSet<i64> = entries
+            .iter()
+            .filter(|entry| entry.pass.iter().any(|p| p == "road"))
+            .map(|entry| entry.spd_kmh)
+            .collect();
+        if road_speeds.len() > 1 {
+            two_speeds += 1;
+        }
+    }
+    assert!(
+        two_speeds > 0,
+        "at least one overlap must join two different road speeds, \
+         otherwise the overlays prove nothing about speed sections"
+    );
+    // The pedestrian-over-road case is preserved by the masks, not the overlay.
+    let pedestrian_over_road = doc
+        .overlays
+        .iter()
+        .filter(|overlay| {
+            let kinds: Vec<&str> = overlay
+                .ids
+                .iter()
+                .filter_map(|id| doc.entry(*id))
+                .map(|entry| entry.kind.as_str())
+                .collect();
+            kinds.contains(&"pedestrian") && kinds.iter().any(|k| *k != "pedestrian")
+        })
+        .count();
+    assert!(
+        pedestrian_over_road > 0,
+        "the map has pedestrian lines crossing roads"
+    );
 }
 
 #[test]

@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     geo::{GeoFeature, Grid, LonLat, point_in_ring, read_features, ring_area_m2},
     types::{
-        AppConfig, Config, MapDocument, MapLayers, MapMatrix, MapObject, MapZone, Origin,
-        PaletteEntry, Sidecar, SidecarObject, SidecarZone, TiledLayer, TmjFile,
+        AppConfig, CellOverlay, Config, MapDocument, MapLayers, MapMatrix, MapObject, MapZone,
+        Origin, PaletteEntry, Sidecar, SidecarObject, SidecarZone, TiledLayer, TmjFile,
     },
 };
 
@@ -22,12 +22,23 @@ pub struct JsonMatrix {
     pub road: Vec<i64>,
 }
 
+/// Writes a starter config **only when none exists**. An existing
+/// `config.json` is never overwritten: `Config::new` is a TMJ stub (empty
+/// `map_path`, blank `out`), so rewriting a working GeoJSON config with it
+/// silently pointed `parse` at the current directory as a map file — the
+/// `Is a directory (os error 21)` failure.
 pub fn init_config_file(app_config: &AppConfig) -> io::Result<()> {
+    if app_config.config_filepath.exists() {
+        println!(
+            "config already exists at {} — left untouched",
+            app_config.config_filepath.display()
+        );
+        return Ok(());
+    }
     let file = fs::File::create(&app_config.config_filepath)?;
 
     let initial_cfg = Config::new("".to_string(), vec![]);
     serde_json::to_writer_pretty(file, &initial_cfg)?;
-
     Ok(())
 }
 
@@ -158,6 +169,7 @@ pub fn upgrade_v1(config: &Config) -> io::Result<()> {
         map: std::mem::take(&mut matrix),
         palette,
         layers,
+        overlays: Vec::new(),
     };
     write_document(config, &doc)
 }
@@ -278,6 +290,9 @@ pub struct Stats {
     pub road_cells: usize,
     pub per_class: BTreeMap<String, usize>,
     pub overlap_cells: usize,
+    /// Composition of the overlapping cells, `"a+b"` -> how many cells. Proves
+    /// *what* overlaps, not merely that something did.
+    pub overlap_pairs: BTreeMap<String, usize>,
     pub walk_components: usize,
     pub road_components: usize,
     pub stitched_cells: usize,
@@ -462,25 +477,53 @@ pub fn build_geojson(config: &Config) -> io::Result<BuildResult> {
     let mut stats = Stats::default();
 
     // 5. Resolve every road cell by priority, ties by higher speed.
+    //
+    // The priority winner is what `map` shows, so a runway stays one continuous
+    // corridor on the renderer. A cell claimed by several classes is *also*
+    // written to `overlays`, which keeps every co-located id: that is where a
+    // second speed section survives. Routing pays the slowest co-located road
+    // class (see `backend/src/graph.rs`), so the matrix showing the fast class
+    // never lets a vehicle drive faster than the slower road underneath.
     let mut road_cells: Vec<(i64, i64)> = Vec::new();
+    let mut overlays: Vec<CellOverlay> = Vec::new();
     for ((x, y), candidates) in &cells {
-        let best = candidates
-            .iter()
-            .copied()
-            .max_by_key(|c| (class_rank(&config.priority, *c), c.spd_kmh))
-            .expect("non-empty candidates");
-        let id = id_of[&best];
+        let distinct: BTreeSet<RoadClass> = candidates.iter().copied().collect();
+        let mut ranked: Vec<RoadClass> = distinct.iter().copied().collect();
+        ranked.sort_by_key(|c| {
+            (
+                std::cmp::Reverse(class_rank(&config.priority, *c)),
+                std::cmp::Reverse(c.spd_kmh),
+                c.kind,
+            )
+        });
+        let stored = *ranked.first().expect("non-empty candidates");
+        let id = id_of[&stored];
         matrix.0[*y as usize][*x as usize] = id;
         road_cells.push((*x, *y));
+        if distinct.len() > 1 {
+            overlays.push(CellOverlay {
+                x: *x,
+                y: *y,
+                id,
+                ids: ranked.iter().map(|c| id_of[c]).collect(),
+            });
+        }
         *stats
             .per_class
-            .entry(format!("{}_{}", best.kind, best.spd_kmh))
+            .entry(format!("{}_{}", stored.kind, stored.spd_kmh))
             .or_default() += 1;
-        if candidates.iter().copied().collect::<BTreeSet<_>>().len() > 1 {
+        if distinct.len() > 1 {
             stats.overlap_cells += 1;
+            let mut names: Vec<String> = distinct
+                .iter()
+                .map(|c| format!("{}_{}", c.kind, c.spd_kmh))
+                .collect();
+            names.sort();
+            *stats.overlap_pairs.entry(names.join("+")).or_default() += 1;
         }
     }
     stats.road_cells = road_cells.len();
+    overlays.sort_by_key(|o| (o.y, o.x));
 
     // 6. Obstacles: only cells that no road claimed.
     for obstacle in &mut obstacles {
@@ -687,6 +730,7 @@ pub fn build_geojson(config: &Config) -> io::Result<BuildResult> {
         objects: map_objects,
         zones: map_zones,
         closed_cells: Vec::new(),
+        overlays,
     };
 
     Ok(BuildResult { doc, stats })
@@ -755,6 +799,9 @@ fn print_stats(result: &BuildResult) {
     println!("origin NW: lat {:.6}, lon {:.6}", result.doc.origin.lat, result.doc.origin.lon);
     println!("road cells: {}", s.road_cells);
     println!("overlap cells (>=2 classes claimed): {}", s.overlap_cells);
+    for (pair, count) in &s.overlap_pairs {
+        println!("  overlap {pair}: {count}");
+    }
     let mut classes: Vec<_> = s.per_class.iter().collect();
     classes.sort_by(|a, b| b.1.cmp(a.1));
     for (name, count) in classes {

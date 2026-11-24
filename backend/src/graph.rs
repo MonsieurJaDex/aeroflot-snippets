@@ -538,10 +538,40 @@ impl GraphBuilder {
 /// may not enter it), `walk_of` the walkable one. A cell that is walkable but
 /// not drivable — a pedestrian path — gets an engineer-only edge, which is how
 /// the engineer leaves the apron in the real airport map.
+#[cfg(test)]
 pub fn graph_from_grid(
     matrix: &crate::types::map::MapMatrix,
     road_of: &dyn Fn(i64) -> Option<SpeedClass>,
     walk_of: &dyn Fn(i64) -> Option<SpeedClass>,
+    closed: &HashSet<(i64, i64)>,
+    cell_size_m: f64,
+    origin_lat: f64,
+    origin_lon: f64,
+) -> RoadGraph {
+    graph_from_grid_with_overlays(
+        matrix,
+        road_of,
+        walk_of,
+        &|_, _| None,
+        closed,
+        cell_size_m,
+        origin_lat,
+        origin_lon,
+    )
+}
+
+/// [`graph_from_grid`], plus the classes co-located on a cell.
+///
+/// A v2 map stores one palette id per cell, so where a taxiway crosses a
+/// 20 km/h service road only one speed reaches the matrix. `overlay_of` returns
+/// the other ids for a cell; the edge then costs the **slowest** drivable class
+/// there, because a vehicle on that cell may drive under the strictest limit it
+/// is subject to. Without overlays this is exactly [`graph_from_grid`].
+pub fn graph_from_grid_with_overlays(
+    matrix: &crate::types::map::MapMatrix,
+    road_of: &dyn Fn(i64) -> Option<SpeedClass>,
+    walk_of: &dyn Fn(i64) -> Option<SpeedClass>,
+    overlay_of: &dyn Fn(i64, i64) -> Option<Vec<i64>>,
     closed: &HashSet<(i64, i64)>,
     cell_size_m: f64,
     origin_lat: f64,
@@ -580,11 +610,21 @@ pub fn graph_from_grid(
             // the section it runs along, not one flat apron speed.
             let speed = match (source_road, target_road) {
                 (Some(a), Some(b)) => {
-                    if a.kmh() <= b.kmh() {
-                        a
-                    } else {
-                        b
+                    let mut slowest = if a.kmh() <= b.kmh() { a } else { b };
+                    // A co-located class on either cell tightens the limit.
+                    for (cx, cy) in [(x, y), (nx, ny)] {
+                        let Some(ids) = overlay_of(cx, cy) else {
+                            continue;
+                        };
+                        for id in ids {
+                            if let Some(class) = road_of(id) {
+                                if class.kmh() < slowest.kmh() {
+                                    slowest = class;
+                                }
+                            }
+                        }
                     }
+                    slowest
                 }
                 _ => source_walk.or(target_walk).unwrap_or(SpeedClass::Walk),
             };
@@ -712,6 +752,62 @@ mod tests {
         );
         // A vehicle keeps the airfield cap on a runway section, not 300 km/h.
         assert!(palette_route.seconds > 0.5);
+    }
+
+    #[test]
+    fn an_overlapped_cell_pays_the_slower_colocated_speed() {
+        // The matrix shows 20 km/h service cells (id 2) all the way. Cells
+        // (1,0) and (2,0) are *also* a 5 km/h service road (id 3), which the
+        // single-value matrix cannot show. The route must pay 5 km/h there.
+        let matrix = MapMatrix(vec![vec![2, 2, 2, 2]]);
+        let closed = HashSet::new();
+        let speed_of = |value: i64| match value {
+            2 => Some(SpeedClass::VehicleAirfield),
+            3 => Some(SpeedClass::VehicleStand),
+            _ => None,
+        };
+        let plain = graph_from_grid(
+            &matrix,
+            &speed_of,
+            &speed_of,
+            &closed,
+            5.0,
+            55.83,
+            37.63,
+        );
+        let overlays = |x: i64, y: i64| {
+            ((x, y) == (1, 0) || (x, y) == (2, 0))
+                .then(|| vec![2, 3])
+                .filter(|_| y == 0)
+        };
+        let overlaid = graph_from_grid_with_overlays(
+            &matrix,
+            &speed_of,
+            &speed_of,
+            &overlays,
+            &closed,
+            5.0,
+            55.83,
+            37.63,
+        );
+        let stops = [Point::new(0, 0), Point::new(3, 0)];
+        let fast = plain.route_stops(AgentKind::Vehicle, &stops).expect("plain route");
+        let slow = overlaid
+            .route_stops(AgentKind::Vehicle, &stops)
+            .expect("overlaid route");
+        assert!(
+            slow.seconds > fast.seconds,
+            "the co-located 5 km/h road must slow the route: {} vs {}",
+            slow.seconds,
+            fast.seconds
+        );
+        // 15 m at 20 km/h plus 10 m at 5 km/h versus 15 m and 10 m at 20 km/h.
+        let expected = 15.0 / kmh_to_mps(20.0) + 10.0 / kmh_to_mps(5.0);
+        assert!(
+            (slow.seconds - expected).abs() < 1.0,
+            "expected about {expected}s through the slow cells, got {}",
+            slow.seconds
+        );
     }
 
     #[test]

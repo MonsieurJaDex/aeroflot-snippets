@@ -8,7 +8,7 @@ use std::{collections::HashSet, fs, path::Path};
 use serde::Deserialize;
 
 use crate::{
-    graph::{RoadGraph, SpeedClass, graph_from_grid},
+    graph::{RoadGraph, SpeedClass, graph_from_grid_with_overlays},
     types::map::MapDocument,
 };
 
@@ -243,10 +243,15 @@ pub fn load_location(map_path: &Path, document: &MapDocument) -> Location {
             .and_then(|entry| entry.speed_class.as_deref())
             .map(SpeedClass::from_name)
     };
-    let graph = graph_from_grid(
+    // Co-located classes never reach the matrix (one id per cell), so the graph
+    // reads them from `overlays`: a taxiway crossing a 5 km/h service road pays
+    // 5 km/h on that cell instead of the taxi speed the matrix shows.
+    let overlay_of = |x: i64, y: i64| document.overlay_at(x, y).map(<[i64]>::to_vec);
+    let graph = graph_from_grid_with_overlays(
         &document.map,
         &road_of,
         &walk_of,
+        &overlay_of,
         &closed,
         cell_size_m,
         origin_lat,

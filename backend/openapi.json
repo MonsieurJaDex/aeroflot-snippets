@@ -449,6 +449,39 @@
         ],
         "type": "object"
       },
+      "CellOverlay": {
+        "description": "Every class that claimed one cell, when more than one did.\n\n`map[y][x]` holds a single id. Where a taxiway crosses a service road of a\ndifferent speed the matrix can only show one of them; this table keeps the\nother, so the second speed section is not lost. The first entry of `ids` is\nthe id stored in the matrix.",
+        "properties": {
+          "id": {
+            "description": "The palette id stored in `map`.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "ids": {
+            "description": "All ids that claimed the cell, winner first.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "x": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "y": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "id",
+          "ids"
+        ],
+        "type": "object"
+      },
       "ClassifyRequest": {
         "additionalProperties": false,
         "description": "Request payload for classifying a free-form problem description.",
@@ -1116,6 +1149,13 @@
             "$ref": "#/components/schemas/Origin",
             "description": "North-west corner of cell `(0, 0)`."
           },
+          "overlays": {
+            "description": "Cells claimed by more than one class. `matrix` holds only the winner, so\na client that needs both speeds on an overlapped cell reads this.",
+            "items": {
+              "$ref": "#/components/schemas/CellOverlay"
+            },
+            "type": "array"
+          },
           "palette": {
             "description": "Every class a matrix cell may carry.",
             "items": {
@@ -1541,6 +1581,7 @@
       "TrackBatch": {
         "properties": {
           "points": {
+            "description": "contract: a malformed element is dropped instead of failing the batch, so\none bad point does not reject the points around it.",
             "items": {
               "$ref": "#/components/schemas/TrackPoint"
             },
@@ -1562,18 +1603,14 @@
             ]
           },
           "lat": {
+            "description": "Required latitude in degrees.",
             "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
+            "type": "number"
           },
           "lon": {
+            "description": "Required longitude in degrees.",
             "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
+            "type": "number"
           },
           "obj": {
             "type": "string"
@@ -1593,7 +1630,9 @@
           }
         },
         "required": [
-          "obj"
+          "obj",
+          "lat",
+          "lon"
         ],
         "type": "object"
       },
@@ -4294,7 +4333,13 @@
             "description": "Point or batch accepted"
           },
           "400": {
-            "description": "lat/lon missing or not numeric"
+            "description": "Malformed JSON, missing obj or non-numeric lat/lon"
+          },
+          "415": {
+            "description": "Content-Type is not application/json"
+          },
+          "500": {
+            "description": "Internal storage failure"
           }
         },
         "tags": [

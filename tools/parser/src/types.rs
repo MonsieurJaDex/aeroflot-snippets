@@ -328,6 +328,23 @@ pub struct MapLayers {
     pub walk: Vec<i64>,
 }
 
+/// Every class that claimed one cell, when more than one did.
+///
+/// `map[y][x]` holds a single id, so a cell where a taxiway crosses a service
+/// road at a different speed can only show the winner. This table keeps the
+/// losers: the first id is the one in `map` (priority winner), the rest are the
+/// co-located classes in priority order. Two *speed sections* overlapping are
+/// therefore both recoverable, which the layer masks alone cannot do.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct CellOverlay {
+    pub x: i64,
+    pub y: i64,
+    /// The palette id stored in `map`.
+    pub id: i64,
+    /// All ids that claimed the cell, winner first.
+    pub ids: Vec<i64>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MapObject {
     pub id: String,
@@ -362,6 +379,9 @@ pub struct MapDocument {
     pub objects: Vec<MapObject>,
     pub zones: Vec<MapZone>,
     pub closed_cells: Vec<[i64; 2]>,
+    /// Cells claimed by more than one class. Empty when nothing overlaps.
+    #[serde(default)]
+    pub overlays: Vec<CellOverlay>,
 }
 
 // ---------------------------------------------------------------------------
@@ -530,6 +550,47 @@ impl MapDocument {
                 return Err(format!("object {} has an empty bounding box", object.id));
             }
         }
+        // Overlays must agree with the matrix: each names the cell it describes,
+        // starts with the id actually stored there, and mentions only known ids.
+        for overlay in &self.overlays {
+            if overlay.x < 0
+                || overlay.y < 0
+                || overlay.x as usize >= self.width
+                || overlay.y as usize >= self.height
+            {
+                return Err(format!(
+                    "overlay ({},{}) is outside the {}x{} grid",
+                    overlay.x, overlay.y, self.width, self.height
+                ));
+            }
+            let stored = self.map.0[overlay.y as usize][overlay.x as usize];
+            if overlay.id != stored {
+                return Err(format!(
+                    "overlay ({},{}) claims id {} but the map holds {}",
+                    overlay.x, overlay.y, overlay.id, stored
+                ));
+            }
+            if overlay.ids.first() != Some(&stored) {
+                return Err(format!(
+                    "overlay ({},{}) does not start with the stored id {}",
+                    overlay.x, overlay.y, stored
+                ));
+            }
+            if overlay.ids.len() < 2 {
+                return Err(format!(
+                    "overlay ({},{}) is not an overlap: only one id",
+                    overlay.x, overlay.y
+                ));
+            }
+            for id in &overlay.ids {
+                if !seen.contains(id) {
+                    return Err(format!(
+                        "overlay ({},{}) names unknown palette id {id}",
+                        overlay.x, overlay.y
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -628,6 +689,7 @@ impl MapDocument {
             objects: Vec::new(),
             zones: Vec::new(),
             closed_cells: Vec::new(),
+            overlays: Vec::new(),
         };
         doc.validate()?;
         Ok(doc)

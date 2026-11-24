@@ -48,6 +48,10 @@ pub struct MapResponse {
     pub objects: Vec<crate::types::map::MapObject>,
     /// Service zones.
     pub zones: Vec<crate::types::map::MapZone>,
+    /// Cells claimed by more than one class. `matrix` holds only the winner, so
+    /// a client that needs both speeds on an overlapped cell reads this.
+    #[serde(default)]
+    pub overlays: Vec<crate::types::map::CellOverlay>,
     /// When this process loaded the map file.
     #[schema(format = "date-time")]
     pub updated_at: String,

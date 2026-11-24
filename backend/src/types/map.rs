@@ -217,6 +217,22 @@ pub struct MapLayers {
     pub walk: Vec<i64>,
 }
 
+/// Every class that claimed one cell, when more than one did.
+///
+/// `map[y][x]` holds a single id. Where a taxiway crosses a service road of a
+/// different speed the matrix can only show one of them; this table keeps the
+/// other, so the second speed section is not lost. The first entry of `ids` is
+/// the id stored in the matrix.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, ToSchema)]
+pub struct CellOverlay {
+    pub x: i64,
+    pub y: i64,
+    /// The palette id stored in `map`.
+    pub id: i64,
+    /// All ids that claimed the cell, winner first.
+    pub ids: Vec<i64>,
+}
+
 /// A building or other named area, as a cell bounding box.
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct MapObject {
@@ -259,6 +275,9 @@ pub struct MapDocument {
     pub zones: Vec<MapZone>,
     #[serde(default)]
     pub closed_cells: Vec<[i64; 2]>,
+    /// Cells claimed by more than one class; empty when nothing overlaps.
+    #[serde(default)]
+    pub overlays: Vec<CellOverlay>,
 }
 
 impl MapDocument {
@@ -272,6 +291,15 @@ impl MapDocument {
     #[must_use]
     pub fn walk_ids(&self) -> HashSet<i64> {
         self.layers.walk.iter().copied().collect()
+    }
+
+    /// Ids that claimed `(x, y)`, or `None` when a single class did.
+    #[must_use]
+    pub fn overlay_at(&self, x: i64, y: i64) -> Option<&[i64]> {
+        self.overlays
+            .iter()
+            .find(|overlay| overlay.x == x && overlay.y == y)
+            .map(|overlay| overlay.ids.as_slice())
     }
 
     /// Palette entry a cell value refers to.
@@ -471,6 +499,7 @@ impl MapDocument {
             objects: Vec::new(),
             zones: Vec::new(),
             closed_cells: Vec::new(),
+            overlays: Vec::new(),
         };
         doc.validate()?;
         Ok(doc)

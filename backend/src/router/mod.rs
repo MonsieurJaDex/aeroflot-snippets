@@ -220,6 +220,7 @@ pub async fn get_map(State(app_state): State<Arc<AppState>>) -> Response<Body> {
         layers: document.layers.clone(),
         objects: document.objects.clone(),
         zones: document.zones.clone(),
+        overlays: document.overlays.clone(),
         updated_at: active.loaded_at.to_rfc3339(),
     })
     .into_response()

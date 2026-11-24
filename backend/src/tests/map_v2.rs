@@ -107,6 +107,141 @@ async fn routes_across_the_real_apron_and_rejects_far_outside_points() {
     );
 }
 
+/// The customer's requirement in one assertion: where a fast section crosses a
+/// slower road the cell stores one id, but the loaded graph must still pay the
+/// slower limit. The matrix value alone would let a vehicle through at the fast
+/// class.
+#[tokio::test]
+async fn overlapped_cells_cost_the_slower_colocated_speed_in_the_real_graph() {
+    let ctx = TestContext::with_map(Some(REAL_MAP)).await;
+    let active = ctx.state.active.read().expect("active map").clone();
+    let document = &active.document;
+
+    assert!(
+        !document.overlays.is_empty(),
+        "the artefact must carry overlays; run `parser parse` in tools/parser"
+    );
+
+    // Pick an overlay whose ids are two different drivable speeds.
+    let pick = document
+        .overlays
+        .iter()
+        .find_map(|overlay| {
+            let mut road: Vec<(i64, SpeedClass)> = overlay
+                .ids
+                .iter()
+                .filter_map(|id| document.entry(*id))
+                .filter(|entry| entry.allows_road())
+                .filter_map(|entry| {
+                    let class = entry.speed_class.as_deref().map(SpeedClass::from_name)?;
+                    Some((entry.spd_kmh, class))
+                })
+                .collect();
+            if road.len() < 2 {
+                return None;
+            }
+            road.sort_by_key(|(spd, _)| *spd);
+            let slowest = road.first().copied()?;
+            let stored = document.entry(overlay.id)?;
+            (stored.spd_kmh > slowest.0).then_some((overlay.x, overlay.y, slowest))
+        })
+        .expect("an overlay joining two road speeds must exist on the real map");
+
+    let (x, y, (slow_kmh, slow_class)) = pick;
+    let stored = document
+        .entry(document.map.0[y as usize][x as usize])
+        .expect("stored entry");
+    assert!(
+        stored.spd_kmh > slow_kmh,
+        "cell ({x},{y}) shows {} km/h but a {} km/h road is also there",
+        stored.spd_kmh,
+        slow_kmh
+    );
+
+    // Cost of entering that cell must be the slow class, not the stored one.
+    let point = crate::types::map::Point::new(x, y);
+    let cost = crate::graph::vehicle_speed_mps(point, slow_class);
+    let naively = crate::graph::vehicle_speed_mps(
+        point,
+        SpeedClass::from_name(stored.speed_class.as_deref().expect("speed class")),
+    );
+    assert!(
+        cost < naively,
+        "the overlay must lower the speed: {cost} vs {naively}"
+    );
+    assert!(
+        document.overlay_at(x, y).is_some(),
+        "overlay lookup must find it"
+    );
+
+    // And the graph the server routes on must actually pay it: routing across
+    // the overlapped cell has to cost more than the same route would if the
+    // matrix value were the only speed. Two drivable neighbours on a straight
+    // line through (x, y) give exactly that comparison.
+    let road_of = |value: i64| {
+        document
+            .entry(value)
+            .filter(|entry| entry.allows_road())
+            .and_then(|entry| entry.speed_class.as_deref())
+            .map(SpeedClass::from_name)
+    };
+    let walk_of = |value: i64| {
+        document
+            .entry(value)
+            .filter(|entry| entry.allows_walk())
+            .and_then(|entry| entry.speed_class.as_deref())
+            .map(SpeedClass::from_name)
+    };
+    let closed = std::collections::HashSet::new();
+    let (lat, lon) = (document.origin.lat, document.origin.lon);
+    let cell = document.cell_size_m;
+    let overlaid = crate::graph::graph_from_grid_with_overlays(
+        &document.map,
+        &road_of,
+        &walk_of,
+        &|cx, cy| document.overlay_at(cx, cy).map(<[i64]>::to_vec),
+        &closed,
+        cell,
+        lat,
+        lon,
+    );
+    let plain = crate::graph::graph_from_grid(
+        &document.map,
+        &road_of,
+        &walk_of,
+        &closed,
+        cell,
+        lat,
+        lon,
+    );
+    let mut compared = false;
+    for pair in [
+        [crate::types::map::Point::new(x - 1, y), crate::types::map::Point::new(x + 1, y)],
+        [crate::types::map::Point::new(x, y - 1), crate::types::map::Point::new(x, y + 1)],
+    ] {
+        if document.map.0.get(pair[0].1 as usize).is_none() {
+            continue;
+        }
+        let a = overlaid.route_stops(crate::graph::AgentKind::Vehicle, &pair);
+        let b = plain.route_stops(crate::graph::AgentKind::Vehicle, &pair);
+        if let (Ok(a), Ok(b)) = (a, b) {
+            assert!(
+                a.seconds >= b.seconds - 1e-9,
+                "overlays must never make a route faster: {} vs {}",
+                a.seconds,
+                b.seconds
+            );
+            if a.seconds > b.seconds {
+                compared = true;
+            }
+        }
+    }
+    assert!(
+        compared,
+        "routing through the overlapped cell ({x},{y}) must cost more with overlays"
+    );
+}
+
 #[tokio::test]
 async fn map_catalog_lists_the_real_map_next_to_the_legacy_ones() {
     let ctx = TestContext::with_map(Some(REAL_MAP)).await;

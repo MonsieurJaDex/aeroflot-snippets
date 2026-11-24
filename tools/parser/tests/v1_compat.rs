@@ -1,6 +1,6 @@
 //! The v1 files must keep loading, with a palette synthesised from `road`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[test]
 fn legacy_map2_synthesises_a_palette_from_road() {
