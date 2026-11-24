@@ -563,11 +563,31 @@ fn refresh_forecast(
         .filter(tasks::map_id.eq(&active.id))
         .filter(tasks::status.eq_any(["assigned", "in_progress"]))
         .select(Task::as_select())
-        .first::<Task>(pg_conn)
-        .optional();
-    let Ok(Some(task)) = open else {
+        .load::<Task>(pg_conn);
+    let Ok(tasks_of_engineer) = open else {
         return;
     };
+    // An engineer can hold another open task while this one waits for parts.
+    // Refreshing only the first would leave the rest with a stale forecast, so
+    // every open task of the moving engineer is refreshed.
+    for task in tasks_of_engineer {
+        refresh_one_forecast(active, redis_conn, pg_conn, engineer, grid, &task);
+    }
+}
+
+/// Refreshes the forecast of one open task, gated on the engineer's cell.
+fn refresh_one_forecast(
+    active: &crate::maps::ActiveMap,
+    redis_conn: &mut redis::Connection,
+    pg_conn: &mut diesel::PgConnection,
+    engineer: Uuid,
+    grid: crate::types::map::Point,
+    task: &crate::models::task::Task,
+) {
+    use diesel::prelude::*;
+
+    use crate::database::schema::tasks;
+
     let cell_key = format!("map:{}:eta_cell:{}", active.id, task.id);
     let crate::types::map::Point(cell_x, cell_y) = grid;
     let cell = format!("{cell_x},{cell_y}");
