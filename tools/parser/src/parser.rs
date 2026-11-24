@@ -288,6 +288,7 @@ pub struct BuildResult {
 #[derive(Debug, Default)]
 pub struct Stats {
     pub road_cells: usize,
+    pub walk_cells: usize,
     pub per_class: BTreeMap<String, usize>,
     pub overlap_cells: usize,
     /// Composition of the overlapping cells, `"a+b"` -> how many cells. Proves
@@ -500,6 +501,9 @@ pub fn build_geojson(config: &Config) -> io::Result<BuildResult> {
         let id = id_of[&stored];
         matrix.0[*y as usize][*x as usize] = id;
         road_cells.push((*x, *y));
+        if stored.allows_road() {
+            stats.road_cells += 1;
+        }
         if distinct.len() > 1 {
             overlays.push(CellOverlay {
                 x: *x,
@@ -522,7 +526,10 @@ pub fn build_geojson(config: &Config) -> io::Result<BuildResult> {
             *stats.overlap_pairs.entry(names.join("+")).or_default() += 1;
         }
     }
-    stats.road_cells = road_cells.len();
+    // `road_cells` must mean cells a vehicle may enter. A pedestrian winner stores
+    // a walk-only palette id, so counting every claimed cell reported the walk
+    // mask size (3069) as the road size (2767).
+    stats.walk_cells = road_cells.len();
     overlays.sort_by_key(|o| (o.y, o.x));
 
     // 6. Obstacles: only cells that no road claimed.
@@ -797,7 +804,8 @@ fn print_stats(result: &BuildResult) {
     println!("--- stats ---");
     println!("cells: {}x{} @ {} m", result.doc.width, result.doc.height, result.doc.cell_size_m);
     println!("origin NW: lat {:.6}, lon {:.6}", result.doc.origin.lat, result.doc.origin.lon);
-    println!("road cells: {}", s.road_cells);
+    println!("road cells (vehicles may enter): {}", s.road_cells);
+    println!("walk cells: {}", s.walk_cells);
     println!("overlap cells (>=2 classes claimed): {}", s.overlap_cells);
     for (pair, count) in &s.overlap_pairs {
         println!("  overlap {pair}: {count}");

@@ -339,3 +339,33 @@ fn committed_artefact_matches_a_fresh_build() {
         serde_json::to_string(&doc).expect("serialise")
     );
 }
+
+/// The build counter used to print the walk-mask size (3069) under the label
+/// "road cells", because a pedestrian winner stores a walk-only palette id but
+/// every claimed cell was counted. Both numbers must come from the classes.
+#[test]
+fn build_stats_split_road_from_walk_cells() {
+    let raw = std::fs::read_to_string(repo_root().join("tools/parser/config.json"))
+        .expect("config.json");
+    let config: parser::types::Config = serde_json::from_str(&raw).expect("config parses");
+    let built = parser::parser::build_geojson(&config).expect("build from committed config");
+    let doc = &built.doc;
+
+    let palette = |id: i64| doc.palette.iter().find(|entry| entry.id == id).cloned();
+    let cells = || doc.map.0.iter().flatten().copied();
+    let road: usize = cells()
+        .filter(|id| palette(*id).is_some_and(|e| e.pass.iter().any(|p| p == "road")))
+        .count();
+    let walk: usize = cells()
+        .filter(|id| palette(*id).is_some_and(|e| e.pass.iter().any(|p| p == "walk")))
+        .count();
+
+    assert_eq!(built.stats.road_cells, road, "road counter disagrees with the matrix");
+    assert_eq!(built.stats.walk_cells, walk, "walk counter disagrees with the matrix");
+    assert_ne!(
+        built.stats.road_cells, built.stats.walk_cells,
+        "pedestrian cells must not be counted as road: that is the bug this pins"
+    );
+    assert_eq!(built.stats.walk_cells, 3069, "walk mask size");
+    assert_eq!(built.stats.road_cells, 2767, "cells a vehicle may enter");
+}
