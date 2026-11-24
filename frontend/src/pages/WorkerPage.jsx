@@ -8,7 +8,7 @@ import { formatEta, relativeRu } from "../lib/format.js";
 import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
-import { normalizeRoute, updateEngineerPosition } from "../lib/live.js";
+import { normalizeRoute, postTrackPoint, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { whenVisible } from "../lib/visibility.js";
 import { CELL_METERS, pointAt, totalMeters, turnHint, WALK_MPS } from "../lib/walk.js";
@@ -36,15 +36,44 @@ const CHAIN_BY_STATUS = {
   completed: "выполнено",
 };
 
+const GPS_ACTIVE_STATUSES = new Set(["accepted", "in_progress"]);
+
+function taskAllowsGps(t) {
+  return Boolean(t?.id && GPS_ACTIVE_STATUSES.has(t.status));
+}
+
 function chainStep(task, fallback) {
   if (!task) return fallback;
   return CHAIN_BY_STATUS[task.status] || "в работе";
 }
 
+const ETA_SLA_SEC = 15 * 60;
+
 function etaMinutes(seconds) {
   const value = Number(seconds);
   if (!Number.isFinite(value) || value < 0) return null;
   return Math.round(value / 60);
+}
+
+function taskSlaRisk(task, etaSec) {
+  if (!task) return false;
+  const sec = etaSec ?? Number(task.eta_seconds);
+  if (Number.isFinite(sec) && sec > ETA_SLA_SEC) return true;
+  return Boolean(
+    task.sla_exceeded
+    ?? task.time_limit_exceeded
+    ?? task.sla_alerted
+    ?? task.sla_breached,
+  );
+}
+
+function slaNormHint(etaSec) {
+  const sec = Number(etaSec);
+  if (!Number.isFinite(sec) || sec < 0) return null;
+  if (sec <= ETA_SLA_SEC) {
+    return `норма 15 мин · осталось ${Math.max(1, Math.ceil(sec / 60))} мин`;
+  }
+  return `сверх нормы 15 мин · +${Math.ceil((sec - ETA_SLA_SEC) / 60)} мин`;
 }
 
 // datetime-local в RFC3339; пустая строка уходит как null.
@@ -54,6 +83,20 @@ function deferUntilIso(value) {
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return raw;
   return parsed.toISOString();
+}
+
+function normalizeCurrentTask(body) {
+  if (body == null || typeof body !== "object" || !body.id) return null;
+  return body;
+}
+
+function patchTaskRouteEta(prev, taskId, data) {
+  if (!prev || String(prev.id) !== String(taskId) || !data || typeof data !== "object") return prev;
+  if (data.route == null && data.eta_seconds == null) return prev;
+  const next = { ...prev };
+  if (data.route != null) next.route = data.route;
+  if (data.eta_seconds != null) next.eta_seconds = data.eta_seconds;
+  return next;
 }
 
 function sameTask(prev, next) {
@@ -104,8 +147,21 @@ export default function WorkerPage() {
   const lastRouteRefresh = useRef(0);
   const lastSpokenHint = useRef("");
   const lastGeoAt = useRef(0);
+  const [gpsManual, setGpsManual] = useState(() => localStorage.getItem("oto-gps-manual") === "1");
+  const [gpsWatching, setGpsWatching] = useState(false);
+  const [gpsAcc, setGpsAcc] = useState(null);
+  const lastTrackAt = useRef(0);
+  const gpsWatchId = useRef(null);
 
   taskRef.current = task;
+
+  async function applyRouteRefresh(taskId) {
+    const data = await refreshTaskRoute(taskId);
+    if (data && typeof data === "object") {
+      setTask((prev) => patchTaskRouteEta(prev, taskId, data));
+    }
+    return refreshTask();
+  }
 
   useEffect(() => {
     if (!allowed) return undefined;
@@ -120,7 +176,7 @@ export default function WorkerPage() {
       try {
         const next = await apiRequest("/api/tasks/current");
         if (cancelled) return;
-        const normalized = next && next.id ? next : null;
+        const normalized = normalizeCurrentTask(next);
         setTask((prev) => {
           if (!normalized && !prev) return prev;
           if (normalized && sameTask(prev, normalized)) return prev;
@@ -174,9 +230,18 @@ export default function WorkerPage() {
           await updateEngineerPosition(row.id, [[row.point, row.t]]);
         });
         setOutboxCount(pendingCount());
-        if (sent) {
+        if (sent > 0) {
           flash(`Дослано геоточек: ${sent}`);
           softBeep(640, 100);
+          const taskId = taskRef.current?.id;
+          if (taskId) {
+            lastRouteRefresh.current = Date.now();
+            try {
+              await applyRouteRefresh(taskId);
+            } catch (error) {
+              console.warn("[worker] route refresh after outbox", error);
+            }
+          }
         }
       } catch (error) {
         console.warn("[worker] outbox", error);
@@ -199,8 +264,7 @@ export default function WorkerPage() {
         if (taskId && Date.now() - lastRouteRefresh.current > 15000) {
           lastRouteRefresh.current = Date.now();
           try {
-            await apiRequest(`/api/tasks/${encodeURIComponent(taskId)}/route`, { method: "POST" });
-            await loadTask();
+            await applyRouteRefresh(taskId);
           } catch (error) {
             console.warn("[worker] route refresh", error);
           }
@@ -237,6 +301,70 @@ export default function WorkerPage() {
       window.removeEventListener("beforeunload", onLeave);
     };
   }, [allowed]);
+
+  useEffect(() => {
+    if (!allowed) return undefined;
+    const wantGps = gpsManual || taskAllowsGps(task);
+
+    function stopGpsWatch() {
+      if (gpsWatchId.current != null) {
+        navigator.geolocation.clearWatch(gpsWatchId.current);
+        gpsWatchId.current = null;
+      }
+      setGpsWatching(false);
+    }
+
+    if (!wantGps) {
+      stopGpsWatch();
+      return undefined;
+    }
+    if (!navigator.geolocation) {
+      setNotice("Браузер не поддерживает GPS.");
+      return undefined;
+    }
+
+    const onFix = (pos) => {
+      const { latitude: lat, longitude: lon, accuracy: acc, speed: spd } = pos.coords;
+      setGpsAcc(Number.isFinite(acc) ? acc : null);
+      setGpsWatching(true);
+      const now = Date.now();
+      if (now - lastTrackAt.current < 2000) return;
+      lastTrackAt.current = now;
+      const userId = getSession()?.userId;
+      if (!userId) return;
+      const t = new Date(pos.timestamp).toISOString();
+      postTrackPoint({
+        obj: userId,
+        lat,
+        lon,
+        t,
+        acc: Number.isFinite(acc) ? acc : null,
+        spd: spd != null && Number.isFinite(spd) ? spd : null,
+      }).catch((error) => console.warn("[worker] track", error));
+    };
+
+    const onErr = (error) => {
+      stopGpsWatch();
+      setGpsAcc(null);
+      if (error.code === 1) {
+        setNotice("GPS: доступ к геолокации запрещён. Включите в настройках браузера или коснитесь «GPS».");
+        flash("GPS: нет разрешения", "err");
+      } else if (error.code === 2) {
+        setNotice("GPS: позиция недоступна. Проверьте сигнал.");
+      } else {
+        setNotice(`GPS: ${error.message || "ошибка"}`);
+      }
+    };
+
+    gpsWatchId.current = navigator.geolocation.watchPosition(onFix, onErr, {
+      enableHighAccuracy: true,
+      maximumAge: 3000,
+      timeout: 20000,
+    });
+    setGpsWatching(true);
+
+    return () => stopGpsWatch();
+  }, [allowed, gpsManual, task?.id, task?.status]);
 
   useEffect(() => {
     const id = task?.id || null;
@@ -668,12 +796,15 @@ export default function WorkerPage() {
   const step = chainStep(task, statusStep);
   const minutes = task ? etaMinutes(task.eta_seconds) : null;
   const etaClock = formatEta(etaLeft);
+  const etaForSla = etaLeft != null ? etaLeft : (task?.eta_seconds != null ? Number(task.eta_seconds) : null);
+  const slaRisk = task ? taskSlaRisk(task, etaForSla) : false;
+  const slaHint = slaRisk && etaForSla != null ? slaNormHint(etaForSla) : null;
   const canDecide = task?.status === "assigned";
 
   async function refreshTask() {
     try {
       const next = await apiRequest("/api/tasks/current");
-      const normalized = next && next.id ? next : null;
+      const normalized = normalizeCurrentTask(next);
       setTask(normalized);
       return normalized;
     } catch (error) {
@@ -822,8 +953,7 @@ export default function WorkerPage() {
     setBusyAction("route");
     try {
       lastRouteRefresh.current = Date.now();
-      await apiRequest(`/api/tasks/${encodeURIComponent(task.id)}/route`, { method: "POST" });
-      await refreshTask();
+      await applyRouteRefresh(task.id);
       flash("Маршрут пересчитан на сервере");
       softBeep(600, 100);
     } catch (error) {
@@ -833,6 +963,16 @@ export default function WorkerPage() {
     } finally {
       setBusyAction("");
     }
+  }
+
+  function toggleGpsManual() {
+    setGpsManual((prev) => {
+      const next = !prev;
+      localStorage.setItem("oto-gps-manual", next ? "1" : "0");
+      flash(next ? "GPS включён" : "GPS выключен");
+      softBeep(next ? 620 : 400, 90);
+      return next;
+    });
   }
 
   async function pushSelfPosition() {
@@ -853,8 +993,7 @@ export default function WorkerPage() {
       if (task?.id) {
         lastRouteRefresh.current = Date.now();
         try {
-          await apiRequest(`/api/tasks/${encodeURIComponent(task.id)}/route`, { method: "POST" });
-          await refreshTask();
+          await applyRouteRefresh(task.id);
           flash("Маршрут обновлён после гео");
         } catch (error) {
           console.warn("[worker] route after geo", error);
@@ -922,10 +1061,19 @@ export default function WorkerPage() {
           {etaLeft === 0 ? <span className="worker-task-badge">На месте</span>
             : etaClock ? <span className="worker-task-badge">ETA {etaClock}</span>
               : minutes != null ? <span className="worker-task-badge">ETA {minutes} мин</span> : null}
+          {slaRisk ? <span className="worker-task-badge sla" title={slaHint || undefined}>&gt;15 мин / риск SLA</span> : null}
           {task?.arrived ? <span className="worker-task-badge">Прибыл</span> : null}
           {pollStale ? (
             <span className="worker-task-badge stale" title={lastGeoAt.current ? `Последняя гео ${new Date(lastGeoAt.current).toLocaleTimeString("ru-RU")}` : ""}>
               Нет связи{lastGeoAt.current ? ` · гео ${relativeRu(lastGeoAt.current, Date.now())}` : ""}
+            </span>
+          ) : null}
+          {gpsWatching ? (
+            <span
+              className="worker-task-badge gps"
+              title="Реальный GPS-трек на /api/v1/track"
+            >
+              GPS{gpsAcc != null ? ` ±${Math.round(gpsAcc)} м` : ""}
             </span>
           ) : null}
         </div>
@@ -977,6 +1125,13 @@ export default function WorkerPage() {
                   {routeText}<br />
                   ETA: {etaClock || (minutes != null ? `${minutes} мин` : "—")}
                   {etaLeft === 0 ? " · на месте" : ""}
+                  {slaRisk ? (
+                    <>
+                      <br />
+                      <strong className="sla-inline">&gt;15 мин / риск SLA</strong>
+                      {slaHint ? <> · {slaHint}</> : null}
+                    </>
+                  ) : null}
                   <br />
                   {task.tools_picked ? "Инструмент получен" : "Инструмент не получен"}
                   {task.ata_chapter ? <><br />ATA {task.ata_chapter}</> : null}
@@ -1094,6 +1249,15 @@ export default function WorkerPage() {
           }}
         >
           {busyAction === "refresh" ? "…" : "Обновить задачу · F"}
+        </button>
+        <button
+          id="toggle-gps"
+          className={gpsManual || gpsWatching ? "worker-action worker-action-primary" : "worker-action worker-action-secondary"}
+          type="button"
+          onClick={toggleGpsManual}
+          title="Полевой GPS-трек"
+        >
+          {gpsManual || gpsWatching ? "GPS · вкл" : "GPS"}
         </button>
         <button id="push-geo" className="worker-action worker-action-secondary" type="button" disabled={busyAction === "geo"} onClick={pushSelfPosition} title="G">
           {busyAction === "geo" ? "…" : outboxCount ? `Отправить гео · очередь ${outboxCount}` : "Отправить гео · G"}
