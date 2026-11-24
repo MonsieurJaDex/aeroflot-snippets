@@ -1,0 +1,178 @@
+{
+  "cell_size_m": 5.0,
+  "origin_lat": 55.84131562223956,
+  "origin_lon": 37.612295404809146,
+  "sla_secs": 900,
+  "alert_before_secs": 300,
+  "boarding_delay_secs": 10.0,
+  "tool_delay_secs": 30.0,
+  "max_accuracy_m": 80.0,
+  "max_speed_mps": 83.33333333333333,
+  "stale_after_secs": 45,
+  "zones": [
+    {
+      "id": "1",
+      "x": 294,
+      "y": 223,
+      "radius_m": 10.017863642219956,
+      "label": "Зона 1"
+    },
+    {
+      "id": "2",
+      "x": 303,
+      "y": 223,
+      "radius_m": 10.134334679047852,
+      "label": "Зона 2"
+    },
+    {
+      "id": "3",
+      "x": 299,
+      "y": 235,
+      "radius_m": 11.716273647884687,
+      "label": "Зона 3"
+    },
+    {
+      "id": "4",
+      "x": 307,
+      "y": 235,
+      "radius_m": 11.839754694509388,
+      "label": "Зона 4"
+    },
+    {
+      "id": "5",
+      "x": 184,
+      "y": 148,
+      "radius_m": 11.778908781692127,
+      "label": "Зона 5"
+    },
+    {
+      "id": "6",
+      "x": 189,
+      "y": 155,
+      "radius_m": 12.558843732838733,
+      "label": "Зона 6"
+    },
+    {
+      "id": "7",
+      "x": 243,
+      "y": 145,
+      "radius_m": 11.737627828387188,
+      "label": "Зона 7"
+    },
+    {
+      "id": "8",
+      "x": 337,
+      "y": 278,
+      "radius_m": 14.843203304134102,
+      "label": "Зона 8"
+    },
+    {
+      "id": "9",
+      "x": 71,
+      "y": 170,
+      "radius_m": 13.965580545583906,
+      "label": "Зона 9"
+    },
+    {
+      "id": "10",
+      "x": 80,
+      "y": 171,
+      "radius_m": 15.704894354106704,
+      "label": "Зона 10"
+    }
+  ],
+  "objects": [
+    {
+      "id": "0",
+      "kind": "terminal",
+      "x": 228,
+      "y": 112
+    },
+    {
+      "id": "1",
+      "kind": "hangar",
+      "x": 312,
+      "y": 194
+    },
+    {
+      "id": "2",
+      "kind": "runway",
+      "x": 176,
+      "y": 182
+    },
+    {
+      "id": "3",
+      "kind": "parking",
+      "x": 268,
+      "y": 129
+    },
+    {
+      "id": "4",
+      "kind": "warehouse",
+      "x": 244,
+      "y": 151
+    },
+    {
+      "id": "5",
+      "kind": "warehouse",
+      "x": 273,
+      "y": 170
+    }
+  ],
+  "ata": [
+    {
+      "admissions": [
+        "avionics_engineer",
+        "aviation_technician"
+      ],
+      "chapter": "30",
+      "title": "Противообледенительная система"
+    },
+    {
+      "admissions": [
+        "engine_technician"
+      ],
+      "chapter": "72",
+      "title": "Двигатель"
+    },
+    {
+      "admissions": [
+        "fueling_crew",
+        "engine_technician"
+      ],
+      "chapter": "28",
+      "title": "Топливная система"
+    },
+    {
+      "admissions": [
+        "avionics_engineer"
+      ],
+      "chapter": "34",
+      "title": "Навигация"
+    },
+    {
+      "admissions": [
+        "crew_remarks_handler",
+        "aviation_technician"
+      ],
+      "chapter": "5",
+      "title": "Замечания экипажа"
+    }
+  ],
+  "agents": [
+    {
+      "kind": "engineer",
+      "obj": "e-01"
+    },
+    {
+      "kind": "vehicle",
+      "obj": "v-01",
+      "vehicle_type": "fuel_truck"
+    },
+    {
+      "kind": "aircraft",
+      "obj": "RA-73142"
+    }
+  ],
+  "closed_cells": []
+}

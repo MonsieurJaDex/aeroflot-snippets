@@ -292,7 +292,7 @@ pub async fn list_requests_for_plane(
         .map_err(|_| internal_error())?;
 
     if ids.len() == 0 {
-        return Ok(not_found("aircraft doesn't have any request"))
+        return Ok(not_found("aircraft doesn't have any request"));
     }
 
     Ok(Json(PlaneRequests {

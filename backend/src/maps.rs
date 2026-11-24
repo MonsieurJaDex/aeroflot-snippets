@@ -5,7 +5,6 @@
 //! from another grid. Auth keys stay global.
 
 use std::{
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -21,6 +20,7 @@ use crate::{
     parser,
     types::{enums::VehicleType, map::MapMatrix},
 };
+
 
 const ACTIVE_KEY: &str = "map:active";
 const LEGACY_MOVED_KEY: &str = "map:legacy_keys_moved";
@@ -47,6 +47,9 @@ pub struct ActiveMap {
     pub id: String,
     pub name: String,
     pub map: MapMatrix,
+    /// Palette, layers, origin and objects of the active map. Routing, speed
+    /// lookup and plausibility checks read from here.
+    pub document: std::sync::Arc<crate::types::map::MapDocument>,
     pub loaded_at: DateTime<Utc>,
     pub location: std::sync::Arc<Location>,
 }
@@ -129,18 +132,23 @@ pub fn load_catalog(map_path: &str) -> anyhow::Result<(MapCatalog, String)> {
         if entries.iter().any(|entry: &MapCatalogEntry| entry.id == id) {
             bail!("two map files share the id '{id}'");
         }
-        let parsed = parser::parse_from_json(&path.to_string_lossy())
-            .map_err(|error| anyhow::anyhow!("{error}"))
+        let document = parser::load_map_document(&path)
             .with_context(|| format!("failed to parse map {} ({id})", path.display()))?;
         entries.push(MapCatalogEntry {
             id,
-            name: path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or("map")
-                .to_owned(),
-            width: parsed.map.width(),
-            height: parsed.map.height(),
+            name: document
+                .name
+                .clone()
+                .is_empty()
+                .then(|| {
+                    path.file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .unwrap_or("map")
+                        .to_owned()
+                })
+                .unwrap_or_else(|| document.name.clone()),
+            width: document.width,
+            height: document.height,
             path,
         });
     }
@@ -154,19 +162,15 @@ pub fn load_catalog(map_path: &str) -> anyhow::Result<(MapCatalog, String)> {
 }
 
 pub fn load_active(entry: &MapCatalogEntry) -> anyhow::Result<ActiveMap> {
-    let parsed = parser::parse_from_json(&entry.path.to_string_lossy())
-        .map_err(|error| anyhow::anyhow!("{error}"))
+    let document = parser::load_map_document(&entry.path)
         .with_context(|| format!("failed to parse map {}", entry.path.display()))?;
-    let road_points: HashSet<i64> = parsed.road.into_iter().collect();
-    let location = std::sync::Arc::new(crate::location::load_location(
-        &entry.path,
-        &parsed.map,
-        &road_points,
-    ));
+    let location = std::sync::Arc::new(crate::location::load_location(&entry.path, &document));
+    let map = document.map.clone();
     Ok(ActiveMap {
         id: entry.id.clone(),
         name: entry.name.clone(),
-        map: parsed.map,
+        map,
+        document: std::sync::Arc::new(document),
         loaded_at: Utc::now(),
         location,
     })

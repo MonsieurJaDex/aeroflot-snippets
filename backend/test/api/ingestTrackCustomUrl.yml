@@ -1,0 +1,33 @@
+info:
+  name: ingestTrackCustomUrl
+  type: http
+  seq: 55
+
+http:
+  method: GET
+  url: "{{HOST}}/v1/track?obj={{engineer_id}}&lat=%LAT&lon=%LON&acc=%ACC&spd=%SPD&timestamp=%TIMESTAMP"
+  headers: []
+
+docs:
+  content: |-
+    Без авторизации. Формат GPSLogger: Custom URL заменяет %LAT, %LON, %ACC,
+    %SPD, %TIMESTAMP и остальные плейсхолдеры и отправляет GET. obj — UUID
+    инженера, тогда точка привязывается к нему. В приложении вместо
+    {{HOST}} укажите реальный адрес, а {{engineer_id}} — UUID инженера.
+    Полный набор параметров даёт %ALL; он же заменяется в URL.
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("custom url point is accepted", function () {
+          expect(res.status).to.equal(200);
+          expect(res.body.accepted).to.equal(true);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

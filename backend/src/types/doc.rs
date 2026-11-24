@@ -35,7 +35,7 @@ use crate::router::{
         AlertItem, AlertList, CreateRequest, MelRequest, NewDefect, ReassignRequest,
         RequestCreated,
     },
-    track::{__path_ingest, TrackAck, TrackBatch, TrackPoint},
+    track::{__path_ingest, __path_ingest_query, TrackAck, TrackBatch, TrackPoint},
 };
 use crate::types::{
     dto::{
@@ -45,7 +45,8 @@ use crate::types::{
         CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest,
         EngineerPositionSample, ErrorResponse, GetRouteRequest, GetRouteResponse,
         GetUserNameResponse, LoginRequest, LoginResponse, MapListResponse, MapResponse, MapSummary,
-        MeResponse, OAuthTokenType, RegisterRequest, SelectMapRequest, TrainClassifierResponse,
+        MeResponse, OAuthTokenType, RegisterRequest, RouteAgent, SelectMapRequest,
+        TrainClassifierResponse,
         UpdateAccessRequest, UpdateAccessResponse, UpdateEngineerPositionRequest,
         UpdateTransportPositionRequest,
     },
@@ -96,6 +97,7 @@ use crate::types::{
         create_defect,
         export_journal,
         ingest,
+        ingest_query,
         get_current_task,
         current_task_aog,
         current_task_aog_post,
@@ -131,6 +133,7 @@ use crate::types::{
         // --- DTOs: routes ---
         GetRouteRequest,
         GetRouteResponse,
+        RouteAgent,
         // --- DTOs: assignment ---
         AssignmentCandidate,
         AssignEngineerRequest,

@@ -1,0 +1,508 @@
+//! The real airport map (`assets/it2026_aero.json`, format 2) driven through the
+//! HTTP API: palette-exposed map, routing across the real grid, and the
+//! per-section speeds that the v1 format could not express.
+
+use axum::http::StatusCode;
+use serde_json::json;
+
+use crate::graph::SpeedClass;
+use crate::tests::support::{TestContext, expect_status};
+use crate::types::enums::EngineerType;
+
+const REAL_MAP: &str = "assets/it2026_aero.json";
+
+#[tokio::test]
+async fn serves_the_palette_map_without_handcoded_gids() {
+    let ctx = TestContext::with_map(Some(REAL_MAP)).await;
+    let dispatcher = ctx.dispatcher();
+
+    let map = expect_status(ctx.get("/api/map", &dispatcher.token).await, StatusCode::OK);
+    assert_eq!(map["format"], 2);
+    assert_eq!(map["id"], "it2026_aero");
+
+    let width = map["width"].as_u64().expect("width") as usize;
+    let height = map["height"].as_u64().expect("height") as usize;
+    assert!(width > 64 && height > 64, "real map must be larger than the placeholder");
+    let matrix = map["matrix"].as_array().expect("matrix");
+    assert_eq!(matrix.len(), height);
+    assert!(matrix.iter().all(|row| row.as_array().unwrap().len() == width));
+
+    let palette = map["palette"].as_array().expect("palette");
+    assert!(palette.len() >= 8, "palette must carry the classes, got {}", palette.len());
+    let ids: Vec<i64> = palette.iter().map(|entry| entry["id"].as_i64().unwrap()).collect();
+    let road: Vec<i64> = map["layers"]["road"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_i64().unwrap())
+        .collect();
+    let walk: Vec<i64> = map["layers"]["walk"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_i64().unwrap())
+        .collect();
+    assert!(road.iter().all(|id| ids.contains(id)));
+    assert!(road.iter().all(|id| walk.contains(id)), "drivable cells must be walkable");
+
+    // Speed sections are visible to a client without knowing TileD gids.
+    let service_speeds: Vec<i64> = palette
+        .iter()
+        .filter(|entry| entry["type"] == "service")
+        .map(|entry| entry["spd_kmh"].as_i64().unwrap())
+        .collect();
+    assert!(service_speeds.len() >= 4, "service speed sections: {service_speeds:?}");
+    assert!(
+        palette
+            .iter()
+            .any(|entry| entry["speed_class"] == "Runway"),
+        "the runway section must reach the client"
+    );
+
+    // Origin and geometry travel with the map.
+    assert!(map["cell_size_m"].as_f64().unwrap() > 0.0);
+    assert!(map["origin"]["lat"].as_f64().unwrap() > 55.0);
+    assert_eq!(map["objects"].as_array().unwrap().len(), 6);
+    assert_eq!(map["zones"].as_array().unwrap().len(), 10);
+}
+
+#[tokio::test]
+async fn routes_across_the_real_apron_and_rejects_far_outside_points() {
+    let ctx = TestContext::with_map(Some(REAL_MAP)).await;
+    let dispatcher = ctx.dispatcher();
+    let active = ctx.state.active.read().expect("active map").clone();
+
+    // Pick two drivable cells far apart and route between them.
+    let mut cells = Vec::new();
+    for (y, row) in active.map.0.iter().enumerate() {
+        for (x, value) in row.iter().enumerate() {
+            if active.document.road_ids().contains(value) {
+                cells.push((x as i64, y as i64));
+            }
+        }
+    }
+    assert!(cells.len() > 1000, "the real map must have a road network");
+    let start = cells[0];
+    let end = cells[cells.len() - 1];
+    let body = expect_status(
+        ctx.post(
+            "/api/getRoute",
+            &dispatcher.token,
+            json!({ "start_point": [start.0, start.1], "end_point": [end.0, end.1] }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let route = body["route"].as_array().unwrap();
+    assert!(route.len() > 1);
+
+    expect_status(
+        ctx.post(
+            "/api/getRoute",
+            &dispatcher.token,
+            json!({ "start_point": [5, 5], "end_point": [100_000, 100_000] }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+}
+
+/// The customer's requirement in one assertion: where a fast section crosses a
+/// slower road the cell stores one id, but the loaded graph must still pay the
+/// slower limit. The matrix value alone would let a vehicle through at the fast
+/// class.
+#[tokio::test]
+async fn overlapped_cells_cost_the_slower_colocated_speed_in_the_real_graph() {
+    let ctx = TestContext::with_map(Some(REAL_MAP)).await;
+    let active = ctx.state.active.read().expect("active map").clone();
+    let document = &active.document;
+
+    assert!(
+        !document.overlays.is_empty(),
+        "the artefact must carry overlays; run `parser parse` in tools/parser"
+    );
+
+    // Pick an overlay whose ids are two different drivable speeds.
+    let pick = document
+        .overlays
+        .iter()
+        .find_map(|overlay| {
+            let mut road: Vec<(i64, SpeedClass)> = overlay
+                .ids
+                .iter()
+                .filter_map(|id| document.entry(*id))
+                .filter(|entry| entry.allows_road())
+                .filter_map(|entry| {
+                    let class = entry.speed_class.as_deref().map(SpeedClass::from_name)?;
+                    Some((entry.spd_kmh, class))
+                })
+                .collect();
+            if road.len() < 2 {
+                return None;
+            }
+            road.sort_by_key(|(spd, _)| *spd);
+            let slowest = road.first().copied()?;
+            let stored = document.entry(overlay.id)?;
+            (stored.spd_kmh > slowest.0).then_some((overlay.x, overlay.y, slowest))
+        })
+        .expect("an overlay joining two road speeds must exist on the real map");
+
+    let (x, y, (slow_kmh, slow_class)) = pick;
+    let stored = document
+        .entry(document.map.0[y as usize][x as usize])
+        .expect("stored entry");
+    assert!(
+        stored.spd_kmh > slow_kmh,
+        "cell ({x},{y}) shows {} km/h but a {} km/h road is also there",
+        stored.spd_kmh,
+        slow_kmh
+    );
+
+    // Cost of entering that cell must be the slow class, not the stored one.
+    let point = crate::types::map::Point::new(x, y);
+    let cost = crate::graph::vehicle_speed_mps(point, slow_class);
+    let naively = crate::graph::vehicle_speed_mps(
+        point,
+        SpeedClass::from_name(stored.speed_class.as_deref().expect("speed class")),
+    );
+    assert!(
+        cost < naively,
+        "the overlay must lower the speed: {cost} vs {naively}"
+    );
+    assert!(
+        document.overlay_at(x, y).is_some(),
+        "overlay lookup must find it"
+    );
+
+    // And the graph the server routes on must actually pay it: routing across
+    // the overlapped cell has to cost more than the same route would if the
+    // matrix value were the only speed. Two drivable neighbours on a straight
+    // line through (x, y) give exactly that comparison.
+    let road_of = |value: i64| {
+        document
+            .entry(value)
+            .filter(|entry| entry.allows_road())
+            .and_then(|entry| entry.speed_class.as_deref())
+            .map(SpeedClass::from_name)
+    };
+    let walk_of = |value: i64| {
+        document
+            .entry(value)
+            .filter(|entry| entry.allows_walk())
+            .and_then(|entry| entry.speed_class.as_deref())
+            .map(SpeedClass::from_name)
+    };
+    let closed = std::collections::HashSet::new();
+    let (lat, lon) = (document.origin.lat, document.origin.lon);
+    let cell = document.cell_size_m;
+    let overlaid = crate::graph::graph_from_grid_with_overlays(
+        &document.map,
+        &road_of,
+        &walk_of,
+        &|cx, cy| document.overlay_at(cx, cy).map(<[i64]>::to_vec),
+        &closed,
+        cell,
+        lat,
+        lon,
+    );
+    let plain = crate::graph::graph_from_grid(
+        &document.map,
+        &road_of,
+        &walk_of,
+        &closed,
+        cell,
+        lat,
+        lon,
+    );
+    let mut compared = false;
+    for pair in [
+        [crate::types::map::Point::new(x - 1, y), crate::types::map::Point::new(x + 1, y)],
+        [crate::types::map::Point::new(x, y - 1), crate::types::map::Point::new(x, y + 1)],
+    ] {
+        if document.map.0.get(pair[0].1 as usize).is_none() {
+            continue;
+        }
+        let a = overlaid.route_stops(crate::graph::AgentKind::Vehicle, &pair);
+        let b = plain.route_stops(crate::graph::AgentKind::Vehicle, &pair);
+        if let (Ok(a), Ok(b)) = (a, b) {
+            assert!(
+                a.seconds >= b.seconds - 1e-9,
+                "overlays must never make a route faster: {} vs {}",
+                a.seconds,
+                b.seconds
+            );
+            if a.seconds > b.seconds {
+                compared = true;
+            }
+        }
+    }
+    assert!(
+        compared,
+        "routing through the overlapped cell ({x},{y}) must cost more with overlays"
+    );
+}
+
+#[tokio::test]
+async fn map_catalog_lists_the_real_map_next_to_the_legacy_ones() {
+    let ctx = TestContext::with_map(Some(REAL_MAP)).await;
+    let dispatcher = ctx.dispatcher();
+
+    let catalog = expect_status(
+        ctx.get("/api/maps", &dispatcher.token).await,
+        StatusCode::OK,
+    );
+    let ids: Vec<&str> = catalog["maps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap())
+        .collect();
+    assert!(ids.contains(&"it2026_aero"), "catalog: {ids:?}");
+    assert!(ids.contains(&"map2"), "the v1 map must stay selectable");
+    assert_eq!(catalog["active_id"], "it2026_aero");
+
+    // Switching to the legacy map and back keeps both loadable.
+    let active = expect_status(
+        ctx.put("/api/maps/active", &dispatcher.token, json!({ "id": "map2" }))
+            .await,
+        StatusCode::OK,
+    );
+    assert_eq!(active["width"], 64);
+    let back = expect_status(
+        ctx.put(
+            "/api/maps/active",
+            &dispatcher.token,
+            json!({ "id": "it2026_aero" }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert!(back["width"].as_u64().unwrap() > 64);
+}
+
+#[tokio::test]
+async fn speed_classes_are_per_section_not_flat_apron() {
+    let ctx = TestContext::with_map(Some(REAL_MAP)).await;
+    let active = ctx.state.active.read().expect("active map").clone();
+    let document = active.document.clone();
+
+    let classes: Vec<SpeedClass> = document
+        .palette
+        .iter()
+        .filter_map(|entry| entry.speed_class.as_deref())
+        .map(SpeedClass::from_name)
+        .collect();
+    assert!(
+        classes.contains(&SpeedClass::Runway),
+        "palette classes: {classes:?}"
+    );
+    assert!(
+        classes.iter().any(|class| *class != SpeedClass::VehicleApron),
+        "not every cell may be apron speed: {classes:?}"
+    );
+
+    // A vehicle keeps the airfield cap on a runway section (300 km/h is the
+    // aircraft's), while the posted speed stays in the palette.
+    let runway = crate::graph::vehicle_speed_mps(
+        crate::types::map::Point::new(0, 0),
+        SpeedClass::Runway,
+    );
+    let airfield = crate::graph::vehicle_speed_mps(
+        crate::types::map::Point::new(0, 0),
+        SpeedClass::VehicleAirfield,
+    );
+    assert!((runway - airfield).abs() < 1e-9, "a vehicle on the runway is capped");
+    // A 300 km/h section still lets a vehicle skip apron cells that are slower.
+    let apron = crate::graph::vehicle_speed_mps(
+        crate::types::map::Point::new(0, 0),
+        SpeedClass::VehicleApron,
+    );
+    assert!(runway > apron, "runway cap {runway} m/s must beat apron {apron} m/s");
+    // And travel time follows the section: a runway edge is cheap for a vehicle.
+    assert!(
+        runway / apron >= 1.9,
+        "sections must actually differ in cost: runway {runway} vs apron {apron} m/s"
+    );
+
+    // The GPS plausibility ceiling comes from the palette, not the sidecar's
+    // 12 m/s, otherwise a legal runway movement is dropped as a jump.
+    let location = &active.location;
+    assert!(
+        location.max_speed_mps >= runway * 0.99,
+        "plausibility ceiling {} m/s must cover the runway {runway} m/s",
+        location.max_speed_mps
+    );
+}
+
+#[tokio::test]
+async fn engineer_can_leave_the_apron_on_pedestrian_paths() {
+    let ctx = TestContext::with_map(Some(REAL_MAP)).await;
+    let active = ctx.state.active.read().expect("active map").clone();
+
+    let walk_only = active
+        .document
+        .palette
+        .iter()
+        .find(|entry| entry.allows_walk() && !entry.allows_road())
+        .expect("the map must carry pedestrian-only cells");
+    let walk_only_cell = active
+        .map
+        .0
+        .iter()
+        .enumerate()
+        .find_map(|(y, row)| {
+            row.iter()
+                .position(|value| *value == walk_only.id)
+                .map(|x| (x as i64, y as i64))
+        })
+        .expect("a pedestrian-only cell exists in the matrix");
+    let road_cell = active
+        .map
+        .0
+        .iter()
+        .enumerate()
+        .find_map(|(y, row)| {
+            row.iter()
+                .position(|value| active.document.road_ids().contains(value))
+                .map(|x| (x as i64, y as i64))
+        })
+        .expect("a drivable cell exists");
+
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    expect_status(
+        ctx.post(
+            "/api/getRoute",
+            &engineer.token,
+            json!({
+                "start_point": [road_cell.0, road_cell.1],
+                "end_point": [walk_only_cell.0, walk_only_cell.1],
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+}
+
+/// The point of the v2 format: two routes of the *same length* through
+/// sections posted at different speeds must cost different time, and that time
+/// must reach the caller instead of dying inside `PlannedRoute`.
+#[tokio::test]
+async fn equal_length_routes_cost_by_section_speed_and_report_eta() {
+    let ctx = TestContext::with_map(Some(REAL_MAP)).await;
+    let dispatcher = ctx.dispatcher();
+    let active = ctx.state.active.read().expect("active map").clone();
+
+    // Locate a straight run of a given posted speed, longest first, so the
+    // test does not hardcode coordinates that a re-export of the map changes.
+    let palette = &active.document.palette;
+    let section = |kmh: i64, min_len: usize| -> Option<((i64, i64), (i64, i64), i64)> {
+        let ids: Vec<i64> = palette
+            .iter()
+            .filter(|entry| entry.allows_road() && entry.spd_kmh == kmh)
+            .map(|entry| entry.id)
+            .collect();
+        assert!(!ids.is_empty(), "the map must post a {kmh} km/h road section");
+        let matrix = &active.map.0;
+        let height = matrix.len();
+        let width = matrix[0].len();
+        let mut best: Option<((i64, i64), (i64, i64), i64)> = None;
+        for (y, row) in matrix.iter().enumerate() {
+            let mut x = 0;
+            while x < width {
+                if !ids.contains(&row[x]) {
+                    x += 1;
+                    continue;
+                }
+                let from = x;
+                while x < width && ids.contains(&row[x]) {
+                    x += 1;
+                }
+                let len = x - from;
+                if len >= min_len && best.is_none_or(|(_, _, b)| (len as i64) > b) {
+                    best = Some((
+                        (from as i64, y as i64),
+                        ((x - 1) as i64, y as i64),
+                        len as i64,
+                    ));
+                }
+            }
+        }
+        let _ = height;
+        best
+    };
+
+    let slow = section(5, 3).expect("a 5 km/h section");
+    let fast = section(20, 3).expect("a 20 km/h section");
+    // Equal length is what makes the comparison about speed only.
+    let steps = slow.2.min(fast.2).min(12);
+    assert!(steps >= 3, "both sections must have a comparable run");
+    let slow_leg = (slow.0, (slow.0 .0 + steps - 1, slow.0 .1));
+    let fast_leg = (fast.0, (fast.0 .0 + steps - 1, fast.0 .1));
+
+    let route = |leg: ((i64, i64), (i64, i64)), agent: &str| {
+        json!({
+            "start_point": [leg.0 .0, leg.0 .1],
+            "end_point": [leg.1 .0, leg.1 .1],
+            "agent": agent,
+        })
+    };
+
+    let slow_body = expect_status(
+        ctx.post("/api/getRoute", &dispatcher.token, route(slow_leg, "vehicle"))
+            .await,
+        StatusCode::OK,
+    );
+    let fast_body = expect_status(
+        ctx.post("/api/getRoute", &dispatcher.token, route(fast_leg, "vehicle"))
+            .await,
+        StatusCode::OK,
+    );
+
+    // Same number of cells: the length is not what differs.
+    assert_eq!(
+        slow_body["route"].as_array().unwrap().len(),
+        fast_body["route"].as_array().unwrap().len(),
+        "the two legs must have the same length for the comparison to mean anything"
+    );
+
+    let slow_eta = slow_body["eta_seconds"].as_u64().expect("eta_seconds on a route");
+    let fast_eta = fast_body["eta_seconds"].as_u64().expect("eta_seconds on a route");
+    assert!(slow_eta > 0 && fast_eta > 0);
+    assert_eq!(slow_body["agent"], "vehicle");
+    assert_eq!(fast_body["agent"], "vehicle");
+    assert!(
+        slow_eta >= fast_eta * 2,
+        "a 5 km/h section ({slow_eta}s) must cost far more than a 20 km/h one ({fast_eta}s) \
+         over the same {steps} cells"
+    );
+
+    // The same cells on foot are one pace: a pedestrian ignores road speeds.
+    let walk_slow = expect_status(
+        ctx.post("/api/getRoute", &dispatcher.token, route(slow_leg, "engineer"))
+            .await,
+        StatusCode::OK,
+    );
+    let walk_fast = expect_status(
+        ctx.post("/api/getRoute", &dispatcher.token, route(fast_leg, "engineer"))
+            .await,
+        StatusCode::OK,
+    );
+    assert_eq!(walk_slow["eta_seconds"], walk_fast["eta_seconds"]);
+    assert_eq!(walk_slow["agent"], "engineer");
+
+    // Omitting the field keeps the old pedestrian meaning.
+    let legacy = expect_status(
+        ctx.post(
+            "/api/getRoute",
+            &dispatcher.token,
+            json!({
+                "start_point": [fast_leg.0 .0, fast_leg.0 .1],
+                "end_point": [fast_leg.1 .0, fast_leg.1 .1],
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(legacy["agent"], "engineer");
+    assert_eq!(legacy["eta_seconds"], walk_fast["eta_seconds"]);
+}

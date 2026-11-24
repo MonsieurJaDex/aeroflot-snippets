@@ -21,20 +21,25 @@
         "description": "Active map without the matrix.",
         "properties": {
           "height": {
+            "description": "Map height in cells.",
             "format": "int64",
             "type": "integer"
           },
           "id": {
+            "description": "File stem of the active map.",
             "type": "string"
           },
           "name": {
+            "description": "Display name, equal to the file stem.",
             "type": "string"
           },
           "updated_at": {
+            "description": "When the server loaded the map file.",
             "format": "date-time",
             "type": "string"
           },
           "width": {
+            "description": "Map width in cells.",
             "format": "int64",
             "type": "integer"
           }
@@ -104,6 +109,7 @@
         "description": "Aircraft positions visible to a dispatcher.",
         "properties": {
           "aircraft": {
+            "description": "Aircraft currently present on the active map.",
             "items": {
               "$ref": "#/components/schemas/AircraftEntry"
             },
@@ -126,6 +132,7 @@
         "description": "Arrival and departure records for the active map.",
         "properties": {
           "movements": {
+            "description": "Recorded aircraft stays on the active map.",
             "items": {
               "$ref": "#/components/schemas/AircraftMovementResponse"
             },
@@ -153,10 +160,12 @@
             "type": "string"
           },
           "arrived_at": {
+            "description": "When the aircraft arrived on the map.",
             "format": "date-time",
             "type": "string"
           },
           "departed_at": {
+            "description": "When the aircraft left the map. `null` while it is still parked.",
             "format": "date-time",
             "type": [
               "string",
@@ -349,6 +358,7 @@
             "type": "integer"
           },
           "candidates": {
+            "description": "Engineers considered for the task, with the reason for each verdict.",
             "items": {
               "$ref": "#/components/schemas/AssignmentCandidate"
             },
@@ -408,20 +418,25 @@
         "description": "One row of the assignment comparison.",
         "properties": {
           "eligible": {
+            "description": "Whether this engineer can take the task.",
             "type": "boolean"
           },
           "engineer_id": {
+            "description": "UUID of the engineer.",
             "type": "string"
           },
           "eta_seconds": {
+            "description": "Estimated travel time in seconds.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "reason": {
+            "description": "Why the engineer was accepted or rejected.",
             "type": "string"
           },
           "uses_vehicle": {
+            "description": "Whether the route requires a special vehicle.",
             "type": "boolean"
           }
         },
@@ -431,6 +446,39 @@
           "reason",
           "eta_seconds",
           "uses_vehicle"
+        ],
+        "type": "object"
+      },
+      "CellOverlay": {
+        "description": "Every class that claimed one cell, when more than one did.\n\n`map[y][x]` holds a single id. Where a taxiway crosses a service road of a\ndifferent speed the matrix can only show one of them; this table keeps the\nother, so the second speed section is not lost. The first entry of `ids` is\nthe id stored in the matrix.",
+        "properties": {
+          "id": {
+            "description": "The palette id stored in `map`.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "ids": {
+            "description": "All ids that claimed the cell, winner first.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "x": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "y": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "id",
+          "ids"
         ],
         "type": "object"
       },
@@ -567,9 +615,11 @@
         "description": "Response payload describing the engineer's current task.",
         "properties": {
           "arrived": {
+            "description": "Whether the engineer has reached the aircraft.",
             "type": "boolean"
           },
           "ata_chapter": {
+            "description": "ATA chapter the issue belongs to, when known.",
             "type": [
               "string",
               "null"
@@ -580,6 +630,7 @@
             "type": "string"
           },
           "eta_seconds": {
+            "description": "Estimated travel time in seconds.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -593,6 +644,7 @@
             "type": "string"
           },
           "mel_category": {
+            "description": "MEL category that applies to the issue, when known.",
             "type": [
               "string",
               "null"
@@ -614,9 +666,11 @@
             "description": "Route from the engineer to the aircraft."
           },
           "status": {
+            "description": "Current task status, for example `assigned` or `in_progress`.",
             "type": "string"
           },
           "tools_picked": {
+            "description": "Whether the engineer has collected the required tools.",
             "type": "boolean"
           }
         },
@@ -784,6 +838,10 @@
         "additionalProperties": false,
         "description": "Request payload for the `get_route` endpoint.",
         "properties": {
+          "agent": {
+            "$ref": "#/components/schemas/RouteAgent",
+            "description": "Who travels. Omitted means `engineer`, keeping the old behaviour."
+          },
           "end_point": {
             "$ref": "#/components/schemas/Point",
             "description": "Destination point of the route."
@@ -802,8 +860,18 @@
       "GetRouteResponse": {
         "description": "Response payload for the `get_route` endpoint.",
         "properties": {
+          "agent": {
+            "$ref": "#/components/schemas/RouteAgent",
+            "description": "Who the route was planned for."
+          },
           "distance": {
             "description": "Total path length in map cells.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "eta_seconds": {
+            "description": "Estimated travel time in seconds at the per-section speeds of the map.\nTwo routes of equal `distance` differ here when they cross different\nspeed classes (a 20 km/h service section against a 5 km/h one).",
+            "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
@@ -814,7 +882,9 @@
         },
         "required": [
           "route",
-          "distance"
+          "distance",
+          "eta_seconds",
+          "agent"
         ],
         "type": "object"
       },
@@ -917,13 +987,41 @@
         ],
         "type": "object"
       },
+      "MapLayers": {
+        "description": "Layer membership of the whole document.",
+        "properties": {
+          "road": {
+            "description": "Palette ids a vehicle may drive on.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "walk": {
+            "description": "Palette ids an engineer may walk on.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "road",
+          "walk"
+        ],
+        "type": "object"
+      },
       "MapListResponse": {
         "description": "Catalog of maps and the id that is active.",
         "properties": {
           "active_id": {
+            "description": "Id of the map currently active.",
             "type": "string"
           },
           "maps": {
+            "description": "All map files the server can switch to.",
             "items": {
               "$ref": "#/components/schemas/MapSummary"
             },
@@ -964,31 +1062,138 @@
         },
         "type": "array"
       },
+      "MapObject": {
+        "description": "A building or other named area, as a cell bounding box.",
+        "properties": {
+          "h": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "`terminal`, `hangar`, `runway`, `parking`, `warehouse`, `other`.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "w": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "x": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "y": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "x",
+          "y",
+          "w",
+          "h"
+        ],
+        "type": "object"
+      },
       "MapResponse": {
         "description": "Airport map served to authenticated clients.",
         "properties": {
+          "cell_size_m": {
+            "description": "Side of one cell in metres.",
+            "format": "double",
+            "type": "number"
+          },
+          "format": {
+            "description": "Map format generation: `2` for a palette matrix.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "height": {
+            "description": "Height in cells.",
+            "minimum": 0,
+            "type": "integer"
+          },
           "id": {
             "description": "File stem of the map currently being served.",
             "type": "string"
           },
+          "layers": {
+            "$ref": "#/components/schemas/MapLayers",
+            "description": "Which palette ids are drivable and which are walkable."
+          },
           "matrix": {
             "$ref": "#/components/schemas/MapMatrix",
-            "description": "Grid of walkable cells and obstacles."
+            "description": "Grid of walkable cells and obstacles. Values are palette ids, `0` is\nempty, so a client must read `palette` to interpret them."
           },
           "name": {
             "description": "Display name, equal to the file stem.",
             "type": "string"
           },
+          "objects": {
+            "description": "Buildings and other named areas.",
+            "items": {
+              "$ref": "#/components/schemas/MapObject"
+            },
+            "type": "array"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/Origin",
+            "description": "North-west corner of cell `(0, 0)`."
+          },
+          "overlays": {
+            "description": "Cells claimed by more than one class. `matrix` holds only the winner, so\na client that needs both speeds on an overlapped cell reads this.",
+            "items": {
+              "$ref": "#/components/schemas/CellOverlay"
+            },
+            "type": "array"
+          },
+          "palette": {
+            "description": "Every class a matrix cell may carry.",
+            "items": {
+              "$ref": "#/components/schemas/PaletteEntry"
+            },
+            "type": "array"
+          },
           "updated_at": {
             "description": "When this process loaded the map file.",
             "format": "date-time",
             "type": "string"
+          },
+          "width": {
+            "description": "Width in cells.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "zones": {
+            "description": "Service zones.",
+            "items": {
+              "$ref": "#/components/schemas/MapZone"
+            },
+            "type": "array"
           }
         },
         "required": [
           "id",
           "name",
           "matrix",
+          "format",
+          "width",
+          "height",
+          "cell_size_m",
+          "origin",
+          "palette",
+          "layers",
+          "objects",
+          "zones",
           "updated_at"
         ],
         "type": "object"
@@ -1001,16 +1206,20 @@
             "type": "boolean"
           },
           "height": {
+            "description": "Map height in cells.",
             "format": "int64",
             "type": "integer"
           },
           "id": {
+            "description": "File stem of the map, used as the switchable id.",
             "type": "string"
           },
           "name": {
+            "description": "Display name, equal to the file stem.",
             "type": "string"
           },
           "width": {
+            "description": "Map width in cells.",
             "format": "int64",
             "type": "integer"
           }
@@ -1024,10 +1233,42 @@
         ],
         "type": "object"
       },
+      "MapZone": {
+        "description": "A service zone: a disc in cell coordinates.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "radius_m": {
+            "format": "double",
+            "type": "number"
+          },
+          "x": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "y": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "x",
+          "y",
+          "radius_m"
+        ],
+        "type": "object"
+      },
       "MeResponse": {
         "description": "Profile of the authenticated user. Never includes the password hash.",
         "properties": {
           "email": {
+            "description": "Email of the authenticated user.",
             "format": "email",
             "type": "string"
           },
@@ -1043,14 +1284,17 @@
             ]
           },
           "id": {
+            "description": "User UUID.",
             "format": "uuid",
             "type": "string"
           },
           "name": {
+            "description": "Display name of the authenticated user.",
             "type": "string"
           },
           "user_role": {
-            "$ref": "#/components/schemas/UserRole"
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Role granted to the account."
           }
         },
         "required": [
@@ -1101,6 +1345,64 @@
           "Bearer"
         ],
         "type": "string"
+      },
+      "Origin": {
+        "description": "Grid anchor: the north-west corner of cell `(0, 0)`.",
+        "properties": {
+          "lat": {
+            "format": "double",
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "type": "object"
+      },
+      "PaletteEntry": {
+        "description": "One drivable or walkable cell class.",
+        "properties": {
+          "id": {
+            "description": "Value a cell carries in `map`.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "pass": {
+            "description": "Layers this class belongs to: `road`, `walk`, or neither (obstacle).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "spd_kmh": {
+            "description": "Posted speed in km/h; `0` for an obstacle.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "speed_class": {
+            "description": "Name of the `SpeedClass` variant, `None` for an obstacle.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "description": "Source class: `service`, `taxi`, `runway`, `pedestrian`, `legacy`, or an\nobstacle kind (`terminal`, `hangar`, …).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "spd_kmh",
+          "pass"
+        ],
+        "type": "object"
       },
       "Point": {
         "description": "A coordinate on the airport map.\n\nSerialised as a JSON array `[x, y]`.",
@@ -1231,6 +1533,14 @@
         },
         "type": "array"
       },
+      "RouteAgent": {
+        "description": "Who travels the route. A pedestrian ignores the posted road speeds (a\nperson walks at the same pace on an apron and on an airfield), while a\nground vehicle keeps the speed of each section and therefore pays very\ndifferently on a 5 km/h service road and on a 20 km/h one.",
+        "enum": [
+          "engineer",
+          "vehicle"
+        ],
+        "type": "string"
+      },
       "SelectMapRequest": {
         "additionalProperties": false,
         "description": "Body of `PUT /api/maps/active`.",
@@ -1271,6 +1581,7 @@
       "TrackBatch": {
         "properties": {
           "points": {
+            "description": "contract: a malformed element is dropped instead of failing the batch, so\none bad point does not reject the points around it.",
             "items": {
               "$ref": "#/components/schemas/TrackPoint"
             },
@@ -1292,18 +1603,14 @@
             ]
           },
           "lat": {
+            "description": "Required latitude in degrees.",
             "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
+            "type": "number"
           },
           "lon": {
+            "description": "Required longitude in degrees.",
             "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
+            "type": "number"
           },
           "obj": {
             "type": "string"
@@ -1323,7 +1630,9 @@
           }
         },
         "required": [
-          "obj"
+          "obj",
+          "lat",
+          "lon"
         ],
         "type": "object"
       },
@@ -3885,6 +4194,121 @@
       }
     },
     "/api/v1/track": {
+      "get": {
+        "description": "Point the app at\n`https://<host>/api/v1/track?obj=<engineer>&lat=%LAT&lon=%LON&acc=%ACC&spd=%SPD&timestamp=%TIMESTAMP`\nand it becomes a position source for the map. The app queues the requests\nwhile offline and repeats each logged line, so a sample older than the one\nalready stored is acknowledged and ignored.",
+        "operationId": "ingestTrackCustomUrl",
+        "parameters": [
+          {
+            "description": "Object the point belongs to: a map agent, an engineer UUID or an\naircraft registration. A fixed part of the configured URL.",
+            "in": "query",
+            "name": "obj",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%aid` — Android id, used as the object when `obj` is absent.",
+            "in": "query",
+            "name": "aid",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%ser` — device serial, used as the object when `obj` and `aid` are absent.",
+            "in": "query",
+            "name": "ser",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%lat` — latitude in degrees.",
+            "in": "query",
+            "name": "lat",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%lon` — longitude in degrees.",
+            "in": "query",
+            "name": "lon",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%acc` — horizontal accuracy in metres.",
+            "in": "query",
+            "name": "acc",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%spd` — speed in metres per second.",
+            "in": "query",
+            "name": "spd",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%timestamp` — acquisition time in unix seconds. Preferred time source.",
+            "in": "query",
+            "name": "timestamp",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%time` — acquisition time as UTC RFC 3339.",
+            "in": "query",
+            "name": "time",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%timeoffset` — acquisition time with the device timezone offset.",
+            "in": "query",
+            "name": "timeoffset",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackAck"
+                }
+              }
+            },
+            "description": "Point accepted"
+          },
+          "400": {
+            "description": "lat/lon missing or not numeric"
+          }
+        },
+        "summary": "Accepts one point of a GPSLogger *Custom URL* callback.",
+        "tags": [
+          "Geo"
+        ]
+      },
       "post": {
         "operationId": "ingestTrack",
         "requestBody": {
@@ -3909,7 +4333,13 @@
             "description": "Point or batch accepted"
           },
           "400": {
-            "description": "lat/lon missing or not numeric"
+            "description": "Malformed JSON, missing obj or non-numeric lat/lon"
+          },
+          "415": {
+            "description": "Content-Type is not application/json"
+          },
+          "500": {
+            "description": "Internal storage failure"
           }
         },
         "tags": [

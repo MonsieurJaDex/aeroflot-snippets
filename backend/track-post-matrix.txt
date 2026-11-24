@@ -1,0 +1,218 @@
+POST /api/v1/track — live-server evidence matrix. Raw, unedited observations.
+recorded: 2026-11-24T14:49:38Z UTC
+
+Server provenance
+  working tree : 6 (branch task/live-http-matrix-for-post-api-v1-8cf12b)
+  source built : the contract-aligned backend/src/router/track.rs produced by task t-hdqbl2
+                 (commit bfd807b, branch task/restore-and-contract-align-post-f6daed).
+                 This tree's own copy of track.rs still holds the gutted 'ingest' stub
+                 (fn ingest(body: String) returning a bare 200 with no body), which answers
+                 every POST with an empty 200 and therefore cannot demonstrate the contract.
+                 The server under test was built from the fixed source with
+                 CARGO_TARGET_DIR=<tree6>/.scratch/target. No source file was edited.
+  command      : host=0.0.0.0 port=3001 debug=true database_url=postgres://postgres:postgres@localhost:5432/aeroflot redis_url=redis://127.0.0.1:6379/0 jwt_secret=dev-secret cargo run -- --map-path ./assets/map2.json
+  startup log  : 'Running server at: http://0.0.0.0:3001', 'active map selected map_id=map2'
+  objects      : e-01 and RA-73142 belong to the active map (map2); zzz-unknown-999 does not.
+
+=== Listen address before the run ===
+$ lsof -nP -iTCP:3001 -sTCP:LISTEN
+COMMAND    PID  USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+aeroflot- 3693 jadex   31u  IPv4 0xac76848ef40c7dc9      0t0  TCP *:3001 (LISTEN)
+
+### Case 1 — single point, object form
+$ curl -X POST http://127.0.0.1:3001/api/v1/track -H Content-Type:\ application/json -d \{\"obj\":\"e-01\"\,\"lat\":55.831\,\"lon\":37.636\}
+HTTP/1.1 200 OK
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: 904f3342-0fc7-49ab-8df6-5321e551af9d
+content-length: 76
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-24T14:49:38.204Z"}
+### Case 2 — batch form {"points":[...]} — two results, request order preserved
+$ curl -X POST http://127.0.0.1:3001/api/v1/track -H Content-Type:\ application/json -d \{\"points\":\[\{\"obj\":\"e-01\"\,\"lat\":55.831\,\"lon\":37.636\}\,\{\"obj\":\"RA-73142\"\,\"lat\":55.8311\,\"lon\":37.6361\}\]\}
+HTTP/1.1 200 OK
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: ecbcc0bd-c95d-4492-90bb-6d90450e1c1d
+content-length: 159
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+[{"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-24T14:49:38.218Z"},{"accepted":true,"applied":true,"obj":"RA-73142","t":"2026-11-24T14:49:38.219Z"}]
+### Case 3a — lat missing
+$ curl -X POST http://127.0.0.1:3001/api/v1/track -H Content-Type:\ application/json -d \{\"obj\":\"e-01\"\,\"lon\":37.636\}
+HTTP/1.1 400 Bad Request
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: 938311ad-5198-43d8-bffd-7fbbac975476
+content-length: 150
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"code":"BAD_REQUEST","message":"Failed to deserialize the JSON body into the target type: data did not match any variant of untagged enum TrackBody"}
+### Case 3b — lat is the string "abc"
+$ curl -X POST http://127.0.0.1:3001/api/v1/track -H Content-Type:\ application/json -d \{\"obj\":\"e-01\"\,\"lat\":\"abc\"\,\"lon\":37.636\}
+HTTP/1.1 400 Bad Request
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: 531168af-c3d4-49de-b376-fd8f22b381c3
+content-length: 150
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"code":"BAD_REQUEST","message":"Failed to deserialize the JSON body into the target type: data did not match any variant of untagged enum TrackBody"}
+### Case 3c — lat is null
+$ curl -X POST http://127.0.0.1:3001/api/v1/track -H Content-Type:\ application/json -d \{\"obj\":\"e-01\"\,\"lat\":null\,\"lon\":37.636\}
+HTTP/1.1 400 Bad Request
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: ee192553-f52c-4e4b-a2ab-12c85f9077a8
+content-length: 150
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"code":"BAD_REQUEST","message":"Failed to deserialize the JSON body into the target type: data did not match any variant of untagged enum TrackBody"}
+### Case 3d — obj missing
+$ curl -X POST http://127.0.0.1:3001/api/v1/track -H Content-Type:\ application/json -d \{\"lat\":55.831\,\"lon\":37.636\}
+HTTP/1.1 400 Bad Request
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: 90e8dec0-99b1-40b2-ad1a-978a40b542cc
+content-length: 150
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"code":"BAD_REQUEST","message":"Failed to deserialize the JSON body into the target type: data did not match any variant of untagged enum TrackBody"}
+### Case 3e — malformed JSON (truncated body)
+$ curl -X POST http://127.0.0.1:3001/api/v1/track -H Content-Type:\ application/json -d \{\"obj\":\"e-01\"\,\"lat\":55.831\,
+HTTP/1.1 400 Bad Request
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: 7fb5c4fb-13fd-4f27-b3fa-740aeb589068
+content-length: 122
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"code":"BAD_REQUEST","message":"Failed to parse the request body as JSON: EOF while parsing a value at line 1 column 27"}
+### Case 4 — valid JSON body, Content-Type: text/plain
+$ curl -X POST http://127.0.0.1:3001/api/v1/track -H Content-Type:\ text/plain -d \{\"obj\":\"e-01\"\,\"lat\":55.831\,\"lon\":37.636\}
+HTTP/1.1 415 Unsupported Media Type
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: 46ec61fe-d8c9-443f-bac7-2149491f3979
+content-length: 83
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"code":"UNSUPPORTED_MEDIA_TYPE","message":"Content-Type must be application/json"}
+### Case 5 — unknown obj
+$ curl -X POST http://127.0.0.1:3001/api/v1/track -H Content-Type:\ application/json -d \{\"obj\":\"zzz-unknown-999\"\,\"lat\":55.831\,\"lon\":37.636\}
+HTTP/1.1 200 OK
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: 8a260ae0-dcba-458d-a753-47d2208c0304
+content-length: 88
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"accepted":true,"applied":false,"obj":"zzz-unknown-999","t":"2026-11-24T14:49:38.281Z"}
+### Case 6 — t omitted — the same coordinate case 1 stored, so only the server-side time can differ
+$ curl -X POST http://127.0.0.1:3001/api/v1/track -H Content-Type:\ application/json -d \{\"obj\":\"e-01\"\,\"lat\":55.831\,\"lon\":37.636\}
+HTTP/1.1 200 OK
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: e53e2f5b-ace3-45db-be9e-d44f5f37b123
+content-length: 76
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-24T14:49:38.290Z"}
+### Case 7a — GET, GPSLogger Custom URL shape exactly as backend/test/api/ingestTrackCustomUrl.yml — obj,lat,lon,acc,spd,timestamp in that order; %TIMESTAMP substituted the way the device substitutes it, with its own clock (two minutes ahead of this host)
+$ curl http://127.0.0.1:3001/api/v1/track\?obj=RA-73142\&lat=55.8311\&lon=37.6361\&acc=5.0\&spd=1.2\&timestamp=1795531898
+HTTP/1.1 200 OK
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: d97f9158-21cf-4d1c-a3d3-6638d6993002
+content-length: 80
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"accepted":true,"applied":true,"obj":"RA-73142","t":"2026-11-24T14:51:38.000Z"}
+### Case 7a-replay — GET, the identical URL with %TIMESTAMP left at the literal value 1764000000 that the Bruno file carries as a sample — a 2025 timestamp, i.e. an offline line replayed after a newer point was stored
+$ curl http://127.0.0.1:3001/api/v1/track\?obj=e-01\&lat=55.831\&lon=37.636\&acc=5.0\&spd=1.2\&timestamp=1764000000
+HTTP/1.1 200 OK
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: fc034e8c-ae13-460e-8984-df2825ad738e
+content-length: 77
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"accepted":true,"applied":false,"obj":"e-01","t":"2025-11-24T16:00:00.000Z"}
+### Case 7b — GET with lat= blank
+$ curl http://127.0.0.1:3001/api/v1/track\?obj=e-01\&lat=\&lon=37.636
+HTTP/1.1 400 Bad Request
+content-type: application/json
+access-control-expose-headers: *
+access-control-allow-origin: *
+vary: accept-encoding
+x-request-id: bc5054dc-aa09-423b-86a1-1deaf8959b7a
+content-length: 67
+date: Tue, 24 Nov 2026 14:49:38 GMT
+
+{"code":"BAD_REQUEST","message":"lat and lon are required numbers"}
+=== Listen address after the run (same PID throughout) ===
+$ lsof -nP -iTCP:3001 -sTCP:LISTEN
+COMMAND    PID  USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+aeroflot- 3693 jadex   31u  IPv4 0xac76848ef40c7dc9      0t0  TCP *:3001 (LISTEN)
+
+=== Index of the observations above, extracted from the responses just captured ===
+case       status line                          body
+1          HTTP/1.1 200 OK                      {"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-24T14:49:38.204Z"}
+2          HTTP/1.1 200 OK                      [{"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-24T14:49:38.218Z"},{"accepted":true,"applied":true,
+3a         HTTP/1.1 400 Bad Request             {"code":"BAD_REQUEST","message":"Failed to deserialize the JSON body into the target type: data did not match 
+3b         HTTP/1.1 400 Bad Request             {"code":"BAD_REQUEST","message":"Failed to deserialize the JSON body into the target type: data did not match 
+3c         HTTP/1.1 400 Bad Request             {"code":"BAD_REQUEST","message":"Failed to deserialize the JSON body into the target type: data did not match 
+3d         HTTP/1.1 400 Bad Request             {"code":"BAD_REQUEST","message":"Failed to deserialize the JSON body into the target type: data did not match 
+3e         HTTP/1.1 400 Bad Request             {"code":"BAD_REQUEST","message":"Failed to parse the request body as JSON: EOF while parsing a value at line 1
+4          HTTP/1.1 415 Unsupported Media Type  {"code":"UNSUPPORTED_MEDIA_TYPE","message":"Content-Type must be application/json"}
+5          HTTP/1.1 200 OK                      {"accepted":true,"applied":false,"obj":"zzz-unknown-999","t":"2026-11-24T14:49:38.281Z"}
+6          HTTP/1.1 200 OK                      {"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-24T14:49:38.290Z"}
+7a         HTTP/1.1 200 OK                      {"accepted":true,"applied":true,"obj":"RA-73142","t":"2026-11-24T14:51:38.000Z"}
+7a-replay  HTTP/1.1 200 OK                      {"accepted":true,"applied":false,"obj":"e-01","t":"2025-11-24T16:00:00.000Z"}
+7b         HTTP/1.1 400 Bad Request             {"code":"BAD_REQUEST","message":"lat and lon are required numbers"}
+
+=== How to read the applied:false acknowledgement among the 200s ===
+Case 5 — the unknown-object rule: zzz-unknown-999 is in neither the active map nor the
+  engineer table, so the point is acknowledged (accepted true, 200) and not applied.
+Case 7a-replay — the stale-sample rule, not a regression: the literal %TIMESTAMP value 1764000000
+  is 2025-11-24T16:00:00Z, older than the point already stored for e-01, so the repeated
+  line is acknowledged and ignored — exactly what a GPSLogger queue replay must get. Case
+  7a sends the same query shape with the device's own clock and returns applied:true.
+While probing, a point jumping tens of metres within milliseconds was also acknowledged with
+applied:false by the outlier guard; that guard is why case 1 and case 6 reuse one coordinate.
+
+=== Shutdown after the run (the server is not left listening) ===
+$ kill <pid of the listener>
+$ lsof -nP -iTCP:3001 -sTCP:LISTEN
+no output — nothing is listening on 3001
+$ curl -s -m 3 -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:3001/api/v1/track ...
+000
+server log tail: 'shutdown signal received'
+
+The CARGO_TARGET_DIR named above was a throwaway build directory holding only compiled
+objects; it has been moved out of this tree. No source file was created or edited.
