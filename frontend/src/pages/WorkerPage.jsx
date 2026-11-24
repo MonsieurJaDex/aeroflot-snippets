@@ -100,6 +100,7 @@ export default function WorkerPage() {
   const etaAnchor = useRef({ id: null, at: 0, base: null });
   const etaArrivedBeep = useRef("");
   const staleBeepAt = useRef(0);
+  const lastRouteRefresh = useRef(0);
 
   taskRef.current = task;
 
@@ -189,6 +190,17 @@ export default function WorkerPage() {
       try {
         await updateEngineerPosition(current.userId, [[point, t]]);
         setOutboxCount(pendingCount());
+        // п.8: после новой геоточки пересчитываем маршрут на сервере (не чаще 15 с).
+        const taskId = taskRef.current?.id;
+        if (taskId && Date.now() - lastRouteRefresh.current > 15000) {
+          lastRouteRefresh.current = Date.now();
+          try {
+            await apiRequest(`/api/tasks/${encodeURIComponent(taskId)}/route`, { method: "POST" });
+            await loadTask();
+          } catch (error) {
+            console.warn("[worker] route refresh", error);
+          }
+        }
       } catch {
         enqueueEngineerPoint(current.userId, point, t);
         setOutboxCount(pendingCount());
@@ -783,6 +795,7 @@ export default function WorkerPage() {
     if (!task?.id) return;
     setBusyAction("route");
     try {
+      lastRouteRefresh.current = Date.now();
       await apiRequest(`/api/tasks/${encodeURIComponent(task.id)}/route`, { method: "POST" });
       await refreshTask();
       flash("Маршрут пересчитан на сервере");
@@ -811,6 +824,16 @@ export default function WorkerPage() {
       setOutboxCount(pendingCount());
       flash("Позиция отправлена");
       softBeep(500, 90);
+      if (task?.id) {
+        lastRouteRefresh.current = Date.now();
+        try {
+          await apiRequest(`/api/tasks/${encodeURIComponent(task.id)}/route`, { method: "POST" });
+          await refreshTask();
+          flash("Маршрут обновлён после гео");
+        } catch (error) {
+          console.warn("[worker] route after geo", error);
+        }
+      }
     } catch (error) {
       enqueueEngineerPoint(current.userId, point, t);
       setOutboxCount(pendingCount());
