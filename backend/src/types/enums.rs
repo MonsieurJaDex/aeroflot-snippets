@@ -99,6 +99,50 @@ impl TryFrom<&str> for VehicleType {
     }
 }
 
+/// What kind of object a calibration pin belongs to, which decides the surface
+/// it moves on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ObjectKind {
+    /// A person walking.
+    Engineer,
+    /// A special vehicle driving.
+    Vehicle,
+    /// An aircraft, which is towed along the road layer.
+    Aircraft,
+}
+
+impl ObjectKind {
+    /// Infers the kind from a tracker's `obj` label, following the same rules
+    /// the ingest applies: `v-…` is a vehicle, `RA-…` an aircraft, anything
+    /// else a person.
+    #[must_use]
+    pub fn from_obj(obj: &str) -> Self {
+        if obj.starts_with("v-") {
+            Self::Vehicle
+        } else if obj.starts_with("RA-") {
+            Self::Aircraft
+        } else {
+            Self::Engineer
+        }
+    }
+
+    /// Whether the pin may override a point the tracker resolved as `agent`.
+    /// A pin that moves on the other layer is ignored rather than trusting a
+    /// cell the object cannot reach.
+    #[must_use]
+    pub const fn agrees_with(self, agent: crate::graph::AgentKind) -> bool {
+        matches!(
+            (self, agent),
+            (Self::Engineer, crate::graph::AgentKind::Engineer)
+                | (
+                    Self::Vehicle | Self::Aircraft,
+                    crate::graph::AgentKind::Vehicle
+                )
+        )
+    }
+}
+
 #[derive(
     Debug, PartialEq, Clone, Copy, Eq, Hash, Serialize, Deserialize, DbEnum, ToSchema, Default,
 )]

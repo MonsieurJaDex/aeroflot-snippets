@@ -1,0 +1,51 @@
+info:
+  name: calibrateObject
+  type: http
+  seq: 56
+
+http:
+  method: POST
+  url: "{{HOST}}/geo/calibrateObject"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "obj": "{{engineer_id}}",
+        "kind": "engineer",
+        "point": [12, 40]
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Пришпиливает объект к клетке, если GPS стабильно даёт не ту клетку.
+    Вместо `point` можно дать `lat` и `lon` — их спроецирует активная карта.
+    Клетка должна нести вершину графа, иначе 400. Только Dispatcher.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.point
+      operator: isArray
+
+  scripts:
+    - type: tests
+      code: |-
+        test("keeps the pinned cell", function () {
+          expect(res.body.point[0]).to.equal(12);
+          expect(res.body.point[1]).to.equal(40);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

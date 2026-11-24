@@ -22,3 +22,9 @@ settings:
   followRedirects: true
   maxRedirects: 5
   forwardAuthorizationHeader: false
+docs: |-
+  Предупреждения по риску SLA. Каждая запись несёт реальную альтернативу
+  (ТЗ п.21): `alternative_engineer_id` — лучший инженер пула, чей путь ещё
+  укладывается в дедлайн, `null` если замены нет; `alternative_margin_seconds`
+  — его запас в секундах. Текст `message` называет этого инженера, поэтому
+  предупреждение сразу ведёт на `POST /api/requests/{id}/reassign`.

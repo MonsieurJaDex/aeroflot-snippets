@@ -3,6 +3,41 @@
 //! A cell map becomes a graph of walkable cells. A point that is not on a
 //! node is snapped to the nearest open edge the agent is allowed to use.
 //! Every route is a time-weighted A* search on this graph.
+//!
+//! # From GPS degrees to a cell of the graph
+//!
+//! A tracker reports WGS-84 degrees, while the map, the graph and every route
+//! are cells. The two are related by an equirectangular projection anchored at
+//! the north-west corner of the map ([`RoadGraph::origin_lat`],
+//! [`RoadGraph::origin_lon`]), with one cell per [`RoadGraph::cell_size_m`]
+//! metres:
+//!
+//! ```text
+//! y = (origin_lat - lat) * 111320 / cell_size_m
+//! x = (lon - origin_lon) * 111320 * cos(origin_lat) / cell_size_m
+//! ```
+//!
+//! `y` grows south so it matches `map[y][x]` row order, and the longitude term
+//! is stretched by `cos(origin_lat)` so a cell stays square in metres at the
+//! latitude of the airport. 111 320 m is one degree of latitude. The factors
+//! are the ones an airport-scale map can use: over a few kilometres the error
+//! against a proper geodesic is far below a cell.
+//!
+//! Ingest runs that projection and then snaps the fractional cell onto the
+//! road layer: [`RoadGraph::unproject`] gives `(x, y)` as `f64`, and
+//! [`RoadGraph::snap`] picks the nearest open edge the agent may use and
+//! answers one of its end nodes, so a GPS fix never lands in a building or on a
+//! cell no route can reach. [`RoadGraph::nearest_node`] does the same for a cell
+//! that was named directly — it answers the cell's own node when there is one,
+//! otherwise the nearest node by Manhattan distance.
+//!
+//! GNSS error is what this cannot fix: a phone drifting between two taxiways, or
+//! an antenna offset, snaps to the same wrong cell every time. That is what the
+//! manual pin is for — `crate::calibration` stores "this object is on this cell"
+//! and the ingest uses it instead of the snapped one
+//! ([`RoadGraph::is_node`] is what a pin is checked against, so a pin always
+//! names a cell a route can start or end on). [`RoadGraph::project`] is the
+//! inverse, used to show a pinned cell back in degrees.
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -217,6 +252,12 @@ impl RoadGraph {
         let cos = (self.origin_lat.to_radians()).cos().max(0.2);
         let x = (lon - self.origin_lon) * 111_320.0 * cos / self.cell_size_m;
         (x, y)
+    }
+
+    /// Whether the cell itself carries a graph node: a route may start or end
+    /// exactly here, with no snapping to a neighbouring cell.
+    pub fn is_node(&self, point: Point) -> bool {
+        self.index.contains_key(&(point.0, point.1))
     }
 
     pub fn nearest_node(&self, point: Point) -> Option<u32> {
