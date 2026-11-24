@@ -145,7 +145,10 @@ fn score_one(input: &RankInput<'_>, id: Uuid, kind: EngineerType) -> CandidateSc
         ),
         (Err(error), Err(_)) => return reject(&error),
     };
-    let eta_seconds = eta.ceil() as u64;
+    // The published row is rounded up, so the score must be built from that
+    // same value: otherwise `score` never equals the sum of its components.
+    let eta = eta.ceil();
+    let eta_seconds = eta as u64;
     let load = input.load.get(&id).copied().unwrap_or(0);
     let sla = input.map.location.sla_secs as f64;
     let late = if eta > sla {
