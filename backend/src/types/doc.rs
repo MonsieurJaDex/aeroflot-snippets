@@ -35,7 +35,7 @@ use crate::router::{
         AlertItem, AlertList, CreateRequest, MelRequest, NewDefect, ReassignRequest,
         RequestCreated,
     },
-    track::{__path_ingest, TrackAck, TrackBatch, TrackPoint},
+    track::{__path_ingest, __path_ingest_query, TrackAck, TrackBatch, TrackPoint},
 };
 use crate::types::{
     dto::{
@@ -96,6 +96,7 @@ use crate::types::{
         create_defect,
         export_journal,
         ingest,
+        ingest_query,
         get_current_task,
         current_task_aog,
         current_task_aog_post,

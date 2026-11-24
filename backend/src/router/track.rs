@@ -1,15 +1,18 @@
-//! `POST /api/v1/track` — the organiser contract for engineer, vehicle and aircraft points.
+//! `/api/v1/track` — the organiser contract for engineer, vehicle and aircraft
+//! points. Accepts a JSON body and the query string a GPSLogger *Custom URL*
+//! callback sends, both reduced to the same [`TrackSample`].
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Query, Request, State};
 use axum::http::Response;
 use axum::response::IntoResponse;
 use chrono::{DateTime, SecondsFormat, Utc};
 use redis::TypedCommands;
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use serde::{Deserialize, Deserializer, Serialize};
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::{active_map, bad_request};
@@ -47,6 +50,126 @@ pub enum TrackBody {
     One(TrackPoint),
 }
 
+/// Query of a GPSLogger *Custom URL* callback.
+///
+/// GPSLogger substitutes the `%name` placeholders of the configured URL and
+/// sends the result as a `GET`, so every value arrives as a query parameter.
+/// Placeholder names are substituted case-insensitively, hence the lenient
+/// [`Deserialize`] below, and a value the device could not measure arrives as an
+/// empty string or `NaN`.
+#[derive(Debug, Default, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct TrackQuery {
+    /// Object the point belongs to: a map agent, an engineer UUID or an
+    /// aircraft registration. A fixed part of the configured URL.
+    pub obj: Option<String>,
+    /// `%aid` — Android id, used as the object when `obj` is absent.
+    pub aid: Option<String>,
+    /// `%ser` — device serial, used as the object when `obj` and `aid` are absent.
+    pub ser: Option<String>,
+    /// `%lat` — latitude in degrees.
+    pub lat: Option<String>,
+    /// `%lon` — longitude in degrees.
+    pub lon: Option<String>,
+    /// `%acc` — horizontal accuracy in metres.
+    pub acc: Option<String>,
+    /// `%spd` — speed in metres per second.
+    pub spd: Option<String>,
+    /// `%timestamp` — acquisition time in unix seconds. Preferred time source.
+    pub timestamp: Option<String>,
+    /// `%time` — acquisition time as UTC RFC 3339.
+    pub time: Option<String>,
+    /// `%timeoffset` — acquisition time with the device timezone offset.
+    pub timeoffset: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for TrackQuery {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut query = TrackQuery::default();
+        for (name, value) in HashMap::<String, String>::deserialize(deserializer)? {
+            match name.to_ascii_lowercase().as_str() {
+                "obj" => query.obj = Some(value),
+                "aid" => query.aid = Some(value),
+                "ser" => query.ser = Some(value),
+                "lat" => query.lat = Some(value),
+                "lon" => query.lon = Some(value),
+                "acc" => query.acc = Some(value),
+                "spd" => query.spd = Some(value),
+                "timestamp" => query.timestamp = Some(value),
+                "time" => query.time = Some(value),
+                "timeoffset" => query.timeoffset = Some(value),
+                _ => {}
+            }
+        }
+        Ok(query)
+    }
+}
+
+/// One resolved position report, whichever transport carried it.
+struct TrackSample {
+    obj: String,
+    lat: Option<f64>,
+    lon: Option<f64>,
+    when: Option<DateTime<Utc>>,
+    acc: Option<f64>,
+    spd: Option<f64>,
+}
+
+impl TrackPoint {
+    fn into_sample(self) -> TrackSample {
+        TrackSample {
+            obj: self.obj,
+            lat: self.lat,
+            lon: self.lon,
+            when: rfc3339(self.t.as_deref()),
+            acc: self.acc,
+            spd: self.spd,
+        }
+    }
+}
+
+impl TrackQuery {
+    fn into_sample(self) -> TrackSample {
+        let when = epoch_seconds(self.timestamp.as_deref())
+            .or_else(|| rfc3339(self.time.as_deref()))
+            .or_else(|| rfc3339(self.timeoffset.as_deref()));
+        TrackSample {
+            obj: non_empty(self.obj)
+                .or_else(|| non_empty(self.aid))
+                .or_else(|| non_empty(self.ser))
+                .unwrap_or_default(),
+            lat: number(self.lat.as_deref()),
+            lon: number(self.lon.as_deref()),
+            when,
+            acc: number(self.acc.as_deref()),
+            spd: number(self.spd.as_deref()),
+        }
+    }
+}
+
+/// Parses a numeric query value, treating the empty string and `NaN` — what
+/// GPSLogger sends for an unknown measurement — as absent.
+fn number(raw: Option<&str>) -> Option<f64> {
+    let value: f64 = raw?.trim().parse().ok()?;
+    value.is_finite().then_some(value)
+}
+
+fn non_empty(raw: Option<String>) -> Option<String> {
+    raw.filter(|value| !value.trim().is_empty())
+}
+
+fn rfc3339(raw: Option<&str>) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(raw?.trim())
+        .ok()
+        .map(|time| time.with_timezone(&Utc))
+}
+
+/// Parses `%timestamp` — unix seconds, possibly fractional.
+fn epoch_seconds(raw: Option<&str>) -> Option<DateTime<Utc>> {
+    let seconds = number(raw)?;
+    DateTime::from_timestamp_millis((seconds * 1000.0) as i64)
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/track",
@@ -62,17 +185,55 @@ pub async fn ingest(
     State(app_state): State<Arc<AppState>>,
     Json(body): Json<TrackBody>,
 ) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
-    let points = match body {
-        TrackBody::Many(batch) => batch.points,
-        TrackBody::One(point) => vec![point],
+    println!("{:#?}", &body);
+    let samples = match body {
+        TrackBody::Many(batch) => batch
+            .points
+            .into_iter()
+            .map(TrackPoint::into_sample)
+            .collect(),
+        TrackBody::One(point) => vec![point.into_sample()],
     };
-    if points
+    ingest_samples(&app_state, samples).await
+}
+
+/// Accepts one point of a GPSLogger *Custom URL* callback.
+///
+/// Point the app at
+/// `https://<host>/api/v1/track?obj=<engineer>&lat=%LAT&lon=%LON&acc=%ACC&spd=%SPD&timestamp=%TIMESTAMP`
+/// and it becomes a position source for the map. The app queues the requests
+/// while offline and repeats each logged line, so a sample older than the one
+/// already stored is acknowledged and ignored.
+#[utoipa::path(
+    get,
+    path = "/api/v1/track",
+    tag = "Geo",
+    operation_id = "ingestTrackCustomUrl",
+    params(TrackQuery),
+    responses(
+        (status = 200, description = "Point accepted", body = TrackAck),
+        (status = 400, description = "lat/lon missing or not numeric"),
+    ),
+)]
+pub async fn ingest_query(
+    State(app_state): State<Arc<AppState>>,
+    Query(query): Query<TrackQuery>,
+) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
+    ingest_samples(&app_state, vec![query.into_sample()]).await
+}
+
+/// Validates, applies and acknowledges the samples of one request.
+async fn ingest_samples(
+    app_state: &AppState,
+    samples: Vec<TrackSample>,
+) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
+    if samples
         .iter()
-        .any(|point| point.lat.is_none() || point.lon.is_none())
+        .any(|sample| sample.lat.is_none() || sample.lon.is_none())
     {
         return Err(bad_request("lat and lon are required numbers"));
     }
-    let active = active_map(&app_state)?;
+    let active = active_map(app_state)?;
     let mut redis_conn = app_state
         .redis_pool
         .get()
@@ -81,12 +242,12 @@ pub async fn ingest(
         .db_pool
         .get()
         .map_err(|_| super::internal_error())?;
-    let mut acks = Vec::with_capacity(points.len());
-    for point in points {
-        acks.push(apply_point(&active, &mut redis_conn, &mut pg_conn, point)?);
+    let mut acks = Vec::with_capacity(samples.len());
+    for sample in samples {
+        acks.push(apply_point(&active, &mut redis_conn, &mut pg_conn, sample)?);
     }
     if acks.len() == 1 {
-        Ok(Json(acks.pop().unwrap()).into_response())
+        Ok(Json(acks.pop().expect("one ack")).into_response())
     } else {
         Ok(Json(acks).into_response())
     }
@@ -96,36 +257,39 @@ fn apply_point(
     active: &crate::maps::ActiveMap,
     redis_conn: &mut redis::Connection,
     pg_conn: &mut diesel::PgConnection,
-    point: TrackPoint,
+    sample: TrackSample,
 ) -> Result<TrackAck, Response<axum::body::Body>> {
-    let lat = point.lat.unwrap_or(0.0);
-    let lon = point.lon.unwrap_or(0.0);
-    let when = point
-        .t
-        .as_deref()
-        .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
-        .map(|time| time.with_timezone(&Utc))
-        .unwrap_or_else(Utc::now);
+    let TrackSample {
+        obj,
+        lat,
+        lon,
+        when,
+        acc,
+        spd,
+    } = sample;
+    let lat = lat.unwrap_or(0.0);
+    let lon = lon.unwrap_or(0.0);
+    let when = when.unwrap_or_else(Utc::now);
     let stamp = when.to_rfc3339_opts(SecondsFormat::Millis, true);
     let agent = active
         .location
         .agents
         .iter()
-        .find(|agent| agent.obj == point.obj);
+        .find(|agent| agent.obj == obj);
     let linked = agent
         .and_then(|agent| agent.engineer_id.as_deref())
         .and_then(|id| Uuid::parse_str(id).ok())
-        .or_else(|| Uuid::parse_str(&point.obj).ok());
+        .or_else(|| Uuid::parse_str(&obj).ok());
     let known = agent.is_some() || linked.is_some_and(|id| engineer_exists(pg_conn, id));
     if !known {
         return Ok(TrackAck {
             accepted: true,
             applied: false,
-            obj: point.obj,
+            obj: obj.clone(),
             t: stamp,
         });
     }
-    let key = format!("map:{}:track:{}", active.id, point.obj);
+    let key = format!("map:{}:track:{}", active.id, obj);
     let previous: Option<String> = redis_conn.get(&key).unwrap_or(None);
     if let Some(raw) = &previous {
         if let Ok(old) = serde_json::from_str::<serde_json::Value>(raw) {
@@ -135,25 +299,25 @@ fn apply_point(
                         return Ok(TrackAck {
                             accepted: true,
                             applied: false,
-                            obj: point.obj,
+                            obj: obj.clone(),
                             t: stamp,
                         });
                     }
                 }
             }
-            if outlier(active, &old, lat, lon, when, point.acc) {
+            if outlier(active, &old, lat, lon, when, acc) {
                 crate::journal::record(
                     pg_conn,
                     "track_rejected",
-                    Some(&point.obj),
+                    Some(&obj),
                     None,
-                    serde_json::json!({ "lat": lat, "lon": lon, "acc": point.acc, "spd": point.spd }),
+                    serde_json::json!({ "lat": lat, "lon": lon, "acc": acc, "spd": spd }),
                     None,
                 );
                 return Ok(TrackAck {
                     accepted: true,
                     applied: false,
-                    obj: point.obj,
+                    obj: obj.clone(),
                     t: stamp,
                 });
             }
@@ -161,9 +325,9 @@ fn apply_point(
     }
     let kind = agent
         .map(|item| item.kind.as_str())
-        .unwrap_or(if point.obj.starts_with("v-") {
+        .unwrap_or(if obj.starts_with("v-") {
             "vehicle"
-        } else if point.obj.starts_with("RA-") {
+        } else if obj.starts_with("RA-") {
             "aircraft"
         } else {
             "engineer"
@@ -177,7 +341,7 @@ fn apply_point(
         crate::journal::record(
             pg_conn,
             "track_rejected",
-            Some(&point.obj),
+            Some(&obj),
             None,
             serde_json::json!({ "reason": "snap failed", "lat": lat, "lon": lon }),
             None,
@@ -185,7 +349,7 @@ fn apply_point(
         return Ok(TrackAck {
             accepted: true,
             applied: false,
-            obj: point.obj,
+            obj: obj.clone(),
             t: stamp,
         });
     };
@@ -195,14 +359,14 @@ fn apply_point(
         "t": stamp,
         "x": grid.0,
         "y": grid.1,
-        "acc": point.acc,
-        "spd": point.spd,
+        "acc": acc,
+        "spd": spd,
     });
     redis_conn
         .set(&key, stored.to_string())
         .map_err(|_| super::internal_error())?;
     let position_id =
-        linked.unwrap_or_else(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, point.obj.as_bytes()));
+        linked.unwrap_or_else(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, obj.as_bytes()));
     match kind {
         "vehicle" => {
             let vehicle = agent
@@ -231,7 +395,7 @@ fn apply_point(
     Ok(TrackAck {
         accepted: true,
         applied: true,
-        obj: point.obj,
+        obj,
         t: stamp,
     })
 }

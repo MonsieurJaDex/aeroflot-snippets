@@ -21,20 +21,25 @@
         "description": "Active map without the matrix.",
         "properties": {
           "height": {
+            "description": "Map height in cells.",
             "format": "int64",
             "type": "integer"
           },
           "id": {
+            "description": "File stem of the active map.",
             "type": "string"
           },
           "name": {
+            "description": "Display name, equal to the file stem.",
             "type": "string"
           },
           "updated_at": {
+            "description": "When the server loaded the map file.",
             "format": "date-time",
             "type": "string"
           },
           "width": {
+            "description": "Map width in cells.",
             "format": "int64",
             "type": "integer"
           }
@@ -104,6 +109,7 @@
         "description": "Aircraft positions visible to a dispatcher.",
         "properties": {
           "aircraft": {
+            "description": "Aircraft currently present on the active map.",
             "items": {
               "$ref": "#/components/schemas/AircraftEntry"
             },
@@ -126,6 +132,7 @@
         "description": "Arrival and departure records for the active map.",
         "properties": {
           "movements": {
+            "description": "Recorded aircraft stays on the active map.",
             "items": {
               "$ref": "#/components/schemas/AircraftMovementResponse"
             },
@@ -153,10 +160,12 @@
             "type": "string"
           },
           "arrived_at": {
+            "description": "When the aircraft arrived on the map.",
             "format": "date-time",
             "type": "string"
           },
           "departed_at": {
+            "description": "When the aircraft left the map. `null` while it is still parked.",
             "format": "date-time",
             "type": [
               "string",
@@ -349,6 +358,7 @@
             "type": "integer"
           },
           "candidates": {
+            "description": "Engineers considered for the task, with the reason for each verdict.",
             "items": {
               "$ref": "#/components/schemas/AssignmentCandidate"
             },
@@ -408,20 +418,25 @@
         "description": "One row of the assignment comparison.",
         "properties": {
           "eligible": {
+            "description": "Whether this engineer can take the task.",
             "type": "boolean"
           },
           "engineer_id": {
+            "description": "UUID of the engineer.",
             "type": "string"
           },
           "eta_seconds": {
+            "description": "Estimated travel time in seconds.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "reason": {
+            "description": "Why the engineer was accepted or rejected.",
             "type": "string"
           },
           "uses_vehicle": {
+            "description": "Whether the route requires a special vehicle.",
             "type": "boolean"
           }
         },
@@ -567,9 +582,11 @@
         "description": "Response payload describing the engineer's current task.",
         "properties": {
           "arrived": {
+            "description": "Whether the engineer has reached the aircraft.",
             "type": "boolean"
           },
           "ata_chapter": {
+            "description": "ATA chapter the issue belongs to, when known.",
             "type": [
               "string",
               "null"
@@ -580,6 +597,7 @@
             "type": "string"
           },
           "eta_seconds": {
+            "description": "Estimated travel time in seconds.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -593,6 +611,7 @@
             "type": "string"
           },
           "mel_category": {
+            "description": "MEL category that applies to the issue, when known.",
             "type": [
               "string",
               "null"
@@ -614,9 +633,11 @@
             "description": "Route from the engineer to the aircraft."
           },
           "status": {
+            "description": "Current task status, for example `assigned` or `in_progress`.",
             "type": "string"
           },
           "tools_picked": {
+            "description": "Whether the engineer has collected the required tools.",
             "type": "boolean"
           }
         },
@@ -921,9 +942,11 @@
         "description": "Catalog of maps and the id that is active.",
         "properties": {
           "active_id": {
+            "description": "Id of the map currently active.",
             "type": "string"
           },
           "maps": {
+            "description": "All map files the server can switch to.",
             "items": {
               "$ref": "#/components/schemas/MapSummary"
             },
@@ -1001,16 +1024,20 @@
             "type": "boolean"
           },
           "height": {
+            "description": "Map height in cells.",
             "format": "int64",
             "type": "integer"
           },
           "id": {
+            "description": "File stem of the map, used as the switchable id.",
             "type": "string"
           },
           "name": {
+            "description": "Display name, equal to the file stem.",
             "type": "string"
           },
           "width": {
+            "description": "Map width in cells.",
             "format": "int64",
             "type": "integer"
           }
@@ -1028,6 +1055,7 @@
         "description": "Profile of the authenticated user. Never includes the password hash.",
         "properties": {
           "email": {
+            "description": "Email of the authenticated user.",
             "format": "email",
             "type": "string"
           },
@@ -1043,14 +1071,17 @@
             ]
           },
           "id": {
+            "description": "User UUID.",
             "format": "uuid",
             "type": "string"
           },
           "name": {
+            "description": "Display name of the authenticated user.",
             "type": "string"
           },
           "user_role": {
-            "$ref": "#/components/schemas/UserRole"
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Role granted to the account."
           }
         },
         "required": [
@@ -3885,6 +3916,121 @@
       }
     },
     "/api/v1/track": {
+      "get": {
+        "description": "Point the app at\n`https://<host>/api/v1/track?obj=<engineer>&lat=%LAT&lon=%LON&acc=%ACC&spd=%SPD&timestamp=%TIMESTAMP`\nand it becomes a position source for the map. The app queues the requests\nwhile offline and repeats each logged line, so a sample older than the one\nalready stored is acknowledged and ignored.",
+        "operationId": "ingestTrackCustomUrl",
+        "parameters": [
+          {
+            "description": "Object the point belongs to: a map agent, an engineer UUID or an\naircraft registration. A fixed part of the configured URL.",
+            "in": "query",
+            "name": "obj",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%aid` — Android id, used as the object when `obj` is absent.",
+            "in": "query",
+            "name": "aid",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%ser` — device serial, used as the object when `obj` and `aid` are absent.",
+            "in": "query",
+            "name": "ser",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%lat` — latitude in degrees.",
+            "in": "query",
+            "name": "lat",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%lon` — longitude in degrees.",
+            "in": "query",
+            "name": "lon",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%acc` — horizontal accuracy in metres.",
+            "in": "query",
+            "name": "acc",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%spd` — speed in metres per second.",
+            "in": "query",
+            "name": "spd",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%timestamp` — acquisition time in unix seconds. Preferred time source.",
+            "in": "query",
+            "name": "timestamp",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%time` — acquisition time as UTC RFC 3339.",
+            "in": "query",
+            "name": "time",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`%timeoffset` — acquisition time with the device timezone offset.",
+            "in": "query",
+            "name": "timeoffset",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackAck"
+                }
+              }
+            },
+            "description": "Point accepted"
+          },
+          "400": {
+            "description": "lat/lon missing or not numeric"
+          }
+        },
+        "summary": "Accepts one point of a GPSLogger *Custom URL* callback.",
+        "tags": [
+          "Geo"
+        ]
+      },
       "post": {
         "operationId": "ingestTrack",
         "requestBody": {
