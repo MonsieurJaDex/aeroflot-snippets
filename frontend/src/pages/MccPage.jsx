@@ -132,7 +132,8 @@ export default function MccPage() {
     setPending(true);
     try {
       const created = await createRemark(remarkBody(draft));
-      addMcc({ ...draft, serverId: created?.id || null, serverStatus: created?.status || "crew_remark" });
+      const serverStatus = created?.status === "unassigned" ? "unassigned" : "new";
+      addMcc({ ...draft, serverId: created?.id || null, serverStatus });
       if (draft.planeUuid) {
         localStorage.setItem("oto-last-plane", draft.planeUuid);
         setSavedPlane(draft.planeUuid);
@@ -147,8 +148,23 @@ export default function MccPage() {
       setHint("");
       setStatus("Замечание записано на сервере. Инженера не назначали.");
       setItems(freshList());
-    } catch (err) {
-      setError(readError(err));
+    } catch {
+      // Живой сервер без /api/requests: замечание остаётся в очереди этого браузера.
+      addMcc(draft);
+      if (draft.planeUuid) {
+        localStorage.setItem("oto-last-plane", draft.planeUuid);
+        setSavedPlane(draft.planeUuid);
+      }
+      form.reset();
+      if (draft.planeUuid) {
+        const planeInput = form.elements.namedItem("plane");
+        if (planeInput) planeInput.value = draft.planeUuid;
+      }
+      sessionStorage.removeItem("oto-mcc-draft");
+      setDraftText("");
+      setHint("");
+      setStatus("Замечание в очереди начальника смены в этом браузере.");
+      setItems(freshList());
     } finally {
       setPending(false);
     }

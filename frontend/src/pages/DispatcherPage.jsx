@@ -754,9 +754,12 @@ export default function DispatcherPage() {
         async assign() {
           const form = formRef.current;
           const standsNow = readDemoStands();
-          const plane = aircraftNow.find((item) => item.id === form.planeId)
-            || standsNow.find((item) => item.id === form.planeId)
+          // plane_point — клетка выбранной стоянки из oto-demo-stands.
+          const stand = standsNow.find((item) => item.id === form.planeId)
             || (!aircraftNow.length ? standsNow[0] : null);
+          const plane = stand?.point
+            ? stand
+            : (aircraftNow.find((item) => item.id === form.planeId) || null);
           if (!plane?.point) {
             setResult({ type: "info", text: "Поставьте стоянку ВС кликом по карте." });
             return;
@@ -782,6 +785,13 @@ export default function DispatcherPage() {
               },
             });
             const gridRoute = normalizeRoute(response.route);
+            const travelMin = marginMinutes(response.time ?? response.eta_seconds) ?? 0;
+            // Статус «назначена» только после HTTP 200, не по клику и не по очереди.
+            if (form.activeMcc) {
+              markMccAssigned(form.activeMcc);
+              setActiveMcc(null);
+              setInbox(freshInbox());
+            }
             const assignedName = await engineerName(response.engineer_uuid);
             routeExtrasLayer.clearLayers();
             startWalk(response.engineer_uuid, assignedName, gridRoute);
@@ -805,7 +815,7 @@ export default function DispatcherPage() {
             if (!showRoute) map.removeLayer(routeExtrasLayer);
             await refresh();
             const skipped = [...busyBefore].filter((id) => id !== String(response.engineer_uuid)).length;
-            // Таблица только из ответа; пустой/отсутствующий candidates не заполняем.
+            // На старом ответе candidates нет — строки не собираем.
             const chosenId = String(response.engineer_uuid ?? "");
             const rawCandidates = Array.isArray(response.candidates) ? response.candidates : [];
             const candidates = await Promise.all(rawCandidates.map(async (row) => ({
@@ -822,12 +832,6 @@ export default function DispatcherPage() {
               if (a.eligible !== b.eligible) return Number(b.eligible) - Number(a.eligible);
               return Number(a.etaSeconds ?? 1e9) - Number(b.etaSeconds ?? 1e9);
             });
-            // Очередь ЦПУ помечаем assigned только здесь, после успешного assign — не при выборе строки.
-            if (form.activeMcc && chosenId) {
-              markMccAssigned(form.activeMcc);
-              setActiveMcc(null);
-              setInbox(freshInbox());
-            }
             setResult({
               type: "ok",
               name: assignedName,
@@ -835,16 +839,16 @@ export default function DispatcherPage() {
               issue: issueLabel(issueValue),
               onSite: gridRoute.length < 2,
               cells: Math.max(0, gridRoute.length - 1),
-              minutes: Math.max(0, Math.round(Number(response.eta_seconds ?? response.time ?? 0) / 60)),
+              minutes: travelMin,
               pickup: pickup ? pickup.label : "",
               needed: pickup ? "" : (ISSUE_REQUIRED_VEHICLE[issueValue] ? vehicleLabel(ISSUE_REQUIRED_VEHICLE[issueValue]) : ""),
               skipped,
-              sla: Boolean(response.sla_exceeded ?? response.time_limit_exceeded),
+              sla: Boolean(response.time_limit_exceeded ?? response.sla_exceeded),
               chosenId,
               candidates,
               candidateMs: response.candidate_ms,
             });
-            softBeep(response.sla_exceeded ? 420 : 880, 160);
+            softBeep(response.time_limit_exceeded || response.sla_exceeded ? 420 : 880, 160);
             sessionStorage.removeItem("oto-disp-draft");
             {
               const nextAuto = `Обнаружена неисправность: ${issueLabel(issueValue).toLowerCase()}. Требуется осмотр и устранение.`;
@@ -860,8 +864,8 @@ export default function DispatcherPage() {
                 planeId: plane.id,
                 issue: issueValue,
                 description: String(form.description || "").trim(),
-                minutes: Math.max(0, Math.round(Number(response.eta_seconds ?? response.time ?? 0) / 60)),
-                sla: Boolean(response.sla_exceeded ?? response.time_limit_exceeded),
+                minutes: travelMin,
+                sla: Boolean(response.time_limit_exceeded ?? response.sla_exceeded),
               };
               setAssignHistory((prev) => {
                 const next = [entry, ...prev].slice(0, 8);
@@ -903,21 +907,19 @@ export default function DispatcherPage() {
   const selectedStand = planeOptions.find((plane) => plane.id === planeId) || null;
 
   function chooseMcc(item) {
-    const known = aircraft.some((plane) => plane.id === item.planeUuid);
-    skipAuto.current = item.issue !== issue;
-    lastAuto.current = item.description;
+    const text = String(item.description || "").trim();
+    const stand = readDemoStands().find((row) => row.id === item.planeUuid);
+    skipAuto.current = true;
     softBeep(item.urgency === "urgent" ? 780 : 560, 100);
     setActiveMcc(item.id);
-    if (known) setPlaneId(item.planeUuid);
-    setIssue(item.issue);
-    setDescription(item.description);
-    sessionStorage.setItem("oto-disp-draft", item.description || "");
+    if (stand) setPlaneId(stand.id);
+    if (item.issue) setIssue(item.issue);
+    setDescription(text);
+    sessionStorage.setItem("oto-disp-draft", text);
     if (item.serverId) setReassignId(String(item.serverId));
     setResult({
       type: "info",
-      text: known
-        ? `Замечание ЦПУ подставлено${item.urgency === "urgent" ? " · срочно" : ""}. Назначьте инженера.`
-        : "Замечание подставлено. Назначение пойдёт на стоянку с карты.",
+      text: "Замечание подставлено в заявку. Можно назначать без очереди.",
     });
     window.queueMicrotask?.(() => {
       const btn = document.getElementById("assign-button");
@@ -1473,7 +1475,7 @@ export default function DispatcherPage() {
                 >
                   <button type="button" className="mcc-item-pick" onClick={() => chooseMcc(item)}>
                     <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
-                    <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status || "не назначена"} · {relativeRu(item.createdAt, nowTick)}</span>
+                    <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status === "assigned" ? "назначена" : "не назначена"} · {relativeRu(item.createdAt, nowTick)}</span>
                     <span>{item.description}</span>
                   </button>
                   {item.serverId ? (
@@ -1790,7 +1792,7 @@ export default function DispatcherPage() {
                 {result.pickup ? <><br />Маршрут заезжает за спецтранспорт: <strong>{result.pickup}</strong>.</> : null}
                 {result.needed ? <><br />Для неисправности нужен: <strong>{result.needed}</strong>.</> : null}
                 {result.skipped ? <><br /><em>Занятые инженеры пропущены ({result.skipped}).</em></> : null}
-                {result.sla ? <><br /><em>Время в пути больше 15 минут.</em></> : null}
+                {result.sla ? <><br /><em>Время в пути больше 15 минут. · {result.minutes} мин</em></> : null}
                 <button
                   type="button"
                   className="ghost-copy"
@@ -1801,7 +1803,7 @@ export default function DispatcherPage() {
                       `борт ${result.plane}`,
                       result.issue,
                       result.onSite ? "на месте" : `ETA ${result.minutes} мин`,
-                      result.sla ? "SLA превышен" : null,
+                      result.sla ? `SLA превышен · ${result.minutes} мин` : null,
                     ].filter(Boolean).join(" · ");
                     const ok = await copyText(line);
                     setLive(ok ? "Итог назначения скопирован" : live);

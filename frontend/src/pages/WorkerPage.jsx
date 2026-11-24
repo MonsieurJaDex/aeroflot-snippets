@@ -169,6 +169,7 @@ export default function WorkerPage() {
   const etaArrivedBeep = useRef("");
   const staleBeepAt = useRef(0);
   const lastRouteRefresh = useRef(0);
+  const statusNoteAt = useRef(0);
   const lastSpokenHint = useRef("");
   const lastGeoAt = useRef(0);
   const [gpsManual, setGpsManual] = useState(() => localStorage.getItem("oto-gps-manual") === "1");
@@ -200,6 +201,7 @@ export default function WorkerPage() {
       .catch((error) => console.warn("[worker] профиль", error));
 
     async function loadTask() {
+      const started = Date.now();
       try {
         const next = await apiRequest("/api/tasks/current");
         if (cancelled) return;
@@ -212,11 +214,14 @@ export default function WorkerPage() {
         });
         lastPollAt.current = Date.now();
         setPollStale(false);
-        setNotice(normalized
-          ? normalized.status === "assigned"
+        // Не затирать строку 404, если её поставили пока этот опрос уже шёл.
+        setNotice((current) => {
+          if (statusNoteAt.current > started) return current;
+          if (!normalized) return "Ожидание назначения от диспетчера. Позиция на карте — из геоданных сервера.";
+          return normalized.status === "assigned"
             ? "Назначение получено. Примите или отклоните задачу."
-            : "Задача активна. На карте — ваша точка и маршрут. Завершите, когда работы закончены."
-          : "Ожидание назначения от диспетчера. Позиция на карте — из геоданных сервера.");
+            : "Задача активна. На карте — ваша точка и маршрут. Завершите, когда работы закончены.";
+        });
       } catch (error) {
         if (cancelled) return;
         if (error.status === 404) {
@@ -369,6 +374,7 @@ export default function WorkerPage() {
         console.warn("[worker] track", error);
         if (gpsTrackNoted.current) return;
         gpsTrackNoted.current = true;
+        statusNoteAt.current = Date.now();
         setNotice("GPS-трек недоступен.");
       });
     };
@@ -549,7 +555,7 @@ export default function WorkerPage() {
         }
       }
       if (event.key === "o" || event.key === "O" || event.key === "щ" || event.key === "Щ") {
-        if (taskRef.current?.plane_uuid) {
+        if (taskRef.current) {
           event.preventDefault();
           document.getElementById("aog-task")?.click();
         }
@@ -865,6 +871,7 @@ export default function WorkerPage() {
   const canDecide = task?.status === "assigned";
 
   function noteMissing(error, missingLine, failLine) {
+    statusNoteAt.current = Date.now();
     if (endpointMissing(error)) {
       setNotice(missingLine);
       return;
@@ -893,8 +900,7 @@ export default function WorkerPage() {
     setBusyAction("accept");
     try {
       await apiRequest("/api/tasks/current/accept", { method: "POST" });
-      const loaded = await refreshTask();
-      setTask((prev) => normalizeCurrentTask({ ...(loaded || prev || {}), is_accepted: true }, prev));
+      await refreshTask();
       flash("Задача принята");
       softBeep(720, 120);
       try { navigator.vibrate?.(80); } catch { /* телефон */ }
@@ -1281,7 +1287,7 @@ export default function WorkerPage() {
         <button id="complete-task" className="worker-action worker-action-primary" type="button" hidden={!task} disabled={busyAction === "complete"} onClick={completeTask} title="C">
           {busyAction === "complete" ? "…" : "Завершить · C"}
         </button>
-        <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task?.plane_uuid} disabled={busyAction === "aog"} onClick={toggleAog} title="O">
+        <button id="aog-task" className="worker-action worker-action-danger" type="button" hidden={!task} disabled={busyAction === "aog"} onClick={toggleAog} title="O">
           {busyAction === "aog" ? "…" : aogOn ? "Снять AOG · O" : "Поставить AOG · O"}
         </button>
         <button id="refresh-route" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "route"} onClick={refreshRouteFromServer} title="U">

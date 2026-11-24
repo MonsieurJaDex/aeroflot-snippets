@@ -552,17 +552,52 @@ button.mcc-item.selected::after { content: none; }
   .section-heading { flex-wrap: wrap; gap: 6px; }
   #worker-map { width: 100%; max-width: 100%; height: auto; flex: 1 1 auto; min-height: 220px; min-width: 0; overflow: hidden; }
   #worker-map .leaflet-container { width: 100% !important; height: 100% !important; }
-  .worker-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; width: auto; margin: 0; display: flex; gap: 10px; padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--border); box-shadow: 0 -8px 24px rgba(20,50,90,.08); }
+  /* карта сверху, очередь и кнопки без наезда */
+  .worker-dock {
+    position: static;
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 8px;
+    max-height: min(32dvh, 220px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    box-shadow: none;
+  }
   .worker-dock:not(:has(button:not([hidden]))) { display: none; }
-  .worker-page:has(.worker-dock button:not([hidden])) .worker-shell { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-  .worker-action, #complete-task, #aog-task, #accept-task, #reject-task { min-height: 56px; font-size: 15px; border-radius: 8px; }
-  .worker-dock { flex-wrap: wrap; }
-  .worker-dock .worker-action, .worker-dock #complete-task, .worker-dock #aog-task, .worker-dock #accept-task, .worker-dock #reject-task { flex: 1 1 calc(50% - 5px); min-width: 9.5rem; }
-  .worker-toast { right: 12px; left: 12px; bottom: calc(96px + env(safe-area-inset-bottom)); max-width: none; }
+  .worker-page:has(.worker-dock button:not([hidden])) .worker-shell { padding-bottom: 8px; }
+  .worker-action, #complete-task, #aog-task, #accept-task, #reject-task {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    min-height: 52px;
+    font-size: 15px;
+    border-radius: 8px;
+  }
+  .worker-dock .worker-action, .worker-dock #complete-task, .worker-dock #aog-task, .worker-dock #accept-task, .worker-dock #reject-task {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+  }
+  .worker-toast { right: 12px; left: 12px; top: 12px; bottom: auto; max-width: none; }
 
   .dispatcher-page { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
   .dispatcher-page #map { order: -1; flex: 0 0 42dvh; width: 100%; height: 42dvh; min-height: 220px; }
-  .dispatcher-page #sidebar { width: 100%; min-width: 0; flex: 1 1 auto; height: auto; min-height: 0; overflow-y: auto; border-right: 0; border-top: 1px solid var(--border); box-shadow: none; padding: 14px 14px calc(16px + env(safe-area-inset-bottom)); }
+  .dispatcher-page #sidebar { width: 100%; min-width: 0; flex: 1 1 auto; height: auto; min-height: 0; overflow-x: hidden; overflow-y: auto; border-right: 0; border-top: 1px solid var(--border); box-shadow: none; padding: 14px 14px calc(16px + env(safe-area-inset-bottom)); }
+  .dispatcher-page #sidebar > :not(.brand-row) { margin-left: 0; margin-right: 0; }
+  .request-panel, .mcc-inbox, .mcc-item, .mcc-item-pick { min-width: 0; max-width: 100%; }
+  .mcc-inbox { overflow-x: hidden; }
+  .mcc-item, .mcc-item-pick { overflow-wrap: anywhere; }
+  .mcc-item span, .mcc-item strong { overflow-wrap: anywhere; word-break: break-word; }
+  .dispatcher-page .shift-button, .dispatcher-page #assign-button { width: 100%; }
   .dispatcher-page #assign-button {
     position: sticky;
     bottom: calc(8px + env(safe-area-inset-bottom));
@@ -588,16 +623,17 @@ button.mcc-item.selected::after { content: none; }
   .worker-page .notice-card,
   .worker-page .worker-map-card { box-shadow: none; }
   .task-content { font-size: 16px; }
-  .worker-grid { scroll-padding-bottom: calc(128px + env(safe-area-inset-bottom)); }
+  .worker-grid { scroll-padding-bottom: 0; }
   .worker-page:has(.worker-dock button:not([hidden])) .worker-shell {
-    padding-bottom: calc(128px + env(safe-area-inset-bottom));
+    padding-bottom: 8px;
   }
   .worker-dock {
     display: flex;
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
-    max-height: min(44dvh, 300px);
+    max-height: min(32dvh, 220px);
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
     box-shadow: none;
@@ -615,7 +651,7 @@ button.mcc-item.selected::after { content: none; }
     line-height: 1.25;
     border-radius: 10px;
   }
-  .worker-toast { bottom: calc(128px + env(safe-area-inset-bottom)); font-size: 14px; }
+  .worker-toast { top: 12px; bottom: auto; font-size: 14px; }
   .candidates-block {
     margin-top: 10px;
     padding: 8px;
