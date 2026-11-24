@@ -46,9 +46,10 @@ import StatusChain from "../components/StatusChain.jsx";
 import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { whenVisible } from "../lib/visibility.js";
-import { pointAt, WALK_MPS } from "../lib/walk.js";
+import { expandRouteOnRoads, pointAt, WALK_MPS } from "../lib/walk.js";
 import {
   buildTileGrid,
+  buildWalkMask,
   cellToLatLng,
   centerToLatLng,
   clickToCell,
@@ -422,6 +423,7 @@ export default function DispatcherPage() {
     (async () => {
       const tmj = await loadApronMap();
       if (cancelled || !mapNode.current) return;
+      const walkMask = buildWalkMask(tmj);
       const grid = buildTileGrid(tmj);
       const tilesets = await loadTilesetImages();
       if (cancelled || !mapNode.current) return;
@@ -473,7 +475,8 @@ export default function DispatcherPage() {
       function startWalk(id, name, gridRoute) {
         const key = String(id);
         stopWalk(key);
-        const centers = gridRoute.map(([x, y]) => [x + 0.5, y + 0.5]);
+        const roadRoute = expandRouteOnRoads(normalizeRoute(gridRoute), walkMask);
+        const centers = roadRoute.map(([x, y]) => [x + 0.5, y + 0.5]);
         if (centers.length < 2) return;
         const line = L.polyline(centers.map((center) => centerToLatLng(tmj, center)), {
           color: "#c5161c",
@@ -632,7 +635,7 @@ export default function DispatcherPage() {
         },
         previewRoute(gridRoute, label = "Проба getRoute") {
           routeExtrasLayer.clearLayers();
-          const route = normalizeRoute(gridRoute);
+          const route = expandRouteOnRoads(normalizeRoute(gridRoute), walkMask);
           if (route.length < 2) return null;
           const centers = route.map(([x, y]) => [x + 0.5, y + 0.5]);
           const line = L.polyline(centers.map((center) => centerToLatLng(tmj, center)), {

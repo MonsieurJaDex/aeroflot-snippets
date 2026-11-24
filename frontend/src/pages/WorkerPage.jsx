@@ -11,9 +11,10 @@ import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/
 import { normalizeRoute, postTrackPoint, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { whenVisible } from "../lib/visibility.js";
-import { CELL_METERS, pointAt, totalMeters, turnHint, WALK_MPS } from "../lib/walk.js";
+import { CELL_METERS, expandRouteOnRoads, pointAt, totalMeters, turnHint, WALK_MPS } from "../lib/walk.js";
 import {
   buildTileGrid,
+  buildWalkMask,
   centerToLatLng,
   loadApronMap,
   loadTilesetImages,
@@ -574,6 +575,7 @@ export default function WorkerPage() {
     let selfMarker = null;
     let selfPoint = null;
     let tmj = null;
+    let walkMask = null;
 
     function mapIcon(className) {
       return L.divIcon({ className, html: "", iconSize: [18, 18], iconAnchor: [9, 9] });
@@ -716,7 +718,9 @@ export default function WorkerPage() {
         return;
       }
       stopWalk({ keepSelf: true });
-      const centers = route.map(([x, y]) => [x + 0.5, y + 0.5]);
+      // Только по дорожным клеткам TMJ — без диагоналей сквозь стены.
+      const roadRoute = expandRouteOnRoads(route, walkMask);
+      const centers = roadRoute.map(([x, y]) => [x + 0.5, y + 0.5]);
       walk = {
         taskId: nextTask.id,
         routeSig,
@@ -733,10 +737,10 @@ export default function WorkerPage() {
           .bindTooltip(`ВС ${planeLabel(nextTask)}`, { permanent: true, direction: "top", className: "map-label" })
           .addTo(bag.map),
       };
-      selfPoint = [Number(route[0][0]), Number(route[0][1])];
+      selfPoint = [Number(roadRoute[0][0]), Number(roadRoute[0][1])];
       ensureSelfMarker(centerToLatLng(tmj, centers[0]));
       setSelfText(`ВЫ: ${selfPoint[0]}, ${selfPoint[1]}`);
-      setDistance(`${Math.max(0, route.length - 1)} КЛЕТОК`);
+      setDistance(`${Math.max(0, roadRoute.length - 1)} КЛЕТОК`);
       setRouteHint(turnHint(centers, 1));
       bag.map.fitBounds(walk.line.getBounds(), { padding: [36, 36], maxZoom: 2 });
       bag.frame = requestAnimationFrame(tick);
@@ -745,6 +749,7 @@ export default function WorkerPage() {
     (async () => {
       tmj = await loadApronMap();
       if (cancelled || !mapNode.current) return;
+      walkMask = buildWalkMask(tmj);
       const grid = buildTileGrid(tmj);
       const tilesets = await loadTilesetImages();
       if (cancelled || !mapNode.current) return;

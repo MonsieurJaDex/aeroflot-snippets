@@ -22,7 +22,9 @@ const FALLBACK_TILE_COLORS = {
 const FLIP_H = 0x80000000;
 const FLIP_V = 0x40000000;
 const FLIP_D = 0x20000000;
-const BACKEND_ROAD_IDS = new Set([0, 29]);
+// Проходимость как у бэка (map2 road) + запасные id старых карт.
+const ROAD_GIDS = new Set([973, 974, 975, 0, 29]);
+const BACKEND_ROAD_IDS = ROAD_GIDS;
 
 function decodeGid(raw) {
   let gid = raw;
@@ -185,4 +187,28 @@ export function clickToCell(tmj, lat, lng) {
 
 export function roadHint(cells) {
   return cells.some((cell) => BACKEND_ROAD_IDS.has(cell.gid)) ? " (проходимо для BFS бэкенда)" : "";
+}
+
+/** Маска дорог по визуальному TMJ: стены (1010+) непроходимы. */
+export function buildWalkMask(tmj) {
+  const height = tmj?.height || 0;
+  const width = tmj?.width || 0;
+  const mask = Array.from({ length: height }, () => Array(width).fill(false));
+  const layer = (tmj?.layers || []).find((item) => item.type === "tilelayer" && Array.isArray(item.data));
+  if (!layer) return mask;
+  for (let row = 0; row < height; row += 1) {
+    for (let col = 0; col < width; col += 1) {
+      const raw = layer.data[row * width + col] || 0;
+      const { gid } = decodeGid(raw);
+      mask[row][col] = ROAD_GIDS.has(gid);
+    }
+  }
+  return mask;
+}
+
+export function isWalkable(mask, x, y) {
+  const col = Math.floor(Number(x));
+  const row = Math.floor(Number(y));
+  if (!mask?.length || row < 0 || col < 0 || row >= mask.length || col >= mask[0].length) return false;
+  return Boolean(mask[row][col]);
 }

@@ -40,4 +40,5 @@ frontend/_reglement.txt
 # Локальный контракт от бэкендера — не коммитить
 /openapi.json
 /_tz_extract.txt
+/_geodata_new/
 
