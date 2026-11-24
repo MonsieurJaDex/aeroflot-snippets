@@ -112,6 +112,14 @@ export async function setActiveMap(id) {
   return apiRequest("/api/maps/active", { method: "PUT", body: { id } });
 }
 
+export async function getActiveMap() {
+  return apiRequest("/api/maps/active");
+}
+
+export async function refreshTaskRoute(id) {
+  return apiRequest(`/api/tasks/${encodeURIComponent(id)}/route`, { method: "POST" });
+}
+
 export async function postTrackPoint({ obj, lat, lon, t = new Date().toISOString(), acc = null, spd = null }) {
   return apiRequest("/api/v1/track", {
     method: "POST",
@@ -165,10 +173,14 @@ export async function loadAlerts() {
   return Array.isArray(data?.alerts) ? data.alerts : [];
 }
 
+export async function fetchJournalCsv() {
+  const csv = await apiRequest("/api/journal.csv");
+  return typeof csv === "string" ? csv : "";
+}
+
 export async function downloadJournalCsv() {
   // BOM чтобы Excel открыл кириллицу; имя с датой для сдачи жюри.
-  const csv = await apiRequest("/api/journal.csv");
-  const text = typeof csv === "string" ? csv : "";
+  const text = await fetchJournalCsv();
   const blob = new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -223,7 +235,6 @@ export async function arriveAircraft(point, id = null) {
 export async function updateEngineerPosition(id, batch) {
   return apiRequest("/api/geo/updateEngineerPosition", {
     method: "POST",
-    auth: false,
     body: { id, batch },
   });
 }
@@ -231,7 +242,6 @@ export async function updateEngineerPosition(id, batch) {
 export async function updateTransportPosition(id, vehicleType, newPoint) {
   return apiRequest("/api/geo/updateTransportPosition", {
     method: "POST",
-    auth: false,
     body: { id, vehicle_type: vehicleType, new_point: newPoint },
   });
 }
