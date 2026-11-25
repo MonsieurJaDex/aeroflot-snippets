@@ -257,6 +257,10 @@ export async function refreshTaskRoute(id) {
   return apiRequest(`/api/tasks/${encodeURIComponent(id)}/route`, { method: "POST" });
 }
 
+// Telemetry/journal channel of the GPS tracker (/api/v1/track). It is NOT a writer
+// of the engineer position: that one is written only by updateEngineerPosition
+// (authorized, batch [point, unix seconds], newest stamp wins). A second writer of
+// the same point on a different time model (ISO) overwrote it and moved the stamp.
 export async function postTrackPoint({ obj, lat, lon, t = new Date().toISOString(), acc = null, spd = null }) {
   return apiRequest("/api/v1/track", {
     method: "POST",
@@ -430,42 +434,69 @@ export async function updateTransportPosition(id, vehicleType, newPoint) {
   }
 }
 
-export async function getRoute(startPoint, endPoint) {
+// OpenAPI RouteAgent: пеший инженер (по умолчанию) или спецтранспорт.
+// Спецтранспорт идёт 8–20 км/ч против 5 км/ч пешком (ТЗ п.4.1), поэтому
+// без agent бэк считает любой маршрут пешим и ETA спецтехнике завышается.
+export const ROUTE_AGENTS = ["engineer", "vehicle"];
+
+export function asRouteAgent(value) {
+  const kind = String(value ?? "").trim().toLowerCase();
+  return ROUTE_AGENTS.includes(kind) ? kind : "engineer";
+}
+
+export async function getRoute(startPoint, endPoint, agent) {
+  const body = { start_point: startPoint, end_point: endPoint, agent: asRouteAgent(agent) };
   const data = asJson(await apiRequest("/api/getRoute", {
     method: "POST",
-    body: { start_point: startPoint, end_point: endPoint },
+    body,
   }));
   const route = normalizeRoute(Array.isArray(data) ? data : data?.route);
   const distance = !Array.isArray(data) && Number.isFinite(Number(data?.distance))
     ? Number(data.distance)
     : Math.max(0, route.length - 1);
-  if (data && typeof data === "object" && !Array.isArray(data)) return { ...data, route, distance };
-  return { route, distance };
+  if (data && typeof data === "object" && !Array.isArray(data)) return { ...data, route, distance, agent: asRouteAgent(data.agent ?? agent) };
+  return { route, distance, agent: asRouteAgent(agent) };
 }
 
-/** Цепочка getRoute через 1+ промежуточных точек (п.6 ТЗ). */
-export async function getRouteVia(points) {
+/**
+ * Цепочка getRoute через 1+ промежуточных точек (п.6 ТЗ).
+ * `agent` — вид транспорта для каждого плеча; можно передать массив
+ * по числу плеч (инженер пешком → спецтранспорт → инженер пешком).
+ */
+export async function getRouteVia(points, agent) {
   const stops = (Array.isArray(points) ? points : [])
     .map(asPoint)
     .filter(Boolean);
-  if (stops.length < 2) return { route: [], distance: 0, legs: 0 };
+  const legs = Math.max(0, stops.length - 1);
+  const perLeg = Array.isArray(agent)
+    ? stops.slice(0, legs).map((_, i) => asRouteAgent(agent[i]))
+    : stops.slice(0, legs).map(() => asRouteAgent(agent));
+  const legAgent = (i) => perLeg[i] ?? "engineer";
+  if (stops.length < 2) return { route: [], distance: 0, legs: 0, eta_seconds: 0, agent: asRouteAgent(agent) };
   if (stops.length === 2) {
-    const one = await getRoute(stops[0], stops[1]);
+    const one = await getRoute(stops[0], stops[1], legAgent(0));
     return { ...one, legs: 1 };
   }
   const route = [];
   let distance = 0;
-  for (let i = 0; i < stops.length - 1; i += 1) {
-    const leg = await getRoute(stops[i], stops[i + 1]);
+  let etaSeconds = 0;
+  let etaKnown = false;
+  for (let i = 0; i < legs; i += 1) {
+    const leg = await getRoute(stops[i], stops[i + 1], legAgent(i));
     const part = normalizeRoute(leg.route);
     distance += Number.isFinite(Number(leg.distance))
       ? Number(leg.distance)
       : Math.max(0, part.length - 1);
+    const legEta = Number(leg.eta_seconds);
+    if (Number.isFinite(legEta)) {
+      etaSeconds += legEta;
+      etaKnown = true;
+    }
     if (!part.length) continue;
     if (!route.length) route.push(...part);
     else route.push(...part.slice(1));
   }
-  return { route, distance, legs: stops.length - 1 };
+  return { route, distance, legs, eta_seconds: etaKnown ? etaSeconds : 0, agent: perLeg };
 }
 
 export async function trainClassifier() {
