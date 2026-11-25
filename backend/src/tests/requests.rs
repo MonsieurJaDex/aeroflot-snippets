@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::database::schema::tasks;
 use crate::tests::support::{expect_status, TestContext};
+use crate::types::dto::SelectionBasis;
 use crate::types::enums::EngineerType;
 use crate::types::map::Point;
 
@@ -842,5 +843,187 @@ async fn sla_alert_names_an_engineer_who_can_still_make_it() {
     assert!(
         message.contains(&alternative),
         "the warning text names the alternative: {message}"
+    );
+}
+
+/// A task assigned before `selection_basis` existed still accepts: the engineer
+/// gets `selection: null` instead of a 500, and the status still moves.
+#[tokio::test]
+async fn accept_without_a_selection_basis_returns_null_not_500() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    let request_id = ctx.seed_task(
+        dispatcher.id,
+        Some(engineer.id),
+        "assigned",
+        None,
+        Point::new(10, 10),
+    );
+    diesel::update(tasks::table.find(request_id))
+        .set(tasks::selection_basis.eq(None::<String>))
+        .execute(&mut ctx.db())
+        .unwrap();
+
+    let body = expect_status(
+        ctx.post("/api/tasks/current/accept", &engineer.token, json!(null))
+            .await,
+        StatusCode::OK,
+    );
+    assert_eq!(body["status"], "in_progress");
+    assert!(body["selection"].is_null(), "unreadable basis is null");
+    assert_eq!(ctx.task(request_id).status, "in_progress");
+
+    // A stored value that is not valid JSON is treated the same way.
+    let second = ctx.seed_task(
+        dispatcher.id,
+        Some(engineer.id),
+        "assigned",
+        None,
+        Point::new(10, 10),
+    );
+    diesel::update(tasks::table.find(second))
+        .set(tasks::selection_basis.eq(Some("{not json")))
+        .execute(&mut ctx.db())
+        .unwrap();
+    let body = expect_status(
+        ctx.post("/api/tasks/current/accept", &engineer.token, json!(null))
+            .await,
+        StatusCode::OK,
+    );
+    assert!(body["selection"].is_null());
+    assert_eq!(body["status"], "in_progress");
+}
+
+/// ТЗ п.17: moving a request to another engineer replaces the stored
+/// justification, so the receiving engineer is never shown the numbers that
+/// picked their predecessor.
+#[tokio::test]
+async fn reassign_rewrites_the_selection_basis_for_the_new_engineer() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let first = ctx.engineer(EngineerType::AvionicsEngineer);
+    let second = ctx.engineer(EngineerType::EngineTechnician);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), first.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), second.id),
+        "5,30",
+    );
+    let request_id = ctx.seed_task(
+        dispatcher.id,
+        Some(first.id),
+        "assigned",
+        None,
+        Point::new(10, 10),
+    );
+    // The basis of the engineer who holds the request before it is moved.
+    diesel::update(tasks::table.find(request_id))
+        .set(tasks::selection_basis.eq(Some(serde_json::json!({
+            "engineer_id": first.id.to_string(),
+            "score": 1.0,
+            "eta_seconds": 1,
+            "distance": 1,
+            "uses_vehicle": false,
+            "factors": [],
+            "reason": "stale pick",
+            "manual": false,
+            "chosen_at": "2026-01-01T00:00:00+00:00"
+        })
+        .to_string())))
+        .execute(&mut ctx.db())
+        .unwrap();
+
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request_id}/reassign"),
+            &dispatcher.token,
+            json!({ "engineer_id": second.id, "reason": "shift change" }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    let task = ctx.task(request_id);
+    assert_eq!(task.assigned_engineer, Some(second.id));
+    let stored: SelectionBasis =
+        serde_json::from_str(task.selection_basis.as_deref().expect("basis is rewritten")).unwrap();
+    assert_eq!(
+        stored.engineer_id,
+        second.id.to_string(),
+        "the basis must name the engineer who now holds the request"
+    );
+    assert_ne!(stored.reason, "stale pick", "the old pick is gone");
+    assert!(stored.manual, "a dispatcher named this engineer");
+    assert_eq!(
+        stored.eta_seconds,
+        task.eta_seconds.expect("eta is rebuilt") as u64
+    );
+    let sum: f64 = stored.factors.iter().map(|factor| factor.seconds).sum();
+    assert!(
+        (sum - stored.score).abs() < 1e-6,
+        "factors {sum} should sum to score {}",
+        stored.score
+    );
+
+    // The engineer who receives the job sees their own numbers, not the old ones.
+    let body = expect_status(
+        ctx.post("/api/tasks/current/accept", &second.token, json!(null))
+            .await,
+        StatusCode::OK,
+    );
+    assert_eq!(body["selection"]["engineer_id"], second.id.to_string());
+    assert_eq!(body["status"], "in_progress");
+}
+
+/// ТЗ п.17: unassigning clears the justification with the engineer, so whoever
+/// takes the request next cannot inherit a stale one.
+#[tokio::test]
+async fn unassign_clears_the_selection_basis() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+        "5,5",
+    );
+    let plane_id = Uuid::new_v4();
+    let request_id = create_queued_request(&ctx, &dispatcher.token, plane_id, Point::new(10, 10)).await;
+    expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane_id,
+                "request_id": request_id
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert!(
+        ctx.task(request_id).selection_basis.is_some(),
+        "assignment stores the basis"
+    );
+
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request_id}/unassign"),
+            &dispatcher.token,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    let task = ctx.task(request_id);
+    assert_eq!(task.assigned_engineer, None);
+    assert_eq!(task.status, "unassigned");
+    assert!(
+        task.selection_basis.is_none(),
+        "no engineer means no justification to hand out"
     );
 }

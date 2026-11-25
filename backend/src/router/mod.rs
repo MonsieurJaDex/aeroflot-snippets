@@ -36,7 +36,7 @@ use crate::{
             AssignmentCandidatesResponse, ClassifyRequest, ClassifyResponse, CurrentTaskAogRequest,
             CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest, ErrorResponse,
             GetRouteRequest, GetRouteResponse, MapListResponse, MapResponse, MapSummary, PageQuery,
-            ScoreFactor, SelectMapRequest, TrainClassifierResponse,
+            ScoreFactor, SelectMapRequest, SelectionBasis, TrainClassifierResponse,
         },
         enums::{UserRole, VehicleType},
         map::{Point, Route},
@@ -1264,6 +1264,12 @@ pub async fn assign_engineer(
     let travel = chosen.eta_seconds;
     let sla_exceeded = travel >= plan.active.location.sla_secs;
     let route_json = serde_json::to_string(&chosen.route).expect("route serializes");
+    // ТЗ п.17: the numbers behind the pick travel with the task, so the
+    // engineer can be shown why they were chosen when they accept it.
+    let basis_json = selection_basis_json(chosen, payload.engineer_id.is_some()).map_err(|e| {
+        tracing::error!(error = %e, "failed to serialize the selection basis");
+        internal_error()
+    })?;
     diesel::update(tasks::table.find(task.id))
         .set((
             tasks::assigned_engineer.eq(Some(chosen.engineer_id)),
@@ -1271,6 +1277,7 @@ pub async fn assign_engineer(
             tasks::task_route.eq(&route_json),
             tasks::eta_seconds.eq(Some(travel as i32)),
             tasks::candidate_ms.eq(Some(plan.outcome.elapsed_ms)),
+            tasks::selection_basis.eq(Some(basis_json)),
             tasks::ata_chapter.eq(&plan.chapter),
             tasks::ends_at
                 .eq(task.recorded_at
@@ -1414,6 +1421,33 @@ pub(crate) fn assignment_candidate(row: &crate::rank::CandidateScore) -> Assignm
             .collect(),
         score: row.score,
     }
+}
+
+/// ТЗ п.17: the numbers behind a pick, serialized for `tasks.selection_basis`.
+/// Both handlers that put an engineer on a request write it through here, so
+/// the stored justification always describes the engineer actually assigned.
+pub(crate) fn selection_basis_json(
+    row: &crate::rank::CandidateScore,
+    manual: bool,
+) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&SelectionBasis {
+        engineer_id: row.engineer_id.to_string(),
+        score: row.score,
+        eta_seconds: row.eta_seconds,
+        distance: row.route.len() as u64,
+        uses_vehicle: row.uses_vehicle,
+        factors: row
+            .factors
+            .iter()
+            .map(|factor| ScoreFactor {
+                name: factor.name.clone(),
+                seconds: factor.seconds,
+            })
+            .collect(),
+        reason: row.reason.clone(),
+        manual,
+        chosen_at: Utc::now().to_rfc3339(),
+    })
 }
 
 /// Loads the request the dispatcher is looking at. Assignment needs it in the

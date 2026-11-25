@@ -1,0 +1,237 @@
+POST /api/v1/track — live evidence that `obj` is added to and updated in Redis.
+Recorded: 2026-11-25 ~00:39–00:45 UTC (03:39–03:45 MSK). Raw, unedited observations.
+
+Server provenance
+  working tree : trees/70, branch task/task-fb5cbd, clean (`git status` → nothing to commit)
+  source built : this tree's own backend/src/router/track.rs (no file edited)
+  binary       : ./target/debug/aeroflot-snippets, built by `cargo build`
+  command      : host=127.0.0.1 port=8099 debug=true
+                 database_url=postgres://postgres:postgres@127.0.0.1:5432/aeroflot_track
+                 redis_url=redis://127.0.0.1:6379/9 jwt_secret=live-test-secret
+                 ./target/debug/aeroflot-snippets --map-path ./assets/map2.json
+  startup log  : 'active map selected map_id=map2', 'Running server at: http://127.0.0.1:8099'
+  auth         : /api/v1/track sits on the global router (main.rs:307-310), no JWT required.
+  redis client : docker run --rm -i redis:7-alpine redis-cli -h host.docker.internal -p 6379 -n 9  (no local redis-cli)
+  map          : assets/map2.json + map2.location.json — 64x64, cell_size_m 5,
+                 origin_lat 55.831 / origin_lon 37.636, max_accuracy_m 80, max_speed_mps 12.
+                 agents: e-01 (engineer), v-01 (vehicle, fuel_truck), RA-73142 (aircraft).
+  cell math    : 55.8300/37.6380 -> 125 m east, 111 m south -> x=25, y=22 (matches every dump below).
+
+Every clone of this file deletes its own db9 first (`FLUSHDB`), so each dump is a full picture.
+
+================================================================================
+VERDICTS
+================================================================================
+1  first point creates the key and its value ............................ OK
+2  newer t updates the SAME key in place, key count unchanged ........... OK
+3  older t -> applied:false, stored value untouched .................... OK
+4  batch with one obj twice -> later t wins, in either order .......... OK
+5  unknown obj -> applied:false, no key created at all ................ OK
+6  no TTL on any key (`set`, not `set_ex`) ............................. CONFIRMED, permanent keys
+7  track key (raw obj) vs position_id (UUID) divergence ................ REAL: two spellings
+                                                                          split the track key AND
+                                                                          regress the shared
+                                                                          position key
+
+================================================================================
+CASE 1 — first point creates the key
+================================================================================
+$ redis-cli -n 9 FLUSHDB
+OK
+$ redis-cli -n 9 KEYS 'map:*:track:*'          (before)
+                                   (empty)      dbsize=0
+$ curl -s -X POST http://127.0.0.1:8099/api/v1/track -d '{"obj":"e-01","lat":55.8300,"lon":37.6380,"t":"2026-11-25T01:00:00.000Z","acc":5,"spd":1}'
+{"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-25T01:00:00.000Z"}
+$ redis-cli -n 9 KEYS 'map:*:track:*'          (after)
+map:map2:track:e-01
+   dbsize = 3   (track key + position:6870cc1a… + position_ts:6870cc1a…)
+$ redis-cli -n 9 GET map:map2:track:e-01
+{"acc":5.0,"lat":55.83,"lon":37.638,"spd":1.0,"t":"2026-11-25T01:00:00.000Z","x":25,"y":22}
+$ redis-cli -n 9 TTL map:map2:track:e-01
+-1
+VERDICT: OK — key `map:{active.id}:track:{obj}` appears, value is exactly
+{lat,lon,t,x,y,acc,spd} with raw GPS in lat/lon and the snapped cell in x/y.
+
+================================================================================
+CASE 2 — newer t updates the same key, in place
+================================================================================
+$ curl -s -X POST http://127.0.0.1:8099/api/v1/track -d '{"obj":"e-01","lat":55.8290,"lon":37.6390,"t":"2026-11-25T01:01:00.000Z","acc":5,"spd":1}'
+{"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-25T01:01:00.000Z"}
+$ redis-cli -n 9 KEYS 'map:*:track:*'          (after)
+map:map2:track:e-01
+   dbsize = 3        (unchanged — no new key)
+$ redis-cli -n 9 GET map:map2:track:e-01
+{"acc":5.0,"lat":55.829,"lon":37.639,"spd":1.0,"t":"2026-11-25T01:01:00.000Z","x":38,"y":45}
+VERDICT: OK — same key, overwritten in place; the key count did not grow.
+
+================================================================================
+CASE 3 — older t is acknowledged and ignored
+================================================================================
+$ redis-cli -n 9 GET map:map2:track:e-01       (before)
+{"acc":5.0,"lat":55.829,"lon":37.639,"spd":1.0,"t":"2026-11-25T01:01:00.000Z","x":38,"y":45}
+$ curl -s -X POST http://127.0.0.1:8099/api/v1/track -d '{"obj":"e-01","lat":55.1000,"lon":37.1000,"t":"2026-11-25T00:30:00.000Z","acc":5,"spd":1}'
+{"accepted":true,"applied":false,"obj":"e-01","t":"2026-11-25T00:30:00.000Z"}
+$ redis-cli -n 9 GET map:map2:track:e-01       (after)
+{"acc":5.0,"lat":55.829,"lon":37.639,"spd":1.0,"t":"2026-11-25T01:01:00.000Z","x":38,"y":45}
+   dbsize = 3
+VERDICT: OK — applied:false, byte-identical value, the wild coordinates never landed.
+
+================================================================================
+CASE 4 — one obj twice in one batch, later t wins
+================================================================================
+(a) older point first, newer second
+$ redis-cli -n 9 GET map:map2:track:e-01       (before)
+{"acc":5.0,"lat":55.829,"lon":37.639,"spd":1.0,"t":"2026-11-25T01:01:00.000Z","x":38,"y":45}
+$ curl -s -X POST http://127.0.0.1:8099/api/v1/track -d '{"points":[{"obj":"e-01","lat":55.8280,"lon":37.6400,"t":"2026-11-25T01:04:00.000Z","acc":5},{"obj":"e-01","lat":55.8270,"lon":37.6410,"t":"2026-11-25T01:05:00.000Z","acc":5}]}'
+[{"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-25T01:04:00.000Z"},{"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-25T01:05:00.000Z"}]
+$ redis-cli -n 9 GET map:map2:track:e-01       (after)
+{"acc":5.0,"lat":55.827,"lon":37.641,"spd":null,"t":"2026-11-25T01:05:00.000Z","x":63,"y":63}
+   dbsize = 3
+
+(b) newer point first, older second — must NOT regress
+$ redis-cli -n 9 GET map:map2:track:e-01       (before)
+{"acc":5.0,"lat":55.827,"lon":37.641,"spd":null,"t":"2026-11-25T01:05:00.000Z","x":63,"y":63}
+$ curl -s -X POST http://127.0.0.1:8099/api/v1/track -d '{"points":[{"obj":"e-01","lat":55.8260,"lon":37.6420,"t":"2026-11-25T01:07:00.000Z","acc":5},{"obj":"e-01","lat":55.8250,"lon":37.6430,"t":"2026-11-25T01:06:00.000Z","acc":5}]}'
+[{"accepted":true,"applied":true,"obj":"e-01","t":"2026-11-25T01:07:00.000Z"},{"accepted":true,"applied":false,"obj":"e-01","t":"2026-11-25T01:06:00.000Z"}]
+$ redis-cli -n 9 GET map:map2:track:e-01       (after)
+{"acc":5.0,"lat":55.826,"lon":37.642,"spd":null,"t":"2026-11-25T01:07:00.000Z","x":63,"y":63}
+VERDICT: OK in both orders — the value ends on the later t and the key count stays at 3.
+
+================================================================================
+CASE 5 — unknown obj writes nothing
+================================================================================
+$ redis-cli -n 9 KEYS '*unknown*'              (before)  (empty)  dbsize=3
+$ curl -s -X POST http://127.0.0.1:8099/api/v1/track -d '{"obj":"zzz-unknown-999","lat":55.8300,"lon":37.6380,"t":"2026-11-25T01:09:00.000Z","acc":5}'
+{"accepted":true,"applied":false,"obj":"zzz-unknown-999","t":"2026-11-25T01:09:00.000Z"}
+$ redis-cli -n 9 KEYS '*unknown*'              (after)   (empty)
+$ redis-cli -n 9 EXISTS map:map2:track:zzz-unknown-999
+0
+   dbsize = 3
+Also a UUID that parses but is nobody's engineer:
+$ curl -s -X POST http://127.0.0.1:8099/api/v1/track -d '{"obj":"11111111-2222-3333-4444-555555555555","lat":55.8300,"lon":37.6380,"t":"2026-11-25T00:00:00.000Z","acc":5}'
+{"accepted":true,"applied":false,"obj":"11111111-2222-3333-4444-555555555555","t":"2026-11-25T00:00:00.000Z"}
+$ redis-cli -n 9 KEYS '*1111*'   ->  (empty)   EXISTS map:map2:track:1111… -> 0
+VERDICT: OK — the `known` gate (track.rs:365) returns before the key is even built (track.rs:374),
+so neither a bare label nor an unknown UUID leaves a trace.
+
+================================================================================
+CASE 6 — TTL: there is none
+================================================================================
+$ for every key in db9: redis-cli -n 9 TTL <key>
+  map:map2:track:e-01                            -> -1
+  map:map2:position:6870cc1a-124f-52e8-936d-295beadfba4b -> -1
+  map:map2:position_ts:6870cc1a-124f-52e8-936d-295beadfba4b -> -1
+  map:map2:track:v-01                            -> -1
+  map:map2:track:RA-73142                        -> -1
+  map:map2:position:fuel_truck:dd8706e0-e60d-52b4-8805-31c53aa1ab89 -> -1
+  map:map2:position:aircraft:62313260-2831-590b-9b13-fd65bbdd765a -> -1
+  map:map2:track:0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2 -> -1
+  map:map2:track:0468E3FD-9043-45AB-A3AC-7FA9B6CA05A2 -> -1
+  map:map2:position:0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2 -> -1
+VERDICT: CONFIRMED, and it is deliberate in code, not an accident of one call:
+  track.rs:453-455 does `redis_conn.set(&key, stored.to_string())` — plain SET.
+  `set_ex` appears in this crate only in src/utils.rs (lines 41,47,53,59,65), never in track.rs.
+  So `map:{id}:track:{obj}` holds exactly one key per spelling of obj, growth is bounded by
+  the number of distinct trackers, and it is never evicted by expiry. The row is stale after
+  location.stale_after_secs = 45 but the key survives forever; readers must judge freshness by
+  the stored `t`, which is what the stale key in the dumps is doing. The positional keys
+  (`position:…`, `position_ts:…`) are equally permanent, so a decommissioned engineer's last
+  position is readable forever too. That is a design choice worth confirming, not a leak:
+  the key space does not grow per point, only per object.
+
+================================================================================
+CASE 7 — track key (raw obj) vs position_id (UUID)
+================================================================================
+Engineer registered live: POST /api/auth/register → id 0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2
+(engineer_type engine_technician), then POST /api/auth/login for the token.
+
+$ curl -s -X POST .../api/v1/track -d '{"obj":"0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2","lat":55.8300,"lon":37.6380,"t":"2026-11-25T00:00:00.000Z","acc":5}'
+{"accepted":true,"applied":true,"obj":"0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2",…}
+$ redis-cli -n 9 KEYS '*'
+map:map2:track:0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2
+map:map2:position:0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2
+map:map2:position_ts:0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2
+
+$ curl -s -X POST .../api/v1/track -d '{"obj":"0468E3FD-9043-45AB-A3AC-7FA9B6CA05A2","lat":55.8290,"lon":37.6390,"t":"2026-11-25T00:01:00.000Z","acc":5}'
+{"accepted":true,"applied":true,"obj":"0468E3FD-9043-45AB-A3AC-7FA9B6CA05A2",…}
+$ redis-cli -n 9 KEYS '*'
+map:map2:track:0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2      <- old spelling, stale value
+map:map2:track:0468E3FD-9043-45AB-A3AC-7FA9B6CA05A2      <- new key for the SAME engineer
+map:map2:position:0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2   <- one shared key, both wrote here
+map:map2:position_ts:0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2
+
+$ redis-cli -n 9 GET map:map2:track:0468e3fd-9043-45ab-a3ac-7fa9b6ca05a2
+{"acc":5.0,"lat":55.83,"lon":37.638,"spd":null,"t":"2026-11-25T00:00:00.000Z","x":25,"y":22}
+$ redis-cli -n 9 GET map:map2:track:0468E3FD-9043-45AB-A3AC-7FA9B6CA05A2
+{"acc":5.0,"lat":55.829,"lon":37.639,"spd":null,"t":"2026-11-25T00:01:00.000Z","x":38,"y":45}
+
+Timeline regression across the two spellings (each key compares only against itself):
+$ redis-cli -n 9 DEL the two track keys
+$ POST obj=lower t=00:05:00   -> applied:true;  track(lower) t=00:05:00
+$ POST obj=UPPER t=00:02:00   -> applied:true;  track(UPPER) t=00:02:00   <- OLDER point, accepted
+$ redis-cli -n 9 GET map:map2:position:0468e3fd-…   -> 0,63
+$ redis-cli -n 9 GET map:map2:position_ts:0468e3fd-… -> 1795564920   (2026-11-25T00:02:00Z)
+VERDICT: REAL DIVERGENCE, three separate effects, all from `obj` entering keys verbatim:
+  a) `map:{id}:track:{obj}` is keyed by the raw string (track.rs:374) — two spellings of one
+     engineer are two keys, each with its own `t` comparison (track.rs:380). Neither key ever
+     sees the other's timestamp, so out-of-order delivery between the two sources is accepted.
+  b) `position_id` (track.rs:456) is the parsed UUID with format specifiers dropped, so both
+     spellings write the SAME `map:{id}:position:{uuid}`. That key therefore received the
+     00:02:00 point of x=0,y=63 AFTER the 00:05:00 point of x=25,y=22 — the shared position
+     for dispatch regressed, because the stale-point guard sits on the per-spelling track key
+     and not on position_id. This is the only one of the three that corrupts a shared value;
+     `position:{uuid}` is what dispatch and ops read (src/router/mod.rs:463,1782, src/router/ops.rs:723).
+  c) `calibration::load(redis_conn, &active.id, &obj)` (track.rs:440) also uses the raw obj:
+     a pin saved for the canonical spelling is silently ignored by the other spelling.
+     Observed: pin [7,9] on lowercase → x=7,y=9; same raw GPS under UPPERCASE → x=25,y=22 (snap).
+  d) v5 fallback is stable, for the record: `Uuid::new_v5(NAMESPACE_OID, obj.as_bytes())`
+     reproduced exactly — e-01 → 6870cc1a-124f-52e8-936d-295beadfba4b,
+     v-01 → dd8706e0-e60d-52b4-8805-31c53aa1ab89, RA-73142 → 62313260-2831-590b-9b13-fd65bbdd765a.
+     So the divergence is spelling-only (case/format), not a different hash.
+  Practical risk is low unless a tracker switches its `obj` spelling mid-life, but the fix is
+  cheap: key the track record and the pin by the canonical `position_id` (or lowercase/NFC
+  `obj` once, at the top of apply_point, before any key is built).
+
+================================================================================
+ADDITIONAL OBSERVATIONS FROM THE SAME RUN (not asked for, relevant to "correctly")
+================================================================================
+* Outlier gate never runs on the first point of an object. track.rs:376-393 wraps both the
+  stale check and `outlier(...)` in `if let Some(raw) = &previous`, so a brand-new object is
+  stored without any range check:
+    $ POST {"obj":"RA-73142","lat":55.8300,"lon":37.6380,"t":"2026-11-25T00:00:00.000Z","acc":9999}
+    {"accepted":true,"applied":true,…}
+    $ redis-cli -n 9 GET map:map2:track:RA-73142
+    {"acc":9999.0,"lat":55.83,"lon":37.638,"spd":null,"t":"2026-11-25T00:00:00.000Z","x":25,"y":22}
+  With a stored point, the same acc is rejected: `acc:500 > max_accuracy_m 80` →
+  {"applied":false}, value byte-identical. Same for a 3 km jump in 1 s (max_speed_mps 12) →
+  {"applied":false}, value byte-identical.
+* Equal `t` is applied, overwriting: with `old > when` strict, an identical timestamp passes
+  the guard. Proof with identical coordinates so the speed rule cannot fire:
+    $ POST {"obj":"e-01","lat":55.8290,"lon":37.6390,"t":"2026-11-25T01:01:00.000Z","acc":5,"spd":0}
+    {"accepted":true,"applied":true,…}   -> value re-written, spd now 0.0
+  (My first attempt at this returned applied:false — that was the speed rule, not equality:
+   different coordinates at a 0 s gap are infinitely fast.)
+* Snap failure writes nothing but journals: `lat:0,lon:0` → applied:false and the stored
+  value is byte-identical.
+* Journal asymmetry (postgres `journal`): `outlier` and `snap failed` both `track_rejected`;
+  the stale-`t` rejection and the unknown-`obj` rejection are NOT journalled at all.
+  4 rows total, exactly matching 1 accuracy + 2 speed + 1 snap rejection:
+    track_rejected | e-01     | {"acc":5.0,"lat":55.832,"lon":37.637,"spd":1.0}
+    track_rejected | v-01     | {"acc":500.0,"lat":55.8295,"lon":37.6385,"spd":null}
+    track_rejected | v-01     | {"acc":10.0,"lat":55.8,"lon":37.5,"spd":null}
+    track_rejected | RA-73142 | {"acc":5.0,"lat":0.0,"lon":0.0,"spd":null}
+* A future-dated point locks out real time. Stored t=03:02:00 while the server clock was
+  00:43:16 made a later, correctly-stamped point stale:
+    $ POST {"obj":"v-01","lat":55.8301,"lon":37.6381,"acc":5}    (no t)
+    {"accepted":true,"applied":false,…,"t":"2026-11-25T00:43:16.667Z"}
+  Correct per the contract, but a tracker with a badly skewed clock freezes its own record
+  until wall time catches up. Worth knowing, not a defect in `obj` handling.
+* `position_ts:{uuid}` stores `when.timestamp()` (unix seconds), while the track JSON `t` is
+  RFC 3339 with milliseconds — two time formats for the same instant, both UTC.
+
+================================================================================
+TEST BASELINE (unchanged code)
+================================================================================
+$ cd backend && cargo test -- --skip write_openapi
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 56.24s
+No source file was modified for this check; the live server was this tree's own already-built binary.

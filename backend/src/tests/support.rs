@@ -323,6 +323,7 @@ impl TestContext {
             urgency: "normal".to_owned(),
             eta_seconds: None,
             candidate_ms: None,
+            selection_basis: None,
             sla_alerted: false,
             sla_breached: false,
         };
@@ -358,6 +359,22 @@ impl TestContext {
         self.redis()
             .set(key, value)
             .expect("redis SET should succeed");
+    }
+
+    /// Newest element of a list key, or `None` when the key is absent.
+    pub fn redis_lindex(&self, key: &str, index: isize) -> Option<String> {
+        redis::cmd("LINDEX")
+            .arg(key)
+            .arg(index)
+            .query(&mut self.redis())
+            .expect("redis LINDEX should succeed")
+    }
+
+    pub fn redis_ttl(&self, key: &str) -> i64 {
+        redis::cmd("TTL")
+            .arg(key)
+            .query(&mut self.redis())
+            .expect("redis TTL should succeed")
     }
 
     pub fn redis_exists(&self, key: &str) -> bool {

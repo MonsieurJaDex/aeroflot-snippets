@@ -297,6 +297,10 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
             get(router::geo::get_transport_positions),
         )
         .route("/activeEngineers", get(router::geo::active_engineers))
+        .route(
+            "/trackFreshness",
+            get(router::geo::track_freshness),
+        )
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&app_state),
             middleware::auth_middleware,
