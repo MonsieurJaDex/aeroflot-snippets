@@ -503,6 +503,10 @@ export async function getRouteVia(points, agent) {
   return { route, distance, legs, eta_seconds: etaKnown ? etaSeconds : 0, agent: perLeg };
 }
 
+export async function classifyRemark(text) {
+  return apiRequest("/api/classify", { method: "POST", body: { text } });
+}
+
 export async function trainClassifier() {
   return apiRequest("/api/classify/train", { method: "POST" });
 }
@@ -515,7 +519,7 @@ export function assignErrorMessage(err) {
   if (/aircraft not found/i.test(raw)) return "Самолёт не найден в Redis. Список бортов берётся из /api/aircraft.";
   if (/not implemented|todo/i.test(raw) || (/other/i.test(raw) && /500/.test(raw))) return "Тип «Другое» сервер пока не назначает.";
   if (/only dispatchers/i.test(raw)) return "Назначать может только диспетчер. Войдите карточкой «Диспетчер».";
-  if (/request not found/i.test(raw)) return "Заявка не найдена. Обновите очередь ЦПУ.";
+  if (/request not found/i.test(raw)) return "Заявка не найдена.";
   if (/already assigned|already has an active task/i.test(raw)) return "У инженера уже есть активная задача.";
   if (/invalid refresh|unauthorized|session/i.test(raw) && /401|token/i.test(raw)) {
     return "Сессия истекла. Войдите снова.";

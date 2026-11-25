@@ -34,20 +34,18 @@ import {
   forceVehicle,
   pauseAgent,
   postTrackPoint,
-  queueRequest,
   shiftTaskTimer,
   reassignRequest,
   setActiveMap,
   trainClassifier,
+  classifyRemark,
   updateEngineerPosition,
   updateTransportPosition,
 } from "../lib/live.js";
-import { classifyRemark } from "../lib/mccApi.js";
 import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { formatPollMs, relativeRu } from "../lib/format.js";
 import NetBanner from "../components/NetBanner.jsx";
-import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { whenVisible } from "../lib/visibility.js";
 import { expandRouteOnRoads, pointAt, totalMeters, VEHICLE_MPS, WALK_MPS } from "../lib/walk.js";
@@ -110,25 +108,6 @@ async function mapCandidate(row) {
     usesVehicle: Boolean(row.uses_vehicle),
     factors: factorLine(row),
   };
-}
-
-function proposedEngineer(candidates, chosenId) {
-  if (!Array.isArray(candidates) || !candidates.length) return null;
-  const eligible = candidates.find((row) => row.eligible);
-  if (eligible) return eligible;
-  const chosen = chosenId ? candidates.find((row) => row.engineerId === chosenId) : null;
-  return chosen || null;
-}
-
-function freshInbox() {
-  // В очереди только ещё не назначенные; assigned — только после успешного /api/assign.
-  return listMcc()
-    .filter((item) => item.status !== "assigned")
-    .sort((a, b) => {
-      const urgent = Number(b.urgency === "urgent") - Number(a.urgency === "urgent");
-      if (urgent) return urgent;
-      return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
-    });
 }
 
 function etaNote(data) {
@@ -218,10 +197,7 @@ export default function DispatcherPage() {
     return { staff: true, transport: true, stands: true, route: true };
   })());
   const lastAuto = useRef("");
-  const skipAuto = useRef(false);
-  const cardPreview = useRef("");
   const alertCountRef = useRef(0);
-  const inboxCountRef = useRef(0);
 
   const [aircraft, setAircraft] = useState([]);
   const [demoStands, setDemoStands] = useState(readDemoStands);
@@ -244,8 +220,6 @@ export default function DispatcherPage() {
   // #6: причина сбоя загрузки списка инженеров (пустая строка — сбоя нет).
   const [staffError, setStaffError] = useState("");
   const [result, setResult] = useState({ type: "info", text: "Клик по карте ставит стоянку, инженера или технику. Затем назначьте." });
-  const [inbox, setInbox] = useState(freshInbox);
-  const [activeMcc, setActiveMcc] = useState(null);
   const [tileInfo, setTileInfo] = useState("Кликни по карте, чтобы выбрать клетку.");
   const [pending, setPending] = useState(false);
   const [alerts, setAlerts] = useState([]);
@@ -259,8 +233,6 @@ export default function DispatcherPage() {
   const [reassignReason, setReassignReason] = useState(() => sessionStorage.getItem("oto-reassign-reason") || "");
   const [reassignNote, setReassignNote] = useState("");
   const [reassignPending, setReassignPending] = useState(false);
-  const [queueNote, setQueueNote] = useState("");
-  const [queuePending, setQueuePending] = useState("");
   const [defectText, setDefectText] = useState(() => sessionStorage.getItem("oto-defect-text") || "");
   const [defectAta, setDefectAta] = useState(() => sessionStorage.getItem("oto-defect-ata") || "");
   const [defectNote, setDefectNote] = useState("");
@@ -313,11 +285,10 @@ export default function DispatcherPage() {
       return [];
     }
   });
-  const [urgentOnly, setUrgentOnly] = useState(() => localStorage.getItem("oto-urgent-only") === "1");
   const lastLiveAt = useRef(Date.now());
   const staleBeepAt = useRef(0);
 
-  formRef.current = { issue, description, planeId, activeMcc };
+  formRef.current = { issue, description, planeId };
   clickRef.current = { mode: clickMode, engineerId: clickEngineerId, vehicleType: clickVehicleType, planeId };
   layersRef.current = layersOn;
 
@@ -326,19 +297,10 @@ export default function DispatcherPage() {
   }, [layersOn]);
 
   useEffect(() => {
-    if (inbox.length > inboxCountRef.current) softBeep(660, 160);
-    inboxCountRef.current = inbox.length;
-  }, [inbox.length]);
-
-  useEffect(() => {
     localStorage.setItem("oto-last-issue", issue);
     const vehicleType = ISSUE_REQUIRED_VEHICLE[issue];
     const vehicleText = vehicleType ? `Спецтранспорт: ${vehicleLabel(vehicleType)}.` : "Спецтранспорт не требуется.";
     setHint(`Нужный специалист: ${engineerTypeForIssue(issue)}. ${vehicleText}`);
-    if (skipAuto.current) {
-      skipAuto.current = false;
-      return;
-    }
     const nextAuto = `Обнаружена неисправность: ${issueLabel(issue).toLowerCase()}. Требуется осмотр и устранение.`;
     setDescription((current) => {
       if (!current.trim() || current === lastAuto.current) {
@@ -349,14 +311,6 @@ export default function DispatcherPage() {
       return current;
     });
   }, [issue]);
-
-  useEffect(() => {
-    const onStorage = (event) => {
-      if (event.key === MCC_QUEUE_KEY) setInbox(freshInbox());
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
 
   const [clock, setClock] = useState(() => new Date().toLocaleTimeString("ru-RU"));
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -414,12 +368,11 @@ export default function DispatcherPage() {
 
   useEffect(() => {
     const bits = ["ОТО · диспетчер"];
-    if (inbox.length) bits.push(`очередь ${inbox.length}`);
     if (alerts.length) bits.push(`риски ${alerts.length}`);
     if (aogList.length) bits.push(`AOG ${aogList.length}`);
     document.title = bits.join(" · ");
     return () => { document.title = "Аэрофлот ОТО"; };
-  }, [alerts.length, inbox.length, aogList.length]);
+  }, [alerts.length, aogList.length]);
 
   useEffect(() => {
     if (!allowed) return undefined;
@@ -432,7 +385,6 @@ export default function DispatcherPage() {
         actions.current.assign?.();
       }
       if (event.key === "Escape") {
-        setActiveMcc(null);
         setPlaneFilter("");
         setHint("");
         setRouteNote("");
@@ -441,7 +393,6 @@ export default function DispatcherPage() {
         setDefectNote("");
         setTrainNote("");
         setReassignNote("");
-        setQueueNote("");
         setAlertsNote("");
         setJournalNote("");
         setTrackNote("");
@@ -452,15 +403,6 @@ export default function DispatcherPage() {
       if ((event.ctrlKey || event.metaKey) && (event.key === "k" || event.key === "K" || event.key === "л" || event.key === "Л")) {
         event.preventDefault();
         document.getElementById("plane-filter")?.focus();
-      }
-      if ((event.ctrlKey || event.metaKey) && (event.key === "u" || event.key === "U" || event.key === "г" || event.key === "Г")) {
-        event.preventDefault();
-        setUrgentOnly((prev) => {
-          const next = !prev;
-          localStorage.setItem("oto-urgent-only", next ? "1" : "0");
-          softBeep(next ? 700 : 480, 80);
-          return next;
-        });
       }
       if ((event.ctrlKey || event.metaKey) && (event.key === "j" || event.key === "J" || event.key === "о" || event.key === "О")) {
         event.preventDefault();
@@ -579,6 +521,8 @@ export default function DispatcherPage() {
       const latSpan = Math.abs(bounds[1][0] - bounds[0][0]);
       let settled = false;
       let userMoved = false;
+      let fittedW = 0;
+      let fittedH = 0;
       let lastFit = { target: bounds, options: apronPad };
 
       function stampOverlay() {
@@ -606,6 +550,7 @@ export default function DispatcherPage() {
         if (lng < 1 || lat < 1) return false;
         const cap = typeof options.maxZoom === "number" ? options.maxZoom : map.getMaxZoom();
         const zoom = Math.max(map.getMinZoom(), Math.min(cap, Math.log2(Math.min(w / lng, h / lat))));
+        map._sizeChanged = true;
         if (map._loaded) map.invalidateSize(false);
         map.setView(box.getCenter(), zoom, { animate: false });
         stampOverlay();
@@ -622,17 +567,35 @@ export default function DispatcherPage() {
         const opts = options || {};
         const next = isApronTarget(target) && !opts.padding ? { ...opts, padding: [16, 16] } : opts;
         lastFit = { target, options: next };
-        if (applyFit(target, next)) settled = true;
+        if (applyFit(target, next)) {
+          settled = true;
+          const node = map.getContainer();
+          fittedW = node.clientWidth;
+          fittedH = node.clientHeight;
+        }
         return map;
       };
       map.on("dragstart", () => { userMoved = true; });
       map.on("zoomstart", (event) => { if (event.originalEvent) userMoved = true; });
       map.on("zoomend", stampOverlay);
-      overlay.on("add load", stampOverlay);
+      overlay.on("add", () => {
+        map.off("viewreset", stampOverlay);
+        map.on("viewreset", stampOverlay);
+        stampOverlay();
+      });
+      overlay.on("load", stampOverlay);
 
       function ensureFitted() {
-        if (userMoved || settled) return;
-        if (applyFit(lastFit.target, lastFit.options)) settled = true;
+        if (userMoved) return;
+        if (settled && !isApronTarget(lastFit.target)) return;
+        const node = map.getContainer();
+        const shifted = Math.abs(node.clientWidth - fittedW) > 24 || Math.abs(node.clientHeight - fittedH) > 24;
+        if (settled && !shifted) return;
+        if (applyFit(lastFit.target, lastFit.options)) {
+          settled = true;
+          fittedW = node.clientWidth;
+          fittedH = node.clientHeight;
+        }
       }
 
       function apronUnderfilled() {
@@ -646,8 +609,10 @@ export default function DispatcherPage() {
       map.fitBounds(bounds, apronPad);
       bag.fitFrame = requestAnimationFrame(() => {
         if (cancelled || userMoved) return;
-        if (settled && !isApronTarget(lastFit.target)) return;
-        if (!settled || apronUnderfilled()) {
+        ensureFitted();
+        if (settled && isApronTarget(lastFit.target) && apronUnderfilled()) {
+          fittedW = 0;
+          fittedH = 0;
           settled = false;
           ensureFitted();
         }
@@ -1021,15 +986,7 @@ export default function DispatcherPage() {
           setPending(true);
           setResult({ type: "info", text: "Поиск свободного инженера и спецтранспорта..." });
           try {
-            const mccItem = form.activeMcc
-              ? listMcc().find((item) => item.id === form.activeMcc)
-              : null;
-            const requestId = mccItem?.serverId && mccItem.status !== "assigned"
-              ? String(mccItem.serverId)
-              : "";
-            const planeUuid = [plane.id, mccItem?.planeUuid]
-              .map((value) => String(value || "").trim())
-              .find((value) => UUID_RE.test(value)) || "";
+            const planeUuid = UUID_RE.test(String(plane.id || "")) ? String(plane.id) : "";
             const manualId = typeof engineerId === "string" && UUID_RE.test(engineerId.trim())
               ? engineerId.trim()
               : "";
@@ -1039,17 +996,9 @@ export default function DispatcherPage() {
               planeUuid,
               issue: issueValue,
               engineerId: manualId,
-              requestId,
             });
-            if (mccItem && requestId) markMccQueued(mccItem.id);
             const gridRoute = normalizeRoute(response.route);
             const travelMin = marginMinutes(response.time ?? response.eta_seconds) ?? 0;
-            // Статус «назначена» только после HTTP 200, не по клику и не по очереди.
-            if (form.activeMcc) {
-              markMccAssigned(form.activeMcc);
-              setActiveMcc(null);
-              setInbox(freshInbox());
-            }
             const assignedName = await engineerName(response.engineer_uuid);
             routeExtrasLayer.clearLayers();
             const pickup = findTransportOnRoute(gridRoute, fleet);
@@ -1157,67 +1106,6 @@ export default function DispatcherPage() {
   const planeOptions = mergePlanes(aircraft, demoStands);
   const selectedStand = planeOptions.find((plane) => plane.id === planeId) || null;
 
-  function chooseMcc(item) {
-    const text = String(item.description || "").trim();
-    const stand = readDemoStands().find((row) => row.id === item.planeUuid);
-    skipAuto.current = true;
-    softBeep(item.urgency === "urgent" ? 780 : 560, 100);
-    setActiveMcc(item.id);
-    if (stand) setPlaneId(stand.id);
-    if (item.issue) setIssue(item.issue);
-    setDescription(text);
-    sessionStorage.setItem("oto-disp-draft", text);
-    if (item.serverId) setReassignId(String(item.serverId));
-    cardPreview.current = item.id;
-    setResult({
-      type: "info",
-      text: item.serverId
-        ? "Заявка открыта. Считаю, кого назначить."
-        : "Замечание подставлено в заявку. Можно назначать без очереди.",
-      candidates: [],
-      chosenId: "",
-    });
-    if (item.serverId) void loadCardCandidates(item);
-    window.queueMicrotask?.(() => {
-      const btn = document.getElementById("assign-button");
-      btn?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      btn?.focus();
-    });
-  }
-
-  async function loadCardCandidates(item) {
-    try {
-      const data = await apiRequest("/api/assign/candidates", {
-        method: "POST",
-        body: { request_id: String(item.serverId) },
-      });
-      if (cardPreview.current !== item.id) return;
-      const raw = Array.isArray(data?.candidates) ? data.candidates : [];
-      const candidates = await Promise.all(raw.map((row) => mapCandidate(row)));
-      if (cardPreview.current !== item.id) return;
-      const proposed = proposedEngineer(candidates, "");
-      setResult({
-        type: "info",
-        text: proposed
-          ? `На карточке ${proposed.name}. Можно назначить его.`
-          : "Сервер не предложил инженера.",
-        candidates,
-        chosenId: proposed?.engineerId || "",
-      });
-    } catch (error) {
-      if (cardPreview.current !== item.id) return;
-      const missing = Number(error?.status) === 404;
-      setResult({
-        type: missing ? "info" : "error",
-        text: missing
-          ? "Этот сервер не отдаёт рейтинг. Назначьте нижней кнопкой."
-          : `Рейтинг не пришёл: ${assignErrorMessage(error)}`,
-        candidates: [],
-        chosenId: "",
-      });
-    }
-  }
-
   function toggleLayer(name, on) {
     setLayersOn((current) => ({ ...current, [name]: on }));
     actions.current.setLayer?.(name, on);
@@ -1225,7 +1113,6 @@ export default function DispatcherPage() {
   }
 
   function logout() {
-    if (inbox.length && !window.confirm(`В очереди ЦПУ ещё ${inbox.length}. Выйти?`)) return;
     softBeep(360, 100);
     clearSession();
     navigate("/");
@@ -1285,9 +1172,8 @@ export default function DispatcherPage() {
       setReassignNote("Укажите заявку, инженера и причину.");
       return;
     }
-    const known = listMcc().find((item) => String(item.serverId || "") === id);
     const fromAlert = alerts.find((item) => String(item.request_id || "") === id);
-    const knownStatus = known?.status || fromAlert?.status || "";
+    const knownStatus = fromAlert?.status || "";
     if (knownStatus === "done" || knownStatus === "completed" || knownStatus === "rejected") {
       setReassignNote("Заявка уже закрыта, переназначить нельзя.");
       softBeep(320, 200);
@@ -1312,29 +1198,6 @@ export default function DispatcherPage() {
       softBeep(320, 200);
     } finally {
       setReassignPending(false);
-    }
-  }
-
-  async function enqueueMcc(item, event) {
-    event.stopPropagation();
-    if (!item?.serverId) {
-      setQueueNote("Нет serverId — сначала запись через ЦПУ на сервер.");
-      softBeep(320, 160);
-      return;
-    }
-    setQueuePending(item.id);
-    setQueueNote("");
-    try {
-      const data = await queueRequest(item.serverId);
-      markMccQueued(item.id);
-      setInbox(freshInbox());
-      softBeep(700, 100);
-      setQueueNote(`В очереди: ${data?.id || item.serverId}${data?.status ? ` · ${data.status}` : ""}`);
-    } catch (error) {
-      setQueueNote(assignErrorMessage(error));
-      softBeep(320, 200);
-    } finally {
-      setQueuePending("");
     }
   }
 
@@ -1781,76 +1644,6 @@ export default function DispatcherPage() {
           {journalPreview ? (
             <pre className="journal-preview" aria-label="Последние строки journal.csv">{journalPreview}</pre>
           ) : null}
-        </details>
-        <details className="request-panel" open>
-          <summary>Заявки ЦПУ · {inbox.length}</summary>
-          <label className="layer-row">
-            <input
-              type="checkbox"
-              checked={urgentOnly}
-              onChange={(event) => {
-                const next = event.target.checked;
-                setUrgentOnly(next);
-                localStorage.setItem("oto-urgent-only", next ? "1" : "0");
-              }}
-            />
-            Только срочные · Ctrl+U
-          </label>
-          <div className="mcc-inbox">
-            {(() => {
-              const rows = urgentOnly ? inbox.filter((item) => item.urgency === "urgent") : inbox;
-              if (!rows.length) {
-                return <p className="mcc-empty">{urgentOnly ? "Нет срочных замечаний." : "Нет новых замечаний от ЦПУ."}</p>;
-              }
-              return rows.map((item) => {
-                const proposed = item.id === activeMcc
-                  ? proposedEngineer(result.candidates, result.chosenId)
-                  : null;
-                return (
-                <div
-                  key={item.id}
-                  className={[
-                    "mcc-item",
-                    item.id === activeMcc ? "selected" : "",
-                    item.urgency === "urgent" ? "urgent" : "",
-                  ].filter(Boolean).join(" ")}
-                >
-                  <button type="button" className="mcc-item-pick" onClick={() => chooseMcc(item)}>
-                    <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
-                    <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status === "assigned" ? "назначена" : "не назначена"} · {relativeRu(item.createdAt, nowTick)}</span>
-                    <span>{item.description}</span>
-                  </button>
-                  {proposed ? (
-                    <>
-                      <strong>{proposed.name}</strong>
-                      <button
-                        type="button"
-                        className="shift-button"
-                        disabled={pending}
-                        onClick={() => actions.current.assign?.(proposed.engineerId)}
-                      >
-                        Назначить его
-                      </button>
-                    </>
-                  ) : item.id === activeMcc ? (
-                    <span>Рейтинг инженеров ещё не пришёл</span>
-                  ) : null}
-                  {item.serverId ? (
-                    <button
-                      type="button"
-                      className="shift-button"
-                      disabled={queuePending === item.id || item.status === "unassigned"}
-                      onClick={(event) => enqueueMcc(item, event)}
-                    >
-                      {item.status === "unassigned" ? "Уже в очереди" : "В очередь назначения"}
-                    </button>
-                  ) : null}
-                </div>
-                );
-              });
-            })()}
-          </div>
-          {queueNote ? <p className="fault-hint">{queueNote}</p> : null}
         </details>
         <details className="request-panel">
           <summary>Движения ВС · {movements.length}</summary>

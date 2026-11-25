@@ -14,7 +14,6 @@ function validEmail(value) {
 }
 
 const ROLE_LABELS = {
-  Mcc: "ЦПУ",
   Dispatcher: "Диспетчер",
   Engineer: "Инженер",
 };
@@ -22,7 +21,6 @@ const ROLE_LABELS = {
 function homeForRole(role) {
   if (role === "Dispatcher") return "/dispatcher";
   if (role === "Engineer") return "/worker";
-  if (role === "Mcc") return "/mcc";
   return "/";
 }
 
@@ -83,7 +81,6 @@ export default function LoginPage() {
   }, [location.state, navigate]);
 
   function prefetchRole(nextRole) {
-    if (nextRole === "Mcc") import("./MccPage.jsx");
     if (nextRole === "Dispatcher") import("./DispatcherPage.jsx");
     if (nextRole === "Engineer") import("./WorkerPage.jsx");
   }
@@ -95,11 +92,6 @@ export default function LoginPage() {
 
   function openRole(nextRole) {
     prefetchRole(nextRole);
-    if (nextRole === "Mcc") {
-      localStorage.removeItem("oto-last-role");
-      navigate("/mcc");
-      return;
-    }
     localStorage.setItem("oto-last-role", nextRole);
     setRole(nextRole);
     setMode("login");
@@ -191,11 +183,10 @@ export default function LoginPage() {
       <div className="gate-split">
         <aside className="gate-brand">
           <img className="gate-mark" src="/aeroflot-mark.png" alt="Аэрофлот" />
-          <p className="gate-lead">Замечание идёт через три руки: фиксация, назначение, выход к борту.</p>
+          <p className="gate-lead">Диспетчер назначает инженера, инженер выходит к борту.</p>
           <ol className="gate-steps">
-            <li><span>01</span>ЦПУ записывает</li>
-            <li><span>02</span>Диспетчер выбирает инженера</li>
-            <li><span>03</span>Инженер идёт по маршруту</li>
+            <li><span>01</span>Диспетчер выбирает инженера</li>
+            <li><span>02</span>Инженер идёт по маршруту</li>
           </ol>
         </aside>
         <div className="gate-stage">
@@ -300,20 +291,14 @@ export default function LoginPage() {
           </section>
         ) : (
           <div className="role-grid">
-            <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Mcc")} onFocus={() => prefetchRole("Mcc")} onClick={() => openRole("Mcc")}>
-              <span className="role-card-number">01</span>
-              <h2>ЦПУ</h2>
-              <p>Замечание экипажа или сотрудника. Исполнителя отсюда не назначают.</p>
-              <span>Войти</span>
-            </button>
             <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Dispatcher")} onFocus={() => prefetchRole("Dispatcher")} onClick={() => openRole("Dispatcher")}>
-              <span className="role-card-number">02</span>
+              <span className="role-card-number">01</span>
               <h2>Диспетчер</h2>
               <p>Назначает инженера и снимает его только после статуса «в работе».</p>
               <span>Войти</span>
             </button>
             <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Engineer")} onFocus={() => prefetchRole("Engineer")} onClick={() => openRole("Engineer")}>
-              <span className="role-card-number">03</span>
+              <span className="role-card-number">02</span>
               <h2>Инженер</h2>
               <p>Принимает заявку, идёт по маршруту, ставит MEL или AOG.</p>
               <span>Войти</span>
