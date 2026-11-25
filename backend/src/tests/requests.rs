@@ -6,7 +6,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::database::schema::tasks;
-use crate::tests::support::{TestContext, expect_status};
+use crate::tests::support::{expect_status, TestContext};
 use crate::types::enums::EngineerType;
 use crate::types::map::Point;
 
@@ -167,7 +167,18 @@ async fn reassigns_an_in_progress_request() {
     let ctx = TestContext::new().await;
     let dispatcher = ctx.dispatcher();
     let first = ctx.engineer(EngineerType::AvionicsEngineer);
-    let second = ctx.engineer(EngineerType::AviationTechnician);
+    // `seeded issue` classifies as a chapter 28 task, so only a fueling crew or
+    // an engine technician is admitted; the receiving engineer must also have a
+    // position, or no route can be built for them.
+    let second = ctx.engineer(EngineerType::EngineTechnician);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), first.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), second.id),
+        "5,30",
+    );
     let request_id = ctx.seed_task(
         dispatcher.id,
         Some(first.id),
@@ -190,16 +201,12 @@ async fn reassigns_an_in_progress_request() {
     let task = ctx.task(request_id);
     assert_eq!(task.assigned_engineer, Some(second.id));
     assert_eq!(task.status, "assigned");
-
-    expect_status(
-        ctx.post(
-            &format!("/api/requests/{request_id}/reassign"),
-            &dispatcher.token,
-            json!({ "engineer_id": first.id, "reason": "again" }),
-        )
-        .await,
-        StatusCode::BAD_REQUEST,
+    assert_ne!(task.task_route, "[]");
+    assert!(
+        task.eta_seconds.expect("eta is rebuilt") > 0,
+        "the ETA must be rebuilt for the engineer who receives the job"
     );
+
     expect_status(
         ctx.post(
             &format!("/api/requests/{request_id}/reassign"),
@@ -210,6 +217,7 @@ async fn reassigns_an_in_progress_request() {
         StatusCode::BAD_REQUEST,
     );
 
+    // A job in `assigned` is still the dispatcher's to move.
     let assigned = ctx.seed_task(
         dispatcher.id,
         Some(first.id),
@@ -221,7 +229,35 @@ async fn reassigns_an_in_progress_request() {
         ctx.post(
             &format!("/api/requests/{assigned}/reassign"),
             &dispatcher.token,
-            json!({ "engineer_id": second.id, "reason": "too early" }),
+            json!({ "engineer_id": second.id, "reason": "before the walk" }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(ctx.task(assigned).assigned_engineer, Some(second.id));
+
+    // A finished job is terminal for both reassign and unassign.
+    let done = ctx.seed_task(
+        dispatcher.id,
+        Some(first.id),
+        "done",
+        None,
+        Point::new(1, 1),
+    );
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{done}/reassign"),
+            &dispatcher.token,
+            json!({ "engineer_id": second.id, "reason": "too late" }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{done}/unassign"),
+            &dispatcher.token,
+            json!(null),
         )
         .await,
         StatusCode::BAD_REQUEST,
@@ -300,6 +336,7 @@ async fn engineer_moves_current_task_through_its_states() {
     let task = ctx.task(request_id);
     assert_eq!(task.status, "waiting_part");
     assert!(task.waiting_part);
+    // ТЗ п.19: waiting for a part returns the engineer to the common pool.
     assert_eq!(task.assigned_engineer, None);
 }
 
@@ -488,11 +525,9 @@ async fn alerts_flag_sla_risk_and_breach_in_database() {
     );
     let alerts = body["alerts"].as_array().unwrap();
     assert_eq!(alerts.len(), 2);
-    assert!(
-        alerts
-            .iter()
-            .any(|alert| alert["request_id"] == risky.to_string())
-    );
+    assert!(alerts
+        .iter()
+        .any(|alert| alert["request_id"] == risky.to_string()));
 
     assert!(ctx.task(risky).sla_alerted);
     assert!(ctx.task(breached).sla_alerted);
@@ -578,9 +613,7 @@ async fn stores_defects_and_exports_the_journal() {
         .lines()
         .find(|line| line.contains("defect_added"))
         .expect("defect_added row");
-    let params = csv_fields(defect_row)
-        .pop()
-        .expect("params column");
+    let params = csv_fields(defect_row).pop().expect("params column");
     let params: serde_json::Value =
         serde_json::from_str(&params).expect("params should stay valid JSON");
     assert!(
@@ -615,4 +648,199 @@ fn csv_fields(line: &str) -> Vec<String> {
     assert!(!in_quotes, "unbalanced quotes in journal row: {line}");
     fields.push(current);
     fields
+}
+
+/// Files and queues a request through the public endpoints. Duplicated from
+/// `tests::assign` so this file does not depend on another module's helper.
+async fn create_queued_request(
+    ctx: &TestContext,
+    dispatcher: &str,
+    plane_id: Uuid,
+    point: Point,
+) -> Uuid {
+    let created = expect_status(
+        ctx.post(
+            "/api/requests",
+            dispatcher,
+            json!({
+                "text": "уход гироплатформы ИНС, курс смещается",
+                "plane_uuid": plane_id,
+                "point": [point.0, point.1],
+                "ata_chapter": "30"
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let request_id: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request_id}/queue"),
+            dispatcher,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    request_id
+}
+
+fn candidate_for<'a>(assigned: &'a serde_json::Value, engineer_id: Uuid) -> &'a serde_json::Value {
+    assigned["candidates"]
+        .as_array()
+        .expect("candidates array")
+        .iter()
+        .find(|row| row["engineer_id"] == engineer_id.to_string())
+        .expect("engineer is ranked")
+}
+
+/// ТЗ п.19: waiting for a part sends the engineer back to the common pool. The
+/// task stays open and keeps counting as load, but the aircraft no longer holds
+/// the engineer, so another request may take them.
+#[tokio::test]
+async fn waiting_part_returns_engineer_to_pool() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let waiting = ctx.engineer(EngineerType::AvionicsEngineer);
+    let free = ctx.engineer(EngineerType::AvionicsEngineer);
+    let plane_p = Uuid::new_v4();
+    let point = Point::new(10, 10);
+    // The waiting engineer stands closer to the aircraft (a routable cell), so
+    // being named for the next job is a verdict on the pool, not on distance.
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), waiting.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), free.id),
+        "5,38",
+    );
+
+    let waiting_task = ctx.seed_task(
+        dispatcher.id,
+        Some(waiting.id),
+        "assigned",
+        Some(plane_p),
+        point,
+    );
+    expect_status(
+        ctx.post(
+            "/api/tasks/current/waiting-part",
+            &waiting.token,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let stored = ctx.task(waiting_task);
+    assert_eq!(stored.status, "waiting_part");
+    assert!(stored.waiting_part);
+    // The pool return itself: the aircraft no longer holds the engineer.
+    assert_eq!(
+        stored.assigned_engineer, None,
+        "waiting_part must release the engineer back to the pool"
+    );
+
+    // A new request on a different aircraft takes the freed engineer even
+    // though the other one is closer.
+    let plane_q = Uuid::new_v4();
+    let request_q = create_queued_request(&ctx, &dispatcher.token, plane_q, point).await;
+    let assigned_q = expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane_q,
+                "request_id": request_q
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let pooled = candidate_for(&assigned_q, waiting.id);
+    assert_eq!(pooled["eligible"], true, "reason: {}", pooled["reason"]);
+    assert_eq!(assigned_q["engineer_uuid"], waiting.id.to_string());
+}
+
+/// ТЗ п.21: a risk warning must come with an alternative. The alert names an
+/// engineer who can still make the deadline, and that engineer is not the one
+/// already holding the request.
+#[tokio::test]
+async fn sla_alert_names_an_engineer_who_can_still_make_it() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let holder = ctx.engineer(EngineerType::AviationTechnician);
+    let spare = ctx.engineer(EngineerType::AviationTechnician);
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), spare.id),
+        "5,5",
+    );
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), holder.id),
+        "5,12",
+    );
+
+    // A real request, so the classifier matches the roster and a pool exists to
+    // name an alternative from.
+    let plane = Uuid::new_v4();
+    let task = create_queued_request(&ctx, &dispatcher.token, plane, Point::new(10, 10)).await;
+    expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({ "classifier_text": "уход гироплатформы ИНС",
+                    "plane_uuid": plane, "request_id": task }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    // The holder cannot make it any more: the deadline is seconds away and the
+    // forecast already exceeds it, while a nearby engineer still can.
+    let now = chrono::Utc::now();
+    diesel::update(tasks::table.find(task))
+        .set((
+            tasks::assigned_engineer.eq(holder.id),
+            // Inside the 300 s pre-deadline window, so the risk rule fires.
+            tasks::ends_at.eq(now + chrono::Duration::seconds(280)),
+            tasks::eta_seconds.eq(Some(900)),
+            tasks::sla_alerted.eq(false),
+            tasks::sla_breached.eq(false),
+        ))
+        .execute(&mut ctx.db())
+        .unwrap();
+
+    let body = expect_status(
+        ctx.get("/api/alerts", &dispatcher.token).await,
+        StatusCode::OK,
+    );
+    let stored = ctx.task(task);
+    let alert = body["alerts"]
+        .as_array()
+        .expect("alerts array")
+        .iter()
+        .find(|alert| alert["request_id"] == task.to_string())
+        .unwrap_or_else(|| {
+            panic!(
+                "the risky request is alerted: body {body}, status {}, eta {:?}, ends_at {}",
+                stored.status, stored.eta_seconds, stored.ends_at
+            )
+        })
+        .clone();
+    let alternative = alert["alternative_engineer_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the alert names an alternative engineer: {alert}"))
+        .to_string();
+    assert_eq!(alternative, spare.id.to_string());
+    assert_ne!(alternative, holder.id.to_string());
+    let margin = alert["alternative_margin_seconds"]
+        .as_i64()
+        .expect("the alert publishes the margin");
+    assert!(margin > 0, "the alternative must still make it: {margin}");
+    let message = alert["message"].as_str().expect("message");
+    assert!(
+        message.contains(&alternative),
+        "the warning text names the alternative: {message}"
+    );
 }

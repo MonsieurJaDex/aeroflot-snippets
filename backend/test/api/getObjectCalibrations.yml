@@ -1,0 +1,34 @@
+info:
+  name: getObjectCalibrations
+  type: http
+  seq: 57
+
+http:
+  method: GET
+  url: "{{HOST}}/geo/getObjectCalibrations?limit=20&offset=0"
+  headers:
+    - name: content-type
+      value: application/json
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Пины активной карты: клетка `point`, она же в градусах `geo`, и `on_graph`.
+    Любой авторизованный.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.total
+      operator: isNumber
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

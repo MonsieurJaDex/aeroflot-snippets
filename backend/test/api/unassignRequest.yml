@@ -1,0 +1,48 @@
+info:
+  name: unassignRequest
+  type: http
+  seq: 63
+
+http:
+  method: POST
+  url: "{{HOST}}/requests/{{candidates_id}}/unassign"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {}
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Снятие инженера с задачи: поля привязки чистятся (`assigned_engineer`,
+    `task_route`, `eta_seconds`), задача возвращается в пул со статусом
+    `unassigned` и снова видна в `/api/assign/candidates`. Повторное снятие
+    уже снятой задачи — 400.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.status
+      operator: eq
+      value: "unassigned"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("returns the request to the pool", function () {
+          expect(res.body.id).to.equal(bru.getVar("candidates_id"));
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

@@ -11,7 +11,8 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::{
-    ApiJson, ApiQuery, active_map, bad_request, forbidden, internal_error, resolve_page, slice_page,
+    ApiJson, ApiQuery, active_map, bad_request, forbidden, internal_error, not_found, resolve_page,
+    slice_page,
 };
 use crate::middleware::AuthUser;
 use crate::utils::get_transport_from_redis;
@@ -20,11 +21,14 @@ use crate::{
     types::{
         config::AppState,
         dto::{
-            ErrorResponse, PageQuery, UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
+            CalibrateObjectRequest, CalibrationEntry, CalibrationListResponse,
+            ClearCalibrationRequest, Coordinate, ErrorResponse, PageQuery,
+            UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
         },
-        enums::{UserRole, VehicleType},
+        enums::{ObjectKind, UserRole, VehicleType},
         map::Point,
     },
+    calibration,
 };
 
 // ---------------------------------------------------------------------------
@@ -116,6 +120,196 @@ pub async fn update_engineer_position_handler(
         })?;
 
     Ok(StatusCode::OK.into_response())
+}
+
+/// Pins a tracked object to a known cell of the active map.
+///
+/// The tracker reports raw WGS-84 and the graph snaps it to the nearest
+/// pavement cell. When that snap keeps landing in the wrong place GNSS will not
+/// improve, so an operator pins the object where it actually is: the ingest then
+/// stores the pin instead of the snapped cell, while the reported `lat`/`lon`
+/// stay untouched.
+#[utoipa::path(
+    post,
+    path = "/api/geo/calibrateObject",
+    tag = "Geo",
+    operation_id = "calibrateObject",
+    description = "Pin an object to a graph cell, given either as a cell or as WGS-84 degrees",
+    security(("bearerAuth" = [])),
+    request_body = CalibrateObjectRequest,
+    responses(
+        (status = 200, description = "Pin stored", body = CalibrationEntry),
+        (status = 400, description = "Neither or both of `point` and `lat`+`lon`, a cell outside the map, or a cell without a graph node", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn calibrate_object_handler(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<CalibrateObjectRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can calibrate objects"));
+    }
+
+    let point = match (payload.point, payload.lat, payload.lon) {
+        (Some(point), None, None) => point,
+        (None, Some(lat), Some(lon)) => {
+            let active = active_map(&app_state)?;
+            let (x, y) = active.location.graph.unproject(lat, lon);
+            Point(x.round() as i64, y.round() as i64)
+        }
+        _ => {
+            return Err(bad_request(
+                "give either point, or lat and lon, and not both",
+            ));
+        }
+    };
+
+    let active = active_map(&app_state)?;
+    if !active.map.in_bounds(point) {
+        return Err(bad_request("point is outside of map bounds"));
+    }
+    if !active.location.graph.is_node(point) {
+        return Err(bad_request(
+            "point carries no graph node, so a route cannot start or end on it",
+        ));
+    }
+
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    if payload.kind != ObjectKind::from_obj(&payload.obj) {
+        // Not an error: the tracker's `obj` may differ from the identity the
+        // caller pins. It is still worth a line, because a pin whose kind never
+        // agrees with the ingest layer will not be applied.
+        tracing::warn!(
+            obj = %payload.obj,
+            kind = ?payload.kind,
+            "calibration kind does not match the object label"
+        );
+    }
+    let calibration = calibration::Calibration {
+        obj: payload.obj.clone(),
+        kind: payload.kind,
+        point,
+    };
+    calibration::save(&mut redis_conn, &active.id, &calibration).map_err(|e| {
+        tracing::error!(obj = %payload.obj, error = %e, "failed to store object calibration");
+        internal_error()
+    })?;
+
+    Ok(Json(calibration_entry(&active, calibration)).into_response())
+}
+
+/// Drops the pin of an object, so it snaps to its reported position again.
+#[utoipa::path(
+    post,
+    path = "/api/geo/clearObjectCalibration",
+    tag = "Geo",
+    operation_id = "clearObjectCalibration",
+    description = "Remove an object's calibration pin",
+    security(("bearerAuth" = [])),
+    request_body = ClearCalibrationRequest,
+    responses(
+        (status = 204, description = "Pin removed"),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 404, description = "The object carries no pin", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn clear_object_calibration_handler(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<ClearCalibrationRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can calibrate objects"));
+    }
+
+    let active = active_map(&app_state)?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    let removed = calibration::clear(&mut redis_conn, &active.id, &payload.obj).map_err(|e| {
+        tracing::error!(obj = %payload.obj, error = %e, "failed to drop object calibration");
+        internal_error()
+    })?;
+    if !removed {
+        return Err(not_found("object carries no calibration"));
+    }
+
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// Returns every pin stored for the active map.
+#[utoipa::path(
+    get,
+    path = "/api/geo/getObjectCalibrations",
+    tag = "Geo",
+    operation_id = "getObjectCalibrations",
+    description = "List object calibration pins of the active map",
+    security(("bearerAuth" = [])),
+    params(PageQuery),
+    responses(
+        (status = 200, description = "Pins of the active map", body = CalibrationListResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 422, description = "Invalid page window", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn get_object_calibrations(
+    State(app_state): State<Arc<AppState>>,
+    ApiQuery(query): ApiQuery<PageQuery>,
+) -> Result<Response<Body>, Response<Body>> {
+    let (limit, offset) = resolve_page(query)?;
+    let active = active_map(&app_state)?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    let calibrations =
+        calibration::list(&mut redis_conn, &active.id).map_err(|e| {
+            tracing::error!(error = %e, "failed to list object calibrations");
+            internal_error()
+        })?;
+    let entries: Vec<CalibrationEntry> = calibrations
+        .into_iter()
+        .map(|calibration| calibration_entry(&active, calibration))
+        .collect();
+    let (calibrations, total) = slice_page(entries, limit, offset);
+
+    Ok(Json(CalibrationListResponse {
+        calibrations,
+        total,
+    })
+    .into_response())
+}
+
+/// Builds the wire form of a stored pin.
+fn calibration_entry(
+    active: &crate::maps::ActiveMap,
+    calibration: calibration::Calibration,
+) -> CalibrationEntry {
+    let point = calibration.point;
+    let (lat, lon) = active.location.graph.project(point.0, point.1);
+    CalibrationEntry {
+        obj: calibration.obj,
+        kind: calibration.kind,
+        point,
+        geo: Coordinate { lat, lon },
+        on_graph: active.location.graph.is_node(point),
+    }
 }
 
 /// Manually updates a special vehicle's position.

@@ -1,0 +1,80 @@
+info:
+  name: assignCandidates
+  type: http
+  seq: 61
+
+http:
+  method: POST
+  url: "{{HOST}}/assign/candidates"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "request_id": "{{candidates_id}}"
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Превью кандидатов: диспетчер смотрит рейтинг инженеров до решения.
+    Ручка только читает — строки `tasks` после вызова не меняются, поэтому её
+    можно звать сколько угодно раз. `eligible` показывает, кому можно отдать
+    заявку; `score` = `eta_seconds + late_seconds + load_penalty - aog_bonus -
+    arrival_bonus - urgency_bonus - mel_bonus`, меньше — лучше. Поле `factors`
+    — тот же балл, разложенный на слагаемые: сумма `seconds` равна `score`,
+    штраф положительный, бонус отрицательный, состав всегда один и тот же.
+    `reason` перечисляет всё, что вошло в балл.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.candidates
+      operator: isArray
+
+  scripts:
+    - type: tests
+      code: |-
+        test("lists the engineers and keeps the request in the pool", function () {
+          expect(res.body.request_id).to.equal(bru.getVar("candidates_id"));
+          expect(res.body.candidates.length).to.be.greaterThan(0);
+          // Rejected rows come first in the array and carry no factors, so the
+          // score breakdown is checked on an accepted row.
+          const row = res.body.candidates.find((c) => c.eligible);
+          expect(row, "at least one eligible engineer").to.be.an("object");
+          expect(row).to.have.property("eta_seconds");
+          expect(row).to.have.property("score");
+          expect(row).to.have.property("eligible");
+          expect(row).to.have.property("factors");
+          expect(row).to.have.property("urgency_bonus");
+          expect(row).to.have.property("mel_bonus");
+          const names = row.factors.map((f) => f.name);
+          expect(names).to.have.members([
+            "eta", "late", "load", "aog_bonus", "arrival_bonus",
+            "urgency_bonus", "mel_bonus",
+          ]);
+          const sum = row.factors.reduce((acc, f) => acc + f.seconds, 0);
+          expect(Math.abs(sum - row.score)).to.be.lessThan(0.000001);
+          res.body.candidates.filter((c) => !c.eligible).forEach((c) => {
+            expect(c.factors).to.be.an("array").that.is.empty;
+          });
+        });
+    - type: after-response
+      code: |-
+        const best = res.body.candidates.find((row) => row.eligible);
+        if (best) {
+          bru.setVar("candidate_engineer_id", best.engineer_id);
+        }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

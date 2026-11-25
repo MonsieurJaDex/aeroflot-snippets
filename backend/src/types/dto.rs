@@ -8,7 +8,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use crate::types::{
-    enums::{AircraftIssue, EngineerType, UserRole, VehicleType},
+    enums::{AircraftIssue, EngineerType, ObjectKind, UserRole, VehicleType},
     map::{Point, Route},
 };
 use serde::{Deserialize, Serialize};
@@ -208,6 +208,37 @@ pub struct AssignEngineerRequest {
     /// Existing request in status `unassigned`.
     #[serde(default)]
     pub request_id: Option<String>,
+    /// Engineer to assign by hand. When omitted the best eligible candidate wins.
+    #[schema(format = "uuid", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
+    #[serde(default)]
+    pub engineer_id: Option<String>,
+}
+
+/// Request payload for `POST /api/assign/candidates`. Only the request being
+/// ranked is needed: the preview reads nothing else and writes nothing, so the
+/// fields an actual assignment reads (`classifier_text`, `plane_uuid`) have no
+/// business being required here.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AssignCandidatesRequest {
+    /// Existing request in a non-terminal status.
+    #[schema(format = "uuid", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")]
+    pub request_id: String,
+}
+
+/// Answer of `POST /api/assign/candidates`: the ranking a dispatcher reads
+/// before choosing an engineer. Nothing is assigned by it.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AssignmentCandidatesResponse {
+    /// Request the ranking was built for.
+    pub request_id: String,
+    /// ATA chapter the engineers were checked against, when it could be resolved.
+    #[schema(nullable)]
+    pub chapter: Option<String>,
+    /// Engineers ordered from best to worst; `eligible` tells who can take it.
+    pub candidates: Vec<AssignmentCandidate>,
+    /// Milliseconds spent building the ranking.
+    pub candidate_ms: i32,
 }
 
 /// One aircraft currently stored in Redis.
@@ -325,6 +356,35 @@ pub struct AssignmentCandidate {
     pub eta_seconds: u64,
     /// Whether the route requires a special vehicle.
     pub uses_vehicle: bool,
+    /// SLA penalty in seconds; zero unless the travel time exceeds the SLA.
+    pub late_seconds: f64,
+    /// Workload penalty in seconds (open tasks times the per-task weight).
+    pub load_penalty: f64,
+    /// Seconds taken off for a grounded (AOG) aircraft; zero otherwise.
+    pub aog_bonus: f64,
+    /// Seconds taken off for a freshly arrived aircraft; fades over an hour.
+    pub arrival_bonus: f64,
+    /// Seconds taken off because the request is `urgent`; zero for `normal`.
+    pub urgency_bonus: f64,
+    /// Seconds taken off for the declared MEL category (A > B > C > D).
+    pub mel_bonus: f64,
+    /// The score as signed addends, in score order. Their sum equals `score`,
+    /// so every point of the ranking is explainable.
+    pub factors: Vec<ScoreFactor>,
+    /// Final ranking score: `eta_seconds + late_seconds + load_penalty -
+    /// aog_bonus - arrival_bonus - urgency_bonus - mel_bonus`. Lower is better;
+    /// `f64::MAX` for a rejection.
+    pub score: f64,
+}
+
+/// One addend of [`AssignmentCandidate::score`].
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ScoreFactor {
+    /// Stable machine name, for example `eta`, `late`, `load` or `aog_bonus`.
+    pub name: String,
+    /// Contribution to the score in seconds: positive is a penalty, negative a
+    /// bonus.
+    pub seconds: f64,
 }
 
 /// Response payload describing the engineer's current task.
@@ -637,6 +697,68 @@ pub struct UpdateTransportPositionRequest {
     pub vehicle_type: VehicleType,
     /// New position on the map.
     pub new_point: Point,
+}
+
+/// Request payload for pinning a tracked object to a known cell.
+///
+/// Give the target either as a grid cell (`point`) or as WGS-84 (`lat` plus
+/// `lon`), never both and never neither; a pair of degrees is converted with
+/// the active map projection.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CalibrateObjectRequest {
+    /// Object to pin: an engineer UUID, `RA-…` aircraft, or the `obj` a tracker
+    /// reports.
+    pub obj: String,
+    /// Kind of object, which decides the surface the pin lives on.
+    pub kind: ObjectKind,
+    /// Cell to pin, `[x, y]`.
+    pub point: Option<Point>,
+    /// Latitude in degrees, converted with the active map projection.
+    pub lat: Option<f64>,
+    /// Longitude in degrees, converted with the active map projection.
+    pub lon: Option<f64>,
+}
+
+/// Request payload for dropping an object's pin.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ClearCalibrationRequest {
+    /// Object whose pin is removed; it snaps to raw GPS again afterwards.
+    pub obj: String,
+}
+
+/// One stored pin, as returned by the calibration endpoints.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CalibrationEntry {
+    /// The pinned object.
+    pub obj: String,
+    /// Kind of object.
+    pub kind: ObjectKind,
+    /// Pinned cell.
+    pub point: Point,
+    /// The pinned cell as WGS-84, so an operator can compare it with a phone.
+    pub geo: Coordinate,
+    /// False when the pinned cell carries no graph node, so routes cannot start
+    /// or end on it and fall to the nearest node instead.
+    pub on_graph: bool,
+}
+
+/// Pins currently stored for the active map.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CalibrationListResponse {
+    pub calibrations: Vec<CalibrationEntry>,
+    /// Number of pins before `limit` and `offset` are applied.
+    pub total: u64,
+}
+
+/// A WGS-84 coordinate in degrees.
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+pub struct Coordinate {
+    /// Latitude in degrees.
+    pub lat: f64,
+    /// Longitude in degrees.
+    pub lon: f64,
 }
 
 /// Request ids grouped by the aircraft they belong to.

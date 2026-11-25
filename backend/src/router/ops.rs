@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::http::{Response, StatusCode, header};
+use axum::http::{header, Response, StatusCode};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use chrono::{Duration, Utc};
@@ -15,7 +15,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::{
-    ApiJson, active_map, bad_request, forbidden, internal_error, not_found, unprocessable,
+    active_map, bad_request, forbidden, internal_error, not_found, unprocessable, ApiJson,
 };
 use crate::database::schema::{defect_types, journal, tasks};
 use crate::graph::AgentKind;
@@ -347,11 +347,19 @@ pub async fn queue_request(
     path = "/api/requests/{id}/reassign",
     tag = "Tasks",
     operation_id = "reassignRequest",
-    description = "Shift lead moves an in-progress job to another engineer.",
+    description = "Shift lead moves a job in any non-terminal status to another engineer. \
+                   The route and the ETA are rebuilt for the engineer who receives it.",
     security(("bearerAuth" = [])),
     request_body = ReassignRequest,
     params(("id" = String, Path, description = "Request id")),
-    responses((status = 200, description = "Reassigned", body = RequestCreated)),
+    responses(
+        (status = 200, description = "Reassigned", body = RequestCreated),
+        (status = 400, description = "Terminal status, unknown or ineligible engineer",
+         body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Dispatcher role required", body = ErrorResponse),
+        (status = 404, description = "Request or engineer was not found", body = ErrorResponse),
+    ),
 )]
 pub async fn reassign_request(
     State(app_state): State<Arc<AppState>>,
@@ -366,16 +374,44 @@ pub async fn reassign_request(
     let engineer_id =
         Uuid::parse_str(&payload.engineer_id).map_err(|_| bad_request("invalid engineer UUID"))?;
     let mut pg_conn = app_state.db_pool.get().map_err(|_| internal_error())?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|_| internal_error())?;
     let task = load_task(&mut pg_conn, id)?;
-    if task.status != "in_progress" {
-        return Err(bad_request(
-            "reassignment after work has started requires status in_progress",
-        ));
+    if !is_reassignable(&task.status) {
+        return Err(bad_request(format!(
+            "a request in status {} cannot be reassigned",
+            task.status
+        )));
     }
+
+    // The receiving engineer is ranked for the same aircraft: that is what
+    // rebuilds the route and the ETA, so a reassignment never inherits the
+    // travel time of the engineer it moved away from.
+    let plan = super::build_candidates(&app_state, &mut pg_conn, &mut redis_conn, &task).await?;
+    let row = plan
+        .outcome
+        .candidates
+        .iter()
+        .find(|row| row.engineer_id == engineer_id)
+        .ok_or_else(|| not_found("engineer was not found"))?;
+    if !row.eligible {
+        return Err(bad_request(format!(
+            "engineer cannot take this request: {}",
+            row.reason
+        )));
+    }
+    let travel = row.eta_seconds;
+    let route_json = serde_json::to_string(&row.route).expect("route serializes");
     diesel::update(tasks::table.find(id))
         .set((
             tasks::assigned_engineer.eq(Some(engineer_id)),
             tasks::status.eq("assigned"),
+            tasks::task_route.eq(&route_json),
+            tasks::eta_seconds.eq(Some(travel as i32)),
+            tasks::candidate_ms.eq(Some(plan.outcome.elapsed_ms)),
+            tasks::ata_chapter.eq(&plan.chapter),
+            tasks::is_active.eq(true),
+            tasks::waiting_part.eq(false),
+            tasks::arrived_at.eq(None::<chrono::DateTime<Utc>>),
         ))
         .execute(&mut pg_conn)
         .map_err(|_| internal_error())?;
@@ -386,7 +422,9 @@ pub async fn reassign_request(
         Some(id),
         serde_json::json!({
             "from": task.assigned_engineer,
+            "from_status": task.status,
             "to": engineer_id,
+            "eta_seconds": travel,
             "reason": payload.reason,
         }),
         None,
@@ -394,6 +432,76 @@ pub async fn reassign_request(
     Ok(Json(RequestCreated {
         id: id.to_string(),
         status: "assigned".to_owned(),
+    })
+    .into_response())
+}
+
+/// A task keeps its engineer until it is done; anything earlier may be moved
+/// to somebody else or dropped back into the pool.
+fn is_reassignable(status: &str) -> bool {
+    !super::is_terminal_status(status)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/requests/{id}/unassign",
+    tag = "Tasks",
+    operation_id = "unassignRequest",
+    description = "Shift lead takes the engineer off a job and puts it back into the pool.",
+    security(("bearerAuth" = [])),
+    params(("id" = String, Path, description = "Request id")),
+    responses(
+        (status = 200, description = "Back in the pool", body = RequestCreated),
+        (status = 400, description = "Terminal status or the request has no engineer",
+         body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Dispatcher role required", body = ErrorResponse),
+        (status = 404, description = "Request was not found", body = ErrorResponse),
+    ),
+)]
+pub async fn unassign_request(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
+    dispatcher(&auth_user)?;
+    let mut pg_conn = app_state.db_pool.get().map_err(|_| internal_error())?;
+    let task = load_task(&mut pg_conn, id)?;
+    if !is_reassignable(&task.status) {
+        return Err(bad_request(format!(
+            "a request in status {} cannot be unassigned",
+            task.status
+        )));
+    }
+    if task.status == "unassigned" {
+        return Err(bad_request("request has no engineer to unassign"));
+    }
+    let previous = task.assigned_engineer;
+    diesel::update(tasks::table.find(id))
+        .set((
+            tasks::assigned_engineer.eq(None::<Uuid>),
+            tasks::status.eq("unassigned"),
+            tasks::task_route.eq("[]"),
+            tasks::eta_seconds.eq(None::<i32>),
+            tasks::candidate_ms.eq(None::<i32>),
+            tasks::waiting_part.eq(false),
+            tasks::tools_picked.eq(false),
+            tasks::arrived_at.eq(None::<chrono::DateTime<Utc>>),
+            tasks::is_active.eq(true),
+        ))
+        .execute(&mut pg_conn)
+        .map_err(|_| internal_error())?;
+    crate::journal::record(
+        &mut pg_conn,
+        "engineer_unassigned",
+        Some(&auth_user.id.to_string()),
+        Some(id),
+        serde_json::json!({ "from": previous, "from_status": task.status }),
+        None,
+    );
+    Ok(Json(RequestCreated {
+        id: id.to_string(),
+        status: "unassigned".to_owned(),
     })
     .into_response())
 }
@@ -537,7 +645,7 @@ pub async fn set_mel(
     path = "/api/tasks/current/waiting-part",
     tag = "Tasks",
     operation_id = "waitForPart",
-    description = "Engineer waits for a part and returns to the assignment pool.",
+    description = "Engineer waits for a part and stays attached to the aircraft.",
     security(("bearerAuth" = [])),
     responses((status = 200, description = "Waiting for a part")),
 )]
@@ -549,6 +657,9 @@ pub async fn wait_for_part(
     let mut pg_conn = app_state.db_pool.get().map_err(|_| internal_error())?;
     let task = current_for(&mut pg_conn, auth_user.id)?;
     diesel::update(tasks::table.find(task.id))
+        // ТЗ п.19: waiting for a part sends the engineer back to the common
+        // pool, so the aircraft no longer holds them and another request may
+        // take them. `waiting_part` keeps the task open and counted as load.
         .set((
             tasks::status.eq("waiting_part"),
             tasks::waiting_part.eq(true),
@@ -642,6 +753,7 @@ pub async fn list_alerts(
     dispatcher(&auth_user)?;
     let active = active_map(&app_state)?;
     let mut pg_conn = app_state.db_pool.get().map_err(|_| internal_error())?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|_| internal_error())?;
     let open = tasks::table
         .filter(tasks::is_active.eq(true))
         .filter(tasks::map_id.eq(&active.id))
@@ -690,11 +802,28 @@ pub async fn list_alerts(
                 None,
             );
         }
+        // ТЗ п.21: a risk warning is only actionable when it names who could
+        // still make it. Rank the pool for this very request and keep the best
+        // engineer whose own travel time still lands before the deadline.
+        let alternative = alternative_engineer(&app_state, &mut pg_conn, &mut redis_conn, &task)
+            .await
+            .and_then(|(id, eta)| {
+                let left = (task.ends_at - (now + Duration::seconds(eta))).num_seconds();
+                (left > 0).then_some((id, left))
+            });
+        let (alternative_engineer_id, alternative_margin_seconds) = match alternative {
+            Some((id, left)) => (Some(id.to_string()), Some(left)),
+            None => (None, Some(margin)),
+        };
+        let message = match &alternative_engineer_id {
+            Some(id) => format!("не успевает, прогноз {eta} с; успевает инженер {id}"),
+            None => format!("не успевает, прогноз {eta} с; замены в пуле нет"),
+        };
         alerts.push(AlertItem {
             request_id: task.id.to_string(),
-            message: format!("не успевает, прогноз {eta} с"),
-            alternative_engineer_id: None,
-            alternative_margin_seconds: Some(margin),
+            message,
+            alternative_engineer_id,
+            alternative_margin_seconds,
         });
     }
     Ok(Json(AlertList { alerts }).into_response())
@@ -844,4 +973,29 @@ fn current_for(
         .optional()
         .map_err(|_| internal_error())?
         .ok_or_else(|| not_found("engineer has no active task"))
+}
+
+/// Best engineer from the pool who is not the one already held by `task`, with
+/// their own travel time. Used by [`list_alerts`] to name a real alternative
+/// (ТЗ п.21) instead of an empty id; a ranking that cannot be built yields
+/// `None`, and the alert still goes out.
+async fn alternative_engineer(
+    app_state: &Arc<AppState>,
+    pg_conn: &mut diesel::PgConnection,
+    redis_conn: &mut redis::Connection,
+    task: &Task,
+) -> Option<(Uuid, i64)> {
+    let plan = super::build_candidates(app_state, pg_conn, redis_conn, task)
+        .await
+        .ok()?;
+    plan.outcome
+        .candidates
+        .into_iter()
+        .filter(|row| row.eligible && Some(row.engineer_id) != task.assigned_engineer)
+        .min_by(|left, right| {
+            left.score
+                .partial_cmp(&right.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|row| (row.engineer_id, row.eta_seconds as i64))
 }
