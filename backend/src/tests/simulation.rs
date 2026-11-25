@@ -143,6 +143,38 @@ fn samples_between_cells_follow_each_segment_speed() {
     assert!((sample_at(&route, -3.0).x - 0.0).abs() < 1e-9);
 }
 
+/// A route almost never lasts a whole number of milliseconds, and the clock is
+/// stored in whole milliseconds. Reaching the rounded end must count as arrival,
+/// otherwise the object stands on its last cell forever, `active` stays true and
+/// the journal never records the finish.
+#[test]
+fn a_route_that_does_not_end_on_a_whole_millisecond_still_finishes() {
+    let route = PlannedRoute {
+        points: vec![Point::new(0, 0), Point::new(10, 0)],
+        seconds: 448.20000000000086,
+        segments: vec![RouteSegment {
+            from: Point::new(0, 0),
+            to: Point::new(10, 0),
+            length_m: 448.2,
+            speed_mps: 1.0,
+            seconds: 448.20000000000086,
+            cum_seconds: 448.20000000000086,
+            class: SpeedClass::VehicleAirfield,
+        }],
+    };
+
+    // The clock the driver stops at: the route's own length, rounded to the
+    // millisecond it is stored as.
+    let at_the_cap = (route.seconds * 1000.0).round() / 1000.0;
+    let arrived = sample_at(&route, at_the_cap);
+    assert!(arrived.done, "the rounded end is the end, not a hair short of it");
+    assert!((arrived.x - 10.0).abs() < 1e-9);
+    assert!(arrived.remaining_seconds.abs() < 1e-9);
+
+    // One millisecond earlier is still on the way.
+    assert!(!sample_at(&route, at_the_cap - 0.001).done);
+}
+
 /// The organiser requirement end to end: a movement starts, its positions land
 /// where the app already reads them, they are fractional between cells, and the
 /// start of the movement is in the journal.

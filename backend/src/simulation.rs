@@ -65,7 +65,11 @@ pub struct SimSample {
 pub fn sample_at(route: &PlannedRoute, elapsed: f64) -> SimSample {
     let total = route.seconds.max(0.0);
     let elapsed = elapsed.max(0.0);
-    let done = elapsed >= total;
+    // The end is compared in the units the clock is stored in: whole milliseconds.
+    // A route rarely lasts a whole number of them (448.2 s here), and comparing
+    // 448.2 s against 448.20000000000086 s would leave a finished route running
+    // forever — the object parked on its last cell, the journal never closed.
+    let done = (elapsed * 1000.0).round() >= (total * 1000.0).round();
     if route.segments.is_empty() {
         // A route with fewer than two points: the object stays where it is.
         let start = route.points.first().copied().unwrap_or(Point::new(0, 0));
@@ -98,7 +102,11 @@ pub fn sample_at(route: &PlannedRoute, elapsed: f64) -> SimSample {
         x,
         y,
         done,
-        remaining_seconds: (total - elapsed).max(0.0),
+        remaining_seconds: if done {
+            0.0
+        } else {
+            (total - elapsed).max(0.0)
+        },
     }
 }
 
