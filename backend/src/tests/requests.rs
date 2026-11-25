@@ -844,3 +844,52 @@ async fn sla_alert_names_an_engineer_who_can_still_make_it() {
         "the warning text names the alternative: {message}"
     );
 }
+
+/// A task assigned before `selection_basis` existed still accepts: the engineer
+/// gets `selection: null` instead of a 500, and the status still moves.
+#[tokio::test]
+async fn accept_without_a_selection_basis_returns_null_not_500() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    let request_id = ctx.seed_task(
+        dispatcher.id,
+        Some(engineer.id),
+        "assigned",
+        None,
+        Point::new(10, 10),
+    );
+    diesel::update(tasks::table.find(request_id))
+        .set(tasks::selection_basis.eq(None::<String>))
+        .execute(&mut ctx.db())
+        .unwrap();
+
+    let body = expect_status(
+        ctx.post("/api/tasks/current/accept", &engineer.token, json!(null))
+            .await,
+        StatusCode::OK,
+    );
+    assert_eq!(body["status"], "in_progress");
+    assert!(body["selection"].is_null(), "unreadable basis is null");
+    assert_eq!(ctx.task(request_id).status, "in_progress");
+
+    // A stored value that is not valid JSON is treated the same way.
+    let second = ctx.seed_task(
+        dispatcher.id,
+        Some(engineer.id),
+        "assigned",
+        None,
+        Point::new(10, 10),
+    );
+    diesel::update(tasks::table.find(second))
+        .set(tasks::selection_basis.eq(Some("{not json")))
+        .execute(&mut ctx.db())
+        .unwrap();
+    let body = expect_status(
+        ctx.post("/api/tasks/current/accept", &engineer.token, json!(null))
+            .await,
+        StatusCode::OK,
+    );
+    assert!(body["selection"].is_null());
+    assert_eq!(body["status"], "in_progress");
+}

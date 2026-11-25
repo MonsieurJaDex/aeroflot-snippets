@@ -323,6 +323,7 @@ impl TestContext {
             urgency: "normal".to_owned(),
             eta_seconds: None,
             candidate_ms: None,
+            selection_basis: None,
             sla_alerted: false,
             sla_breached: false,
         };

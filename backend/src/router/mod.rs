@@ -36,7 +36,7 @@ use crate::{
             AssignmentCandidatesResponse, ClassifyRequest, ClassifyResponse, CurrentTaskAogRequest,
             CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest, ErrorResponse,
             GetRouteRequest, GetRouteResponse, MapListResponse, MapResponse, MapSummary, PageQuery,
-            ScoreFactor, SelectMapRequest, TrainClassifierResponse,
+            ScoreFactor, SelectMapRequest, SelectionBasis, TrainClassifierResponse,
         },
         enums::{UserRole, VehicleType},
         map::{Point, Route},
@@ -1264,6 +1264,30 @@ pub async fn assign_engineer(
     let travel = chosen.eta_seconds;
     let sla_exceeded = travel >= plan.active.location.sla_secs;
     let route_json = serde_json::to_string(&chosen.route).expect("route serializes");
+    // ТЗ п.17: the numbers behind the pick travel with the task, so the
+    // engineer can be shown why they were chosen when they accept it.
+    let basis = SelectionBasis {
+        engineer_id: chosen.engineer_id.to_string(),
+        score: chosen.score,
+        eta_seconds: travel,
+        distance: chosen.route.len() as u64,
+        uses_vehicle: chosen.uses_vehicle,
+        factors: chosen
+            .factors
+            .iter()
+            .map(|factor| ScoreFactor {
+                name: factor.name.clone(),
+                seconds: factor.seconds,
+            })
+            .collect(),
+        reason: chosen.reason.clone(),
+        manual: payload.engineer_id.is_some(),
+        chosen_at: Utc::now().to_rfc3339(),
+    };
+    let basis_json = serde_json::to_string(&basis).map_err(|e| {
+        tracing::error!(error = %e, "failed to serialize the selection basis");
+        internal_error()
+    })?;
     diesel::update(tasks::table.find(task.id))
         .set((
             tasks::assigned_engineer.eq(Some(chosen.engineer_id)),
@@ -1271,6 +1295,7 @@ pub async fn assign_engineer(
             tasks::task_route.eq(&route_json),
             tasks::eta_seconds.eq(Some(travel as i32)),
             tasks::candidate_ms.eq(Some(plan.outcome.elapsed_ms)),
+            tasks::selection_basis.eq(Some(basis_json)),
             tasks::ata_chapter.eq(&plan.chapter),
             tasks::ends_at
                 .eq(task.recorded_at

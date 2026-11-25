@@ -51,7 +51,8 @@ use crate::types::{
         CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest, EngineerPositionSample,
         ErrorResponse, GetRouteRequest, GetRouteResponse, GetUserNameResponse, LoginRequest,
         LoginResponse, MapListResponse, MapResponse, MapSummary, MeResponse, OAuthTokenType,
-        RegisterRequest, RouteAgent, ScoreFactor, SelectMapRequest, TrainClassifierResponse,
+        RegisterRequest, RouteAgent, ScoreFactor, SelectMapRequest, SelectionBasis,
+        AcceptCurrentTaskResponse, TrainClassifierResponse,
         UpdateAccessRequest, UpdateAccessResponse, UpdateEngineerPositionRequest,
         UpdateTransportPositionRequest,
     },
@@ -148,6 +149,8 @@ use crate::types::{
         // --- DTOs: assignment ---
         AssignmentCandidate,
         ScoreFactor,
+        SelectionBasis,
+        AcceptCurrentTaskResponse,
         AssignEngineerRequest,
         AssignCandidatesRequest,
         AssignEngineerResponse,

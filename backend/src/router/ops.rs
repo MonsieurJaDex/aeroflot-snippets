@@ -23,7 +23,9 @@ use crate::journal::JournalEvent;
 use crate::middleware::AuthUser;
 use crate::models::task::Task;
 use crate::types::config::AppState;
-use crate::types::dto::{AllRequests, ErrorResponse, PlaneRequests};
+use crate::types::dto::{
+    AcceptCurrentTaskResponse, AllRequests, ErrorResponse, PlaneRequests, SelectionBasis,
+};
 use crate::types::enums::UserRole;
 use crate::types::map::{Point, Route};
 
@@ -156,6 +158,7 @@ pub async fn create_request(
         urgency: payload.urgency.unwrap_or_else(|| "normal".to_owned()),
         eta_seconds: None,
         candidate_ms: None,
+        selection_basis: None,
         sla_alerted: false,
         sla_breached: false,
     };
@@ -512,7 +515,11 @@ pub async fn unassign_request(
     tag = "Tasks",
     operation_id = "acceptCurrentTask",
     security(("bearerAuth" = [])),
-    responses((status = 200, description = "Accepted")),
+    responses((
+        status = 200,
+        description = "Accepted; `selection` carries the numeric justification of the pick",
+        body = AcceptCurrentTaskResponse
+    )),
 )]
 pub async fn accept_current(
     State(app_state): State<Arc<AppState>>,
@@ -944,7 +951,18 @@ async fn transition(
         serde_json::json!({ "from": from, "to": to }),
         None,
     );
-    Ok(StatusCode::OK.into_response())
+    // The pick's justification is stored as JSON by `assign_engineer`. A task
+    // assigned before the column existed, or a row we cannot read, still
+    // accepts: the caller just gets no numbers instead of an error.
+    let selection = task
+        .selection_basis
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<SelectionBasis>(raw).ok());
+    Ok(Json(AcceptCurrentTaskResponse {
+        status: to.to_owned(),
+        selection,
+    })
+    .into_response())
 }
 
 fn load_task(

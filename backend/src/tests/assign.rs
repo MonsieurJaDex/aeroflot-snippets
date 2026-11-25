@@ -5,6 +5,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::tests::support::{expect_status, TestContext};
+use crate::types::dto::SelectionBasis;
 use crate::types::enums::EngineerType;
 use crate::types::map::Point;
 
@@ -1398,4 +1399,117 @@ async fn create_queued_request_with_urgency(
         StatusCode::OK,
     );
     request_id
+}
+
+/// ТЗ п.17: the numbers behind the pick are stored with the task, and the sum
+/// of the signed addends is exactly the score the dispatcher's row showed.
+#[tokio::test]
+async fn assign_stores_a_selection_basis_whose_factors_sum_to_the_score() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AvionicsEngineer);
+    let plane_id = Uuid::new_v4();
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+        "5,5",
+    );
+    let request_id = create_queued_request(&ctx, &dispatcher.token, plane_id).await;
+
+    expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane_id,
+                "request_id": request_id
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    let task = ctx.task(request_id);
+    let raw = task
+        .selection_basis
+        .as_deref()
+        .expect("assignment should store the selection basis");
+    assert!(!raw.is_empty(), "selection basis should not be empty");
+
+    let basis: SelectionBasis =
+        serde_json::from_str(raw).expect("stored basis should parse as SelectionBasis");
+    assert_eq!(basis.engineer_id, engineer.id.to_string());
+    assert_eq!(basis.manual, false);
+    assert_eq!(basis.eta_seconds, task.eta_seconds.unwrap() as u64);
+    assert!(!basis.reason.is_empty());
+    assert!(chrono::DateTime::parse_from_rfc3339(&basis.chosen_at).is_ok());
+
+    let sum: f64 = basis.factors.iter().map(|factor| factor.seconds).sum();
+    assert!(
+        (sum - basis.score).abs() < 1e-9,
+        "factors {sum} should sum to score {}",
+        basis.score
+    );
+}
+
+/// Accepting hands the same numbers back to the engineer who was chosen.
+#[tokio::test]
+async fn accept_returns_the_selection_basis_of_the_chosen_engineer() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AvionicsEngineer);
+    let plane_id = Uuid::new_v4();
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+        "5,5",
+    );
+    let request_id = create_queued_request(&ctx, &dispatcher.token, plane_id).await;
+    expect_status(
+        ctx.post(
+            "/api/assign",
+            &dispatcher.token,
+            json!({
+                "classifier_text": "уход гироплатформы ИНС",
+                "plane_uuid": plane_id,
+                "request_id": request_id
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    let body = expect_status(
+        ctx.post("/api/tasks/current/accept", &engineer.token, json!(null))
+            .await,
+        StatusCode::OK,
+    );
+    assert_eq!(body["status"], "in_progress");
+
+    let stored: SelectionBasis =
+        serde_json::from_str(ctx.task(request_id).selection_basis.as_deref().unwrap()).unwrap();
+    let selection = &body["selection"];
+    assert_eq!(selection["engineer_id"], engineer.id.to_string());
+    assert_eq!(selection["engineer_id"], stored.engineer_id);
+    assert_eq!(selection["manual"], stored.manual);
+    assert_eq!(selection["score"], stored.score);
+
+    let names: Vec<&str> = selection["factors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|factor| factor["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "eta",
+            "late",
+            "load",
+            "aog_bonus",
+            "arrival_bonus",
+            "urgency_bonus",
+            "mel_bonus"
+        ]
+    );
+    assert_eq!(ctx.task(request_id).status, "in_progress");
 }
