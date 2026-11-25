@@ -1,3 +1,4 @@
+import L from "leaflet";
 import { apiRequest } from "./session.js";
 
 const TILESETS = [
@@ -22,9 +23,65 @@ const FALLBACK_TILE_COLORS = {
 const FLIP_H = 0x80000000;
 const FLIP_V = 0x40000000;
 const FLIP_D = 0x20000000;
-// Проходимость как у бэка (map2 road) + запасные id старых карт.
+// Запасные gid старой TMJ-карты.
 const ROAD_GIDS = new Set([973, 974, 975, 0, 29]);
-const BACKEND_ROAD_IDS = ROAD_GIDS;
+let activeRoadIds = ROAD_GIDS;
+const CELL_PX = 4;
+
+function paletteColor(entry) {
+  if (!entry) return "#5a6570";
+  const pass = entry.pass || [];
+  if (!pass.length) {
+    if (entry.type === "terminal") return "#00529b";
+    if (entry.type === "hangar") return "#4a5568";
+    if (entry.type === "warehouse") return "#8c4a32";
+    if (entry.type === "parking") return "#8d6a3a";
+    if (entry.type === "runway") return "#243044";
+    return "#6b7280";
+  }
+  if (entry.type === "pedestrian") return "#2f6fed";
+  if (entry.type === "runway") return "#1f2937";
+  if (entry.type === "taxi") return "#64748b";
+  if (entry.type === "service") {
+    if (entry.spd_kmh >= 20) return "#f6e2a8";
+    if (entry.spd_kmh >= 10) return "#e7c98a";
+    if (entry.spd_kmh >= 8) return "#d7b56e";
+    return "#c4a15a";
+  }
+  return "#94a3b8";
+}
+
+function isV2(data) {
+  const matrix = data?.matrix || data?.map;
+  return Boolean(data && Array.isArray(matrix) && Array.isArray(data.palette) && matrix.length > 64);
+}
+
+function normalizeV2(data) {
+  const matrix = data.matrix || data.map;
+  const height = matrix.length;
+  const width = matrix[0].length;
+  const paletteById = new Map(data.palette.map((entry) => [Number(entry.id), entry]));
+  const walkIds = new Set((data.layers?.walk || []).map(Number));
+  const roadIds = new Set((data.layers?.road || []).map(Number));
+  activeRoadIds = roadIds;
+  return {
+    format: 2,
+    width,
+    height,
+    tilewidth: CELL_PX,
+    tileheight: CELL_PX,
+    cell_size_m: Number(data.cell_size_m) || 5,
+    origin: Number.isFinite(Number(data.origin?.lat)) && Number.isFinite(Number(data.origin?.lon))
+      ? { lat: Number(data.origin.lat), lon: Number(data.origin.lon) }
+      : null,
+    paletteById,
+    walkIds,
+    roadIds,
+    objects: Array.isArray(data.objects) ? data.objects : [],
+    zones: Array.isArray(data.zones) ? data.zones : [],
+    layers: [{ name: "полигон", type: "tilelayer", width, height, data: matrix.flat() }],
+  };
+}
 
 function decodeGid(raw) {
   let gid = raw;
@@ -58,22 +115,39 @@ function mapFromMatrix(matrix) {
   };
 }
 
+export function gpsToCell(tmj, lat, lon) {
+  const origin = tmj?.origin;
+  const cell = Number(tmj?.cell_size_m) || 5;
+  if (!origin || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const cos = Math.max(0.2, Math.cos((origin.lat * Math.PI) / 180));
+  const x = Math.floor(((lon - origin.lon) * 111320 * cos) / cell);
+  const y = Math.floor(((origin.lat - lat) * 111320) / cell);
+  if (x < 0 || y < 0 || x >= tmj.width || y >= tmj.height) return null;
+  return [x, y];
+}
+
 export async function loadApronMap() {
   try {
-    const res = await fetch("/real_map.tmj");
-    if (res.ok) return res.json();
-  } catch {
-    // ниже запасной вариант с /api/map
+    const data = await apiRequest("/api/map");
+    if (isV2(data)) return normalizeV2(data);
+  } catch (error) {
+    console.warn("[map] /api/map без палитры", error?.message || error);
   }
 
   try {
-    const matrix = await apiRequest("/api/map");
-    if (Array.isArray(matrix) && Array.isArray(matrix[0])) return mapFromMatrix(matrix);
+    const res = await fetch("/it2026_aero.json");
+    if (res.ok) {
+      const data = await res.json();
+      if (isV2(data)) return normalizeV2(data);
+    }
   } catch (error) {
-    console.warn("[map] /api/map недоступен", error);
+    console.warn("[map] файл полигона", error);
   }
 
-  throw new Error("Не удалось получить карту. Проверь frontend/public/real_map.tmj и что backend запущен.");
+  activeRoadIds = ROAD_GIDS;
+  const res = await fetch("/real_map.tmj");
+  if (res.ok) return res.json();
+  throw new Error("Не удалось получить карту полигона.");
 }
 
 export function buildTileGrid(tmj) {
@@ -84,7 +158,12 @@ export function buildTileGrid(tmj) {
       for (let col = 0; col < layer.width; col += 1) {
         const raw = layer.data[row * layer.width + col];
         if (!raw) continue;
-        grid[row][col].push({ layerName: layer.name, ...decodeGid(raw) });
+        const cell = decodeGid(raw);
+        const entry = tmj.paletteById?.get(cell.gid);
+        const layerName = entry
+          ? `${entry.type}${entry.spd_kmh ? ` ${entry.spd_kmh} км/ч` : ""}`
+          : layer.name;
+        grid[row][col].push({ layerName, ...cell });
       }
     }
   }
@@ -121,26 +200,30 @@ function findTileset(tilesets, gid) {
   return matched;
 }
 
-function drawTile(ctx, tilesets, cell, dx, dy, tileW, tileH) {
-  const tileset = findTileset(tilesets, cell.gid);
-  if (tileset?.image) {
-    const localId = cell.gid - tileset.firstgid;
-    if (localId >= 0 && localId < tileset.tilecount) {
-      const sx = (localId % tileset.columns) * tileset.tileWidth;
-      const sy = Math.floor(localId / tileset.columns) * tileset.tileHeight;
-      ctx.save();
-      ctx.translate(dx + tileW / 2, dy + tileH / 2);
-      ctx.scale(cell.flippedH ? -1 : 1, cell.flippedV ? -1 : 1);
-      if (cell.flippedD) ctx.rotate(Math.PI / 2);
-      ctx.drawImage(tileset.image, sx, sy, tileset.tileWidth, tileset.tileHeight, -tileW / 2, -tileH / 2, tileW, tileH);
-      ctx.restore();
-      return;
+function drawTile(ctx, tilesets, cell, dx, dy, tileW, tileH, entry) {
+  if (!entry) {
+    const tileset = findTileset(tilesets, cell.gid);
+    if (tileset?.image) {
+      const localId = cell.gid - tileset.firstgid;
+      if (localId >= 0 && localId < tileset.tilecount) {
+        const sx = (localId % tileset.columns) * tileset.tileWidth;
+        const sy = Math.floor(localId / tileset.columns) * tileset.tileHeight;
+        ctx.save();
+        ctx.translate(dx + tileW / 2, dy + tileH / 2);
+        ctx.scale(cell.flippedH ? -1 : 1, cell.flippedV ? -1 : 1);
+        if (cell.flippedD) ctx.rotate(Math.PI / 2);
+        ctx.drawImage(tileset.image, sx, sy, tileset.tileWidth, tileset.tileHeight, -tileW / 2, -tileH / 2, tileW, tileH);
+        ctx.restore();
+        return;
+      }
     }
   }
 
-  const color = FALLBACK_TILE_COLORS[cell.gid]
-    || FALLBACK_TILE_COLORS[((cell.gid - 1008 + 973) % 10) + 973]
-    || "#5a6570";
+  const color = entry
+    ? paletteColor(entry)
+    : (FALLBACK_TILE_COLORS[cell.gid]
+      || FALLBACK_TILE_COLORS[((cell.gid - 1008 + 973) % 10) + 973]
+      || "#5a6570");
   ctx.fillStyle = color;
   ctx.fillRect(dx, dy, tileW, tileH);
 }
@@ -152,14 +235,32 @@ export function renderCanvas(tmj, grid, tilesets) {
   canvas.width = tmj.width * tileW;
   canvas.height = tmj.height * tileH;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#d7e3ee";
+  ctx.fillStyle = "#c5d4b4";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   for (let row = 0; row < tmj.height; row += 1) {
     for (let col = 0; col < tmj.width; col += 1) {
       for (const cell of grid[row][col]) {
-        drawTile(ctx, tilesets, cell, col * tileW, row * tileH, tileW, tileH);
+        drawTile(
+          ctx,
+          tilesets,
+          cell,
+          col * tileW,
+          row * tileH,
+          tileW,
+          tileH,
+          tmj.paletteById?.get(cell.gid),
+        );
       }
     }
+  }
+  const metres = tmj.cell_size_m || 5;
+  ctx.strokeStyle = "#c5161c";
+  ctx.lineWidth = 2;
+  for (const zone of tmj.zones || []) {
+    const radius = (Number(zone.radius_m) / metres) * tileW;
+    ctx.beginPath();
+    ctx.arc((Number(zone.x) + 0.5) * tileW, (Number(zone.y) + 0.5) * tileH, radius, 0, Math.PI * 2);
+    ctx.stroke();
   }
   return canvas;
 }
@@ -185,22 +286,59 @@ export function clickToCell(tmj, lat, lng) {
   return { col, row };
 }
 
-export function roadHint(cells) {
-  return cells.some((cell) => BACKEND_ROAD_IDS.has(cell.gid)) ? " (проходимо для BFS бэкенда)" : "";
+export function routeSpansMap(tmj, bounds) {
+  if (!tmj || !bounds) return false;
+  const spanX = Math.abs(bounds.getEast() - bounds.getWest()) / tmj.tilewidth;
+  const spanY = Math.abs(bounds.getNorth() - bounds.getSouth()) / tmj.tileheight;
+  return spanX >= tmj.width * 0.2 || spanY >= tmj.height * 0.2;
 }
 
-/** Маска дорог по визуальному TMJ: стены (1010+) непроходимы. */
+export function roadHint(cells) {
+  return cells.some((cell) => activeRoadIds.has(cell.gid)) ? " (дорога)" : "";
+}
+
+export function addPlaceLabels(map, tmj) {
+  const layer = L.layerGroup().addTo(map);
+  const places = [
+    ...(tmj.objects || []).map((obj) => ({
+      name: obj.name,
+      col: Number(obj.x) + Number(obj.w || 1) / 2,
+      row: Number(obj.y) + Number(obj.h || 1) / 2,
+    })),
+    ...(tmj.zones || []).map((zone) => ({
+      name: zone.label,
+      col: Number(zone.x) + 0.5,
+      row: Number(zone.y) + 0.5,
+    })),
+  ];
+  for (const place of places) {
+    if (!place.name) continue;
+    L.marker(cellToLatLng(tmj, place.col, place.row), {
+      interactive: false,
+      keyboard: false,
+      icon: L.divIcon({ className: "map-pin-hidden", html: "", iconSize: [1, 1] }),
+    }).bindTooltip(place.name, {
+      permanent: true,
+      direction: "center",
+      className: "map-label",
+    }).addTo(layer);
+  }
+  return layer;
+}
+
+/** Маска хода: палитра полигона или старые gid TMJ. */
 export function buildWalkMask(tmj) {
   const height = tmj?.height || 0;
   const width = tmj?.width || 0;
   const mask = Array.from({ length: height }, () => Array(width).fill(false));
   const layer = (tmj?.layers || []).find((item) => item.type === "tilelayer" && Array.isArray(item.data));
   if (!layer) return mask;
+  const walk = tmj.walkIds;
   for (let row = 0; row < height; row += 1) {
     for (let col = 0; col < width; col += 1) {
       const raw = layer.data[row * width + col] || 0;
       const { gid } = decodeGid(raw);
-      mask[row][col] = ROAD_GIDS.has(gid);
+      mask[row][col] = walk ? walk.has(gid) : ROAD_GIDS.has(gid);
     }
   }
   return mask;

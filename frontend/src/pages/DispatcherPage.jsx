@@ -53,23 +53,34 @@ import {
   cellToLatLng,
   centerToLatLng,
   clickToCell,
+  addPlaceLabels,
+  routeSpansMap,
   loadApronMap,
   loadTilesetImages,
   renderCanvas,
   roadHint,
 } from "../lib/apronMap.js";
+import { apronOverlayUrl } from "../lib/apronSvg.js";
 
 const GROUPS = issueGroups();
 const FIRST_ISSUE = GROUPS[0][1][0];
 const ISSUE_LABELS = new Map(GROUPS.flatMap(([, values]) => values).map((value) => [value, issueLabel(value)]));
 const LEGEND = [
   ["#0c7a56", "инженер свободен"],
-  ["#f47920", "инженер занят"],
-  ["#f47920", "спецтранспорт"],
+  ["#c5161c", "инженер занят"],
+  ["#003a70", "спецтранспорт"],
   ["#00529b", "воздушное судно"],
   ["#c5161c", "AOG"],
   ["#c5161c", "маршрут"],
 ];
+
+function proposedEngineer(candidates, chosenId) {
+  if (!Array.isArray(candidates) || !candidates.length) return null;
+  const eligible = candidates.find((row) => row.eligible);
+  if (eligible) return eligible;
+  const chosen = chosenId ? candidates.find((row) => row.engineerId === chosenId) : null;
+  return chosen || null;
+}
 
 function freshInbox() {
   // В очереди только ещё не назначенные; assigned — только после успешного /api/assign.
@@ -82,12 +93,19 @@ function freshInbox() {
     });
 }
 
+function etaNote(data) {
+  const seconds = Number(data?.eta_seconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  return " · ETA " + Math.max(0, Math.round(seconds / 60)) + " мин";
+}
+
 function marginMinutes(seconds) {
   if (seconds == null || Number.isNaN(Number(seconds))) return null;
   return Math.round(Number(seconds) / 60);
 }
 
 const DEMO_STAND_ID = "demo-stand";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STANDS_KEY = "oto-demo-stands";
 const VEHICLE_IDS_KEY = "oto-demo-vehicle-ids";
 const CLICK_VEHICLES = ["FuelTruck", "OilCart", "MaintenanceLift", "BorescopeCart", "AvionicsTestSet"];
@@ -163,6 +181,7 @@ export default function DispatcherPage() {
   })());
   const lastAuto = useRef("");
   const skipAuto = useRef(false);
+  const cardPreview = useRef("");
   const alertCountRef = useRef(0);
   const inboxCountRef = useRef(0);
 
@@ -184,6 +203,8 @@ export default function DispatcherPage() {
   const [description, setDescription] = useState(() => sessionStorage.getItem("oto-disp-draft") || "");
   const [hint, setHint] = useState("");
   const [live, setLive] = useState("Загрузка бортов, инженеров и техники…");
+  // #6: причина сбоя загрузки списка инженеров (пустая строка — сбоя нет).
+  const [staffError, setStaffError] = useState("");
   const [result, setResult] = useState({ type: "info", text: "Клик по карте ставит стоянку, инженера или технику. Затем назначьте." });
   const [inbox, setInbox] = useState(freshInbox);
   const [activeMcc, setActiveMcc] = useState(null);
@@ -230,6 +251,7 @@ export default function DispatcherPage() {
   const [trackObj, setTrackObj] = useState(() => localStorage.getItem("oto-track-obj") || "e-01");
   const [trackLat, setTrackLat] = useState(() => localStorage.getItem("oto-track-lat") || "55.8304");
   const [trackLon, setTrackLon] = useState(() => localStorage.getItem("oto-track-lon") || "37.6310");
+  const [trackAcc, setTrackAcc] = useState(() => localStorage.getItem("oto-track-acc") || "8");
   const [trackNote, setTrackNote] = useState("");
   const [trackPending, setTrackPending] = useState(false);
   const [movements, setMovements] = useState([]);
@@ -358,6 +380,7 @@ export default function DispatcherPage() {
   useEffect(() => {
     if (!allowed) return undefined;
     function onKey(event) {
+      if (window.matchMedia("(max-width: 860px), (pointer: coarse)").matches) return;
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault();
         const form = formRef.current;
@@ -489,13 +512,14 @@ export default function DispatcherPage() {
       const bounds = [[0, 0], [tmj.height * tmj.tileheight, tmj.width * tmj.tilewidth]];
       const map = L.map(mapNode.current, {
         crs: L.CRS.Simple,
-        minZoom: -2,
+        minZoom: -4,
         maxZoom: 6,
         zoomSnap: 0.25,
         attributionControl: false,
       });
       bag.map = map;
-      L.imageOverlay(renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
+      L.imageOverlay(apronOverlayUrl(tmj) || renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
+      addPlaceLabels(map, tmj);
       map.fitBounds(bounds);
 
       const standsLayer = L.layerGroup().addTo(map);
@@ -630,6 +654,7 @@ export default function DispatcherPage() {
         const staff = await loadStaff();
         if (cancelled) return;
         agents = staff.plotted;
+        setStaffError(staff.error?.message || "");
         aircraftNow = await loadAircraft();
         const standsNow = readDemoStands();
         const shown = mergePlanes(aircraftNow, standsNow);
@@ -668,7 +693,17 @@ export default function DispatcherPage() {
         if (mode === "engineer") {
           const id = clickRef.current.engineerId;
           if (!id) return "Выберите инженера в списке";
-          await updateEngineerPosition(id, [[point, Math.floor(Date.now() / 1000)]]);
+          const sessionId = getSession()?.userId;
+          const own = Boolean(sessionId) && String(sessionId) === String(id);
+          const stamp = Math.floor(Date.now() / 1000);
+          try {
+            await updateEngineerPosition(own ? sessionId : id, [[point, stamp]]);
+          } catch (error) {
+            // Чужого инженера правит только он сам (403). /api/simulate удалён из
+            // бэкенда, поэтому запасного адреса больше нет — показываем причину.
+            if (own || Number(error?.status) !== 403) throw error;
+            throw new Error("Точку чужого инженера ставит только он сам (403).");
+          }
           await refresh();
           return `Инженер · [${point[0]}, ${point[1]}]`;
         }
@@ -748,10 +783,10 @@ export default function DispatcherPage() {
           }).addTo(routeExtrasLayer);
           line.bindTooltip(label, { sticky: true });
           if (!showRoute) map.removeLayer(routeExtrasLayer);
-          else map.fitBounds(line.getBounds(), { padding: [80, 80], maxZoom: 3 });
+          else if (routeSpansMap(tmj, line.getBounds())) map.fitBounds(line.getBounds(), { padding: [80, 80], maxZoom: 3 });
           return line;
         },
-        async assign() {
+        async assign(engineerId) {
           const form = formRef.current;
           const standsNow = readDemoStands();
           // plane_point — клетка выбранной стоянки из oto-demo-stands.
@@ -775,15 +810,58 @@ export default function DispatcherPage() {
           setPending(true);
           setResult({ type: "info", text: "Поиск свободного инженера и спецтранспорта..." });
           try {
-            // Живой assign: issue, plane_point, description.
-            const response = await apiRequest("/api/assign", {
-              method: "POST",
-              body: {
-                issue: issueValue,
-                plane_point: [Number(plane.point[0]), Number(plane.point[1])],
+            const mccItem = form.activeMcc
+              ? listMcc().find((item) => item.id === form.activeMcc)
+              : null;
+            let requestId = mccItem?.status === "unassigned" && mccItem.serverId
+              ? String(mccItem.serverId)
+              : "";
+            if (mccItem?.serverId && mccItem.status !== "unassigned" && mccItem.status !== "assigned") {
+              // Перед назначением замечание ЦПУ переводим в очередь.
+              try {
+                await queueRequest(mccItem.serverId);
+                markMccQueued(mccItem.id);
+                requestId = String(mccItem.serverId);
+              } catch (error) {
+                if (Number(error?.status) !== 404) {
+                  setResult({ type: "error", text: `Ошибка: ${assignErrorMessage(error)}` });
+                  return;
+                }
+              }
+            }
+            const planeUuid = [plane.id, mccItem?.planeUuid]
+              .map((value) => String(value || "").trim())
+              .find((value) => UUID_RE.test(value)) || "";
+            const planePoint = [Number(plane.point[0]), Number(plane.point[1])];
+            const oldBody = { issue: issueValue, plane_point: planePoint, description: text };
+            const manualId = typeof engineerId === "string" && UUID_RE.test(engineerId.trim())
+              ? engineerId.trim()
+              : "";
+            let response;
+            if (requestId && planeUuid) {
+              const nextBody = {
+                request_id: requestId,
+                classifier_text: text,
                 description: text,
-              },
-            });
+                issue: issueValue,
+                plane_uuid: planeUuid,
+              };
+              if (manualId) nextBody.engineer_id = manualId;
+              try {
+                response = await apiRequest("/api/assign", { method: "POST", body: nextBody });
+              } catch (error) {
+                if (Number(error?.status) !== 422 || manualId) throw error;
+                response = await apiRequest("/api/assign", { method: "POST", body: oldBody });
+              }
+            } else {
+              try {
+                response = await apiRequest("/api/assign", { method: "POST", body: oldBody });
+              } catch (error) {
+                if (Number(error?.status) !== 422) throw error;
+                setResult({ type: "error", text: "новый сервер ждёт замечание ЦПУ (статус после очереди) и UUID борта." });
+                return;
+              }
+            }
             const gridRoute = normalizeRoute(response.route);
             const travelMin = marginMinutes(response.time ?? response.eta_seconds) ?? 0;
             // Статус «назначена» только после HTTP 200, не по клику и не по очереди.
@@ -873,7 +951,7 @@ export default function DispatcherPage() {
                 return next;
               });
             }
-            if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
+            if (routeLine && routeSpansMap(tmj, routeLine.getBounds())) map.fitBounds(routeLine.getBounds(), { padding: [80, 80], maxZoom: 3 });
           } catch (error) {
             setResult({ type: "error", text: `Ошибка: ${assignErrorMessage(error)}` });
           } finally {
@@ -917,15 +995,61 @@ export default function DispatcherPage() {
     setDescription(text);
     sessionStorage.setItem("oto-disp-draft", text);
     if (item.serverId) setReassignId(String(item.serverId));
+    cardPreview.current = item.id;
     setResult({
       type: "info",
-      text: "Замечание подставлено в заявку. Можно назначать без очереди.",
+      text: item.serverId
+        ? "Заявка открыта. Считаю, кого назначить."
+        : "Замечание подставлено в заявку. Можно назначать без очереди.",
+      candidates: [],
+      chosenId: "",
     });
+    if (item.serverId) void loadCardCandidates(item);
     window.queueMicrotask?.(() => {
       const btn = document.getElementById("assign-button");
       btn?.scrollIntoView({ block: "nearest", behavior: "smooth" });
       btn?.focus();
     });
+  }
+
+  async function loadCardCandidates(item) {
+    try {
+      const data = await apiRequest("/api/assign/candidates", {
+        method: "POST",
+        body: { request_id: String(item.serverId) },
+      });
+      if (cardPreview.current !== item.id) return;
+      const raw = Array.isArray(data?.candidates) ? data.candidates : [];
+      const candidates = await Promise.all(raw.map(async (row) => ({
+        engineerId: String(row.engineer_id ?? ""),
+        name: await engineerName(row.engineer_id),
+        eligible: Boolean(row.eligible),
+        reason: row.reason == null ? "" : String(row.reason),
+        etaSeconds: row.eta_seconds,
+        usesVehicle: Boolean(row.uses_vehicle),
+      })));
+      if (cardPreview.current !== item.id) return;
+      const proposed = proposedEngineer(candidates, "");
+      setResult({
+        type: "info",
+        text: proposed
+          ? `На карточке ${proposed.name}. Можно назначить его.`
+          : "Сервер не предложил инженера.",
+        candidates,
+        chosenId: proposed?.engineerId || "",
+      });
+    } catch (error) {
+      if (cardPreview.current !== item.id) return;
+      const missing = Number(error?.status) === 404;
+      setResult({
+        type: missing ? "info" : "error",
+        text: missing
+          ? "Этот сервер не отдаёт рейтинг. Назначьте нижней кнопкой."
+          : `Рейтинг не пришёл: ${assignErrorMessage(error)}`,
+        candidates: [],
+        chosenId: "",
+      });
+    }
   }
 
   function toggleLayer(name, on) {
@@ -993,6 +1117,14 @@ export default function DispatcherPage() {
     const reason = reassignReason.trim();
     if (!id || !engineerId || !reason) {
       setReassignNote("Укажите заявку, инженера и причину.");
+      return;
+    }
+    const known = listMcc().find((item) => String(item.serverId || "") === id);
+    const fromAlert = alerts.find((item) => String(item.request_id || "") === id);
+    const knownStatus = known?.status || fromAlert?.status || "";
+    if (knownStatus && knownStatus !== "in_progress") {
+      setReassignNote("Переназначить можно только задачу в работе.");
+      softBeep(320, 200);
       return;
     }
     const confirmed = window.confirm("Переназначить может только старший смены. Продолжить?");
@@ -1115,7 +1247,7 @@ export default function DispatcherPage() {
   }
 
   async function onDepartPlane() {
-    if (!aircraft.some((plane) => plane.id === planeId)) {
+    if (!selectedStand?.point) {
       setDepartNote("Выберите борт.");
       return;
     }
@@ -1149,6 +1281,10 @@ export default function DispatcherPage() {
       const data = await setActiveMap(activeMapId);
       softBeep(500, 100);
       setMapNote(`Активна: ${data?.name || activeMapId} · ${data?.width || "?"}×${data?.height || "?"}`);
+      if (data?.reload) {
+        window.location.reload();
+        return;
+      }
       const maps = await listMaps();
       setMapCatalog(Array.isArray(maps.maps) ? maps.maps : []);
       setActiveMapId(maps.active_id || activeMapId);
@@ -1177,12 +1313,19 @@ export default function DispatcherPage() {
     setTrackPending(true);
     setTrackNote("");
     try {
-      const ack = await postTrackPoint({ obj: trackObj.trim(), lat, lon });
+      const acc = Number(trackAcc);
+      const ack = await postTrackPoint({
+        obj: trackObj.trim(),
+        lat,
+        lon,
+        acc: Number.isFinite(acc) && acc >= 0 ? acc : null,
+      });
       localStorage.setItem("oto-track-obj", trackObj.trim());
       localStorage.setItem("oto-track-lat", String(lat));
       localStorage.setItem("oto-track-lon", String(lon));
+      localStorage.setItem("oto-track-acc", trackAcc);
       softBeep(ack?.applied ? 620 : 440, 120);
-      setTrackNote(`track: accepted=${ack?.accepted} applied=${ack?.applied} obj=${ack?.obj || trackObj}`);
+      setTrackNote(ack?.applied ? `Точка легла на карту · ${ack.obj || trackObj}` : `Точка принята, позицию не сдвинули · ${ack?.obj || trackObj}`);
     } catch (error) {
       setTrackNote(assignErrorMessage(error));
       softBeep(320, 200);
@@ -1239,6 +1382,7 @@ export default function DispatcherPage() {
       let cells = 0;
       let label = `${startAgent.name || "инженер"} → стоянка`;
       let note = "";
+      let etaPart = "";
       if (withVia) {
         const needType = ISSUE_REQUIRED_VEHICLE[issue];
         const pool = (fleetNow || []).filter((v) => Array.isArray(v.point));
@@ -1249,20 +1393,23 @@ export default function DispatcherPage() {
           setRouteNote("Нет спецтранспорта на карте для пробы через промежуточную точку.");
           return;
         }
-        const data = await getRouteVia([startAgent.point, pick.point, stand.point]);
+        // Инженер идёт пешком до спецтехники, дальше едет машина: agent по плечам (ТЗ 4.1).
+        const data = await getRouteVia([startAgent.point, pick.point, stand.point], ["engineer", "vehicle"]);
         route = normalizeRoute(data?.route);
         cells = Number(data?.distance);
+        etaPart = etaNote(data);
         label = `${startAgent.name || "инженер"} → ${pick.label} → стоянка`;
         note = `Проба via: ${label} · ${Number.isFinite(cells) ? cells : Math.max(0, route.length - 1)} клеток · ${data?.legs || 2} плеча · OpenAPI getRoute`;
       } else {
-        const data = await getRoute(startAgent.point, stand.point);
+        const data = await getRoute(startAgent.point, stand.point, "engineer");
         route = normalizeRoute(data?.route);
         cells = Number(data?.distance);
+        etaPart = etaNote(data);
         note = `Проба: ${label} · ${Number.isFinite(cells) ? cells : Math.max(0, route.length - 1)} клеток · OpenAPI getRoute`;
       }
       actions.current.previewRoute?.(route, label);
       softBeep(560, 100);
-      setRouteNote(note);
+      setRouteNote(note + etaPart);
     } catch (error) {
       setRouteNote(assignErrorMessage(error));
       softBeep(320, 200);
@@ -1272,7 +1419,7 @@ export default function DispatcherPage() {
   }
 
   async function onArrivePlane() {
-    const plane = aircraft.find((item) => item.id === planeId);
+    const plane = selectedStand;
     if (!plane?.point) {
       setArriveNote("Выберите борт со стоянкой.");
       return;
@@ -1464,7 +1611,11 @@ export default function DispatcherPage() {
               if (!rows.length) {
                 return <p className="mcc-empty">{urgentOnly ? "Нет срочных замечаний." : "Нет новых замечаний от ЦПУ."}</p>;
               }
-              return rows.map((item) => (
+              return rows.map((item) => {
+                const proposed = item.id === activeMcc
+                  ? proposedEngineer(result.candidates, result.chosenId)
+                  : null;
+                return (
                 <div
                   key={item.id}
                   className={[
@@ -1478,6 +1629,21 @@ export default function DispatcherPage() {
                     <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status === "assigned" ? "назначена" : "не назначена"} · {relativeRu(item.createdAt, nowTick)}</span>
                     <span>{item.description}</span>
                   </button>
+                  {proposed ? (
+                    <>
+                      <strong>{proposed.name}</strong>
+                      <button
+                        type="button"
+                        className="shift-button"
+                        disabled={pending}
+                        onClick={() => actions.current.assign?.(proposed.engineerId)}
+                      >
+                        Назначить его
+                      </button>
+                    </>
+                  ) : item.id === activeMcc ? (
+                    <span>Рейтинг инженеров ещё не пришёл</span>
+                  ) : null}
                   {item.serverId ? (
                     <button
                       type="button"
@@ -1489,7 +1655,8 @@ export default function DispatcherPage() {
                     </button>
                   ) : null}
                 </div>
-              ));
+                );
+              });
             })()}
           </div>
           {queueNote ? <p className="fault-hint">{queueNote}</p> : null}
@@ -1705,6 +1872,7 @@ export default function DispatcherPage() {
             </button>
           {planeId && aogIds.has(planeId) ? <p className="fault-hint stale-live">Выбранный борт в AOG.</p> : null}
           {!aircraft.length ? <p className="fault-hint">Список бортов пуст. Стоянка с карты достаточна для назначения.</p> : null}
+          {staffError ? <p className="fault-hint stale-live">{staffError}</p> : null}
           <p className="fault-hint">{live}</p>
           <label>Тип неисправности
             <select value={issue} onChange={(event) => setIssue(event.target.value)}>
@@ -1736,11 +1904,11 @@ export default function DispatcherPage() {
             {classifyPending ? "Классификация…" : "Подсказать тип инженера"}
           </button>
           {classifyHint ? <p className="fault-hint">{classifyHint}</p> : null}
-          <button type="button" className="shift-button" disabled={arrivePending || !aircraft.some((plane) => plane.id === planeId) || pending || departPending} onClick={onArrivePlane}>
+          <button type="button" className="shift-button" disabled={arrivePending || !selectedStand?.point || pending || departPending} onClick={onArrivePlane}>
             {arrivePending ? "Фиксация…" : "Зафиксировать прибытие борта"}
           </button>
           {arriveNote ? <p className="fault-hint">{arriveNote}</p> : null}
-          <button type="button" className="shift-button" disabled={departPending || !aircraft.some((plane) => plane.id === planeId) || pending || arrivePending} onClick={onDepartPlane}>
+          <button type="button" className="shift-button" disabled={departPending || !selectedStand?.point || pending || arrivePending} onClick={onDepartPlane}>
             {departPending ? "Фиксация…" : "Зафиксировать вылет борта"}
           </button>
           {departNote ? <p className="fault-hint">{departNote}</p> : null}
@@ -1762,7 +1930,7 @@ export default function DispatcherPage() {
               actions.current.assign?.();
             }}
           >
-            {pending ? "Назначение…" : "Назначить инженера · Ctrl+Enter"}
+            {pending ? "Назначение…" : <>Назначить инженера <span className="hotkey-mark">· Ctrl+Enter</span></>}
           </button>
           <details className="shortcut-help">
             <summary>Горячие клавиши</summary>
@@ -1886,7 +2054,7 @@ export default function DispatcherPage() {
                                 {chosen ? <span className="candidate-badge">выбран</span> : null}
                               </td>
                               <td>{row.eligible ? "да" : "нет"}</td>
-                              <td>{chosen ? "—" : (row.reason || "—")}</td>
+                              <td>{row.reason || "—"}</td>
                               <td>{etaMin}</td>
                               <td>{row.usesVehicle ? "да" : "нет"}</td>
                             </tr>
@@ -1901,13 +2069,14 @@ export default function DispatcherPage() {
           </div>
         </section>
         <details className="request-panel">
-          <summary>Имитатор track</summary>
+          <summary>Точка GPS</summary>
           <form onSubmit={onSendTrack}>
-            <label>obj<input type="text" value={trackObj} autoComplete="off" onChange={(event) => setTrackObj(event.target.value)} /></label>
-            <label>lat<input type="text" inputMode="decimal" value={trackLat} autoComplete="off" onChange={(event) => setTrackLat(event.target.value)} /></label>
-            <label>lon<input type="text" inputMode="decimal" value={trackLon} autoComplete="off" onChange={(event) => setTrackLon(event.target.value)} /></label>
+            <label>Объект<input type="text" value={trackObj} autoComplete="off" placeholder="uuid инженера, v-01 или RA-…" onChange={(event) => setTrackObj(event.target.value)} /></label>
+            <label>Широта<input type="text" inputMode="decimal" value={trackLat} autoComplete="off" onChange={(event) => setTrackLat(event.target.value)} /></label>
+            <label>Долгота<input type="text" inputMode="decimal" value={trackLon} autoComplete="off" onChange={(event) => setTrackLon(event.target.value)} /></label>
+            <label>Точность, м<input type="text" inputMode="decimal" value={trackAcc} autoComplete="off" onChange={(event) => setTrackAcc(event.target.value)} /></label>
             <button type="submit" className="shift-button" disabled={trackPending}>
-              {trackPending ? "Отправка…" : "POST /api/v1/track"}
+              {trackPending ? "Отправка…" : "Отправить точку"}
             </button>
           </form>
           {trackNote ? <p className="fault-hint">{trackNote}</p> : null}

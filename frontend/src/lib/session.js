@@ -2,8 +2,27 @@ const SESSION_KEY = "oto-session";
 const API_BASE_KEY = "oto-api-base";
 const DEFAULT_API_BASE = "http://127.0.0.1:3001";
 
+// Бэкенд режет запрос по TimeoutLayer на 10 секундах и отдаёт 408.
+// Пользователю показываем человеческую фразу, а не сырой текст ответа или код статуса.
+export const SERVER_TIMEOUT_SECONDS = 10;
+export const TIMEOUT_MESSAGE = "Сервер не успел ответить за " + SERVER_TIMEOUT_SECONDS + " секунд — повторите.";
+
+export function isTimeoutStatus(status) {
+  return status === 408 || status === 504;
+}
+
+export function isAbortError(err) {
+  return Boolean(err) && (err.name === "AbortError" || err.name === "TimeoutError" || err.code === 20);
+}
+
 export function getApiBase() {
-  return localStorage.getItem(API_BASE_KEY) || DEFAULT_API_BASE;
+  const host = window.location.hostname;
+  const loopback = !host || host === "localhost" || host === "127.0.0.1" || host === "::1";
+  // Телефон и туннель: /api этого же сайта. Сохранённый 127.0.0.1 там — сам телефон.
+  if (!loopback) return window.location.origin;
+  const saved = localStorage.getItem(API_BASE_KEY);
+  if (saved) return saved;
+  return DEFAULT_API_BASE;
 }
 
 export function setApiBase(value) {
@@ -38,6 +57,7 @@ async function tryRefresh() {
     if (!res.ok) return false;
     const data = await res.json();
     session.accessToken = data.access_token;
+    if (data.refresh_token) session.refreshToken = data.refresh_token;
     saveSession(session);
     return true;
   } catch {
@@ -60,10 +80,21 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
-  } catch {
+  } catch (fetchError) {
+    // Клиентский abort (AbortController / AbortSignal.timeout) — тот же таймаут,
+    // а не «нет сети»: показываем ту же фразу, что и для 408.
+    if (isAbortError(fetchError)) {
+      const error = new Error(TIMEOUT_MESSAGE);
+      error.status = 408;
+      error.timeout = true;
+      throw error;
+    }
+    const here = typeof window !== "undefined" && !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
     const error = new Error(navigator.onLine === false
       ? "Нет сети. Проверьте соединение."
-      : "Сервер не отвечает. Проверьте адрес API.");
+      : here
+        ? "Нет связи с сервером. Обновите страницу."
+        : "Сервер не отвечает. Проверьте адрес API.");
     error.status = 0;
     throw error;
   }
@@ -78,6 +109,13 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    if (isTimeoutStatus(res.status) || /timed?\s?out/i.test(text)) {
+      const error = new Error(TIMEOUT_MESSAGE);
+      error.status = res.status;
+      error.timeout = true;
+      error.raw = text;
+      throw error;
+    }
     let message = text || `Ошибка запроса: ${res.status}`;
     try {
       const body = JSON.parse(text);
@@ -93,7 +131,8 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
   }
 
   const contentType = res.headers.get("content-type") || "";
-  return contentType.includes("application/json") ? res.json() : res.text();
+  const data = contentType.includes("application/json") ? await res.json() : await res.text();
+  return data;
 }
 
 export async function login(email, password) {

@@ -1,0 +1,15 @@
+services:
+  tg-bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - tg_bot_data:/app/data
+
+volumes:
+  tg_bot_data:

@@ -41,11 +41,42 @@ function confidenceLabel(value) {
   return `${Math.round(pct)}%`;
 }
 
-const EMAIL_RE = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i;
+function urgencyCaption(value) {
+  if (value === "urgent") return "срочная";
+  if (value === "normal") return "обычная";
+  return "не указана";
+}
 
-function remarkBody({ description, planeUuid, ata, note, urgency }) {
+const EMAIL_RE = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function standPoint(planeUuid) {
+  try {
+    const rows = JSON.parse(localStorage.getItem("oto-demo-stands") || "[]");
+    if (!Array.isArray(rows)) return null;
+    const wanted = String(planeUuid || "");
+    const ordered = [
+      ...rows.filter((row) => wanted && String(row?.id) === wanted),
+      ...rows.filter((row) => String(row?.id) === "demo-stand"),
+      ...rows,
+    ];
+    for (const row of ordered) {
+      if (!Array.isArray(row?.point) || row.point.length < 2) continue;
+      const x = Number(row.point[0]);
+      const y = Number(row.point[1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      return [Math.trunc(x), Math.trunc(y)];
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function remarkBody({ description, planeUuid, ata, note, urgency, point }) {
   const body = { text: description, source: "mcc" };
-  if (planeUuid) body.plane_uuid = planeUuid;
+  if (planeUuid && UUID_RE.test(planeUuid)) body.plane_uuid = planeUuid;
+  else if (Array.isArray(point) && point.length >= 2) body.point = [Number(point[0]), Number(point[1])];
   if (ata) body.ata_chapter = ata;
   if (note) body.note = note;
   if (urgency) body.urgency = urgency;
@@ -109,8 +140,12 @@ export default function MccPage() {
     setStatus("");
     const draft = readForm();
     if (!draft.description) return;
-    if (draft.planeUuid && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(draft.planeUuid)) {
-      setError("UUID борта выглядит неверно. Оставьте пустым или вставьте полный uuid.");
+    const planeIsUuid = UUID_RE.test(draft.planeUuid);
+    const point = planeIsUuid ? null : standPoint(draft.planeUuid);
+    if (!planeIsUuid && !point && (signedIn() || draft.planeUuid)) {
+      setError(draft.planeUuid
+        ? "UUID борта выглядит неверно, клетки стоянки нет. Сервер замечание не принял."
+        : "Нужен UUID борта или клетка стоянки. Сервер замечание не принял.");
       return;
     }
     if (!signedIn()) {
@@ -131,15 +166,15 @@ export default function MccPage() {
     }
     setPending(true);
     try {
-      const created = await createRemark(remarkBody(draft));
-      const serverStatus = created?.status === "unassigned" ? "unassigned" : "new";
+      const created = await createRemark(remarkBody({ ...draft, point }));
+      const serverStatus = typeof created?.status === "string" && created.status ? created.status : "new";
       addMcc({ ...draft, serverId: created?.id || null, serverStatus });
-      if (draft.planeUuid) {
+      if (planeIsUuid) {
         localStorage.setItem("oto-last-plane", draft.planeUuid);
         setSavedPlane(draft.planeUuid);
       }
       form.reset();
-      if (draft.planeUuid) {
+      if (planeIsUuid) {
         const planeInput = form.elements.namedItem("plane");
         if (planeInput) planeInput.value = draft.planeUuid;
       }
@@ -148,7 +183,11 @@ export default function MccPage() {
       setHint("");
       setStatus("Замечание записано на сервере. Инженера не назначали.");
       setItems(freshList());
-    } catch {
+    } catch (error) {
+      if (Number(error?.status) !== 404) {
+        setError(readError(error));
+        return;
+      }
       // Живой сервер без /api/requests: замечание остаётся в очереди этого браузера.
       addMcc(draft);
       if (draft.planeUuid) {
@@ -420,28 +459,33 @@ export default function MccPage() {
               </div>
             </div>
             <div className="mcc-inbox">
-              {items.length ? items.map((item) => (
-                <div className={item.urgency === "urgent" ? "mcc-item urgent" : "mcc-item"} key={item.id}>
-                  <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
-                  <span>
-                    {String(item.planeUuid || "").slice(0, 8)} · {isMccAssigned(item) ? "назначена" : "не назначена"}
-                    {item.serverId ? ` · сервер ${item.status}` : " · локально"}
-                    {item.createdAt ? ` · ${relativeRu(item.createdAt, nowTick)}` : ""}
-                  </span>
-                  {item.serverId ? (
-                    <button
-                      type="button"
-                      className="ghost-copy"
-                      onClick={async () => {
-                        const ok = await copyText(item.serverId);
-                        setStatus(ok ? `Скопирован id ${String(item.serverId).slice(0, 8)}` : "Не удалось скопировать id");
-                      }}
-                    >
-                      Копировать id
-                    </button>
-                  ) : null}
-                </div>
-              )) : <p className="mcc-empty">Пока ничего не передано.</p>}
+              {items.length ? items.map((item) => {
+                const plane = String(item.planeUuid || "").trim();
+                return (
+                  <article className={item.urgency === "urgent" ? "auth-panel mcc-item urgent" : "auth-panel mcc-item"} key={item.id}>
+                    <strong>{item.description || issueLabel(item.issue)}</strong>
+                    <span>Борт {plane || "не указан"}</span>
+                    <span>Срочность {urgencyCaption(item.urgency)}</span>
+                    <span>{isMccAssigned(item) ? "назначена" : "не назначена"}</span>
+                    <span>
+                      {item.serverId ? `сервер ${item.status}` : "локально"}
+                      {item.createdAt ? ` · ${relativeRu(item.createdAt, nowTick)}` : ""}
+                    </span>
+                    {item.serverId ? (
+                      <button
+                        type="button"
+                        className="ghost-copy"
+                        onClick={async () => {
+                          const ok = await copyText(item.serverId);
+                          setStatus(ok ? `Скопирован id ${String(item.serverId).slice(0, 8)}` : "Не удалось скопировать id");
+                        }}
+                      >
+                        Копировать id
+                      </button>
+                    ) : null}
+                  </article>
+                );
+              }) : <p className="mcc-empty">Пока ничего не передано.</p>}
             </div>
           </section>
         </section>

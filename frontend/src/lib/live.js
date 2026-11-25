@@ -3,12 +3,43 @@ import { vehicleLabel } from "./catalog.js";
 
 const names = new Map();
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function statusOf(error) {
+  const status = Number(error?.status);
+  return Number.isFinite(status) ? status : 0;
+}
+
 function asPoint(point) {
   if (!Array.isArray(point) || point.length < 2) return null;
   const x = Number(point[0]);
   const y = Number(point[1]);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   return [x, y];
+}
+
+function cellPair(point) {
+  const cell = asPoint(point);
+  if (!cell) return null;
+  return [Math.trunc(cell[0]), Math.trunc(cell[1])];
+}
+
+function positionBatch(batch) {
+  if (!Array.isArray(batch)) return [];
+  const rows = [];
+  for (const sample of batch) {
+    if (!Array.isArray(sample)) continue;
+    const cell = cellPair(sample[0]) || cellPair(sample);
+    if (!cell) continue;
+    const stamp = Number(sample[1]);
+    rows.push([cell, Number.isFinite(stamp) ? Math.trunc(stamp) : Math.floor(Date.now() / 1000)]);
+  }
+  return rows;
+}
+
+function idSet(ids) {
+  const list = Array.isArray(ids) ? ids : [];
+  return new Set(list.map((item) => String(item?.id ?? item)).filter(Boolean));
 }
 
 function asJson(data) {
@@ -57,32 +88,74 @@ export function normalizeRoute(route) {
 export async function engineerName(id) {
   const key = String(id);
   if (names.has(key)) return names.get(key);
+  const label = `Инженер ${key.slice(0, 8)}`;
+  const readName = (data) => {
+    const parsed = asJson(data);
+    return (typeof parsed === "string" ? parsed : parsed?.name) || label;
+  };
+  try {
+    const data = await apiRequest(`/api/auth/getEngineerName/${encodeURIComponent(key)}`, { auth: false });
+    const name = readName(data);
+    names.set(key, name);
+    return name;
+  } catch (error) {
+    if (statusOf(error) !== 404) {
+      names.set(key, label);
+      return label;
+    }
+  }
   try {
     const data = await apiRequest("/api/auth/get_engineer_name", {
       method: "POST",
       auth: false,
       body: { id: key },
     });
-    const parsed = asJson(data);
-    const name = (typeof parsed === "string" ? parsed : parsed?.name) || `Инженер ${key.slice(0, 8)}`;
+    const name = readName(data);
     names.set(key, name);
     return name;
   } catch {
-    const fallback = `Инженер ${key.slice(0, 8)}`;
-    names.set(key, fallback);
-    return fallback;
+    names.set(key, label);
+    return label;
   }
+}
+
+// Причина сбоя загрузки списка инженеров в человекочитаемом виде.
+// 404 сюда не попадает: отсутствие ручки — обычный пустой список, не ошибка.
+function staffLoadFailure(error) {
+  const status = statusOf(error);
+  const why = status ? ("HTTP " + status) : "сервер не ответил";
+  const detail = error?.message ? (", " + String(error.message)) : "";
+  return {
+    status,
+    message: "Список инженеров не загружен (" + why + detail + ") — "
+      + "на карте ноль инженеров из-за сбоя запроса, а не потому что их нет.",
+  };
 }
 
 export async function loadStaff() {
   let engineers = [];
   try {
-    engineers = asJson(await apiRequest("/api/simulate/get_engineers_positions"));
+    const data = asJson(await apiRequest("/api/geo/getEngineersPositions?limit=1000"));
+    const list = Array.isArray(data?.engineers) ? data.engineers : [];
+    engineers = list.map((entry) => ({
+      id: entry?.id,
+      position: asPoint(entry?.position),
+    }));
   } catch (error) {
+    // /api/simulate удалён из бэкенда: живого адреса-запасного больше нет.
     console.warn("[map] не удалось загрузить список сотрудников", error);
-    return { plotted: [], missing: [] };
+    return { plotted: [], missing: [], error: staffLoadFailure(error) };
   }
-  if (!Array.isArray(engineers)) return { plotted: [], missing: [] };
+  if (!Array.isArray(engineers)) {
+    return {
+      plotted: [],
+      missing: [],
+      error: {
+        status: 0,
+        message: "Ответ со списком инженеров пришёл в неизвестном формате — на карте ноль инженеров, хотя API ответил.",
+      },
+    };
+  }
 
   const plotted = [];
   const missing = [];
@@ -106,8 +179,20 @@ export async function loadStaff() {
 }
 
 export async function loadAircraft() {
-  // На этом сервере /api/aircraft нет.
-  return [];
+  try {
+    const data = asJson(await apiRequest("/api/aircraft?limit=1000"));
+    const list = Array.isArray(data?.aircraft) ? data.aircraft : [];
+    return list
+      .map((row) => ({
+        id: String(row?.id ?? ""),
+        point: asPoint(row?.point),
+      }))
+      .filter((row) => row.id && row.point);
+  } catch (error) {
+    if (statusOf(error) === 404 || statusOf(error) === 403) return [];
+    console.warn("[map] не удалось загрузить борта", error);
+    return [];
+  }
 }
 
 export async function loadAogIds() {
@@ -156,6 +241,7 @@ export async function refreshTaskRoute(id) {
   return apiRequest(`/api/tasks/${encodeURIComponent(id)}/route`, { method: "POST" });
 }
 
+// Новый трек пишет позицию и ETA. Старый сервер на эту ручку отвечает 404.
 export async function postTrackPoint({ obj, lat, lon, t = new Date().toISOString(), acc = null, spd = null }) {
   return apiRequest("/api/v1/track", {
     method: "POST",
@@ -166,30 +252,31 @@ export async function postTrackPoint({ obj, lat, lon, t = new Date().toISOString
 
 export async function loadBusyEngineerIds() {
   try {
-    const data = asJson(await apiRequest("/api/simulate/active_engineers"));
-    const ids = Array.isArray(data)
-      ? data
-      : (data?.active_engineers || data?.engineers || data?.ids || []);
-    return new Set(ids.map((item) => String(item?.id ?? item)).filter(Boolean));
+    const data = asJson(await apiRequest("/api/geo/activeEngineers"));
+    return idSet(data?.active_engineers);
   } catch (error) {
     console.warn("[map] не удалось загрузить занятых инженеров", error);
     return new Set();
   }
 }
 
+function mapTransport(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((item) => item.vehicle_type !== "Aircraft" && item.vehicle_type !== "aircraft")
+    .map((item) => ({
+      id: String(item.id),
+      vehicle_type: item.vehicle_type,
+      label: vehicleLabel(item.vehicle_type),
+      point: asPoint(item.point),
+    }))
+    .filter((item) => item.point);
+}
+
 export async function loadTransport() {
   try {
-    const list = asJson(await apiRequest("/api/simulate/get_transport_positions"));
-    if (!Array.isArray(list)) return [];
-    return list
-      .filter((item) => item.vehicle_type !== "Aircraft" && item.vehicle_type !== "aircraft")
-      .map((item) => ({
-        id: String(item.id),
-        vehicle_type: item.vehicle_type,
-        label: vehicleLabel(item.vehicle_type),
-        point: asPoint(item.point),
-      }))
-      .filter((item) => item.point);
+    const data = asJson(await apiRequest("/api/geo/getTransportPositions?limit=1000"));
+    return mapTransport(data?.transport);
   } catch (error) {
     console.warn("[map] не удалось загрузить спецтранспорт", error);
     return [];
@@ -255,68 +342,113 @@ export async function loadMovements(limit = 20) {
 }
 
 export async function departAircraft(id) {
-  void id;
-  throw new Error("Вылет борта на этом сервере недоступен.");
+  return apiRequest("/api/aircraft/depart", {
+    method: "POST",
+    body: { id },
+  });
 }
 
 export async function arriveAircraft(point, id = null) {
-  void point;
-  void id;
-  throw new Error("Прибытие борта на этом сервере недоступно.");
+  const cell = cellPair(point);
+  return apiRequest("/api/aircraft/arrive", {
+    method: "POST",
+    body: {
+      id: typeof id === "string" && UUID_RE.test(id) ? id : null,
+      point: cell || point,
+    },
+  });
 }
 
 export async function updateEngineerPosition(id, batch) {
-  const newPoint = pointFromUpdate(batch);
-  if (!newPoint) throw new Error("Нет точки для позиции инженера.");
-  return apiRequest("/api/simulate/update_engineer_position", {
-    method: "POST",
-    body: { id, new_point: newPoint },
-  });
+  const samples = positionBatch(batch);
+  if (!samples.length) throw new Error("Нет точки для позиции инженера.");
+  try {
+    return await apiRequest("/api/geo/updateEngineerPosition", {
+      method: "POST",
+      body: { id, batch: samples },
+    });
+  } catch (error) {
+    // /api/simulate удалён: 404 на живом адресе теперь ошибка, а не повод искать запасной.
+    throw error;
+  }
 }
 
 export async function updateTransportPosition(id, vehicleType, newPoint) {
-  return apiRequest("/api/simulate/update_transport_position", {
-    method: "POST",
-    body: { id, vehicle_type: vehicleType, new_point: newPoint },
-  });
+  const body = { id, vehicle_type: vehicleType, new_point: cellPair(newPoint) || newPoint };
+  try {
+    return await apiRequest("/api/geo/updateTransportPosition", {
+      method: "POST",
+      body,
+    });
+  } catch (error) {
+    // /api/simulate удалён: 404 на живом адресе теперь ошибка.
+    throw error;
+  }
 }
 
-export async function getRoute(startPoint, endPoint) {
+// OpenAPI RouteAgent: пеший инженер (по умолчанию) или спецтранспорт.
+// Спецтранспорт идёт 8–20 км/ч против 5 км/ч пешком (ТЗ п.4.1), поэтому
+// без agent бэк считает любой маршрут пешим и ETA спецтехнике завышается.
+export const ROUTE_AGENTS = ["engineer", "vehicle"];
+
+export function asRouteAgent(value) {
+  const kind = String(value ?? "").trim().toLowerCase();
+  return ROUTE_AGENTS.includes(kind) ? kind : "engineer";
+}
+
+export async function getRoute(startPoint, endPoint, agent) {
+  const body = { start_point: startPoint, end_point: endPoint, agent: asRouteAgent(agent) };
   const data = asJson(await apiRequest("/api/getRoute", {
     method: "POST",
-    body: { start_point: startPoint, end_point: endPoint },
+    body,
   }));
   const route = normalizeRoute(Array.isArray(data) ? data : data?.route);
   const distance = !Array.isArray(data) && Number.isFinite(Number(data?.distance))
     ? Number(data.distance)
     : Math.max(0, route.length - 1);
-  if (data && typeof data === "object" && !Array.isArray(data)) return { ...data, route, distance };
-  return { route, distance };
+  if (data && typeof data === "object" && !Array.isArray(data)) return { ...data, route, distance, agent: asRouteAgent(data.agent ?? agent) };
+  return { route, distance, agent: asRouteAgent(agent) };
 }
 
-/** Цепочка getRoute через 1+ промежуточных точек (п.6 ТЗ). */
-export async function getRouteVia(points) {
+/**
+ * Цепочка getRoute через 1+ промежуточных точек (п.6 ТЗ).
+ * `agent` — вид транспорта для каждого плеча; можно передать массив
+ * по числу плеч (инженер пешком → спецтранспорт → инженер пешком).
+ */
+export async function getRouteVia(points, agent) {
   const stops = (Array.isArray(points) ? points : [])
     .map(asPoint)
     .filter(Boolean);
-  if (stops.length < 2) return { route: [], distance: 0, legs: 0 };
+  const legs = Math.max(0, stops.length - 1);
+  const perLeg = Array.isArray(agent)
+    ? stops.slice(0, legs).map((_, i) => asRouteAgent(agent[i]))
+    : stops.slice(0, legs).map(() => asRouteAgent(agent));
+  const legAgent = (i) => perLeg[i] ?? "engineer";
+  if (stops.length < 2) return { route: [], distance: 0, legs: 0, eta_seconds: 0, agent: asRouteAgent(agent) };
   if (stops.length === 2) {
-    const one = await getRoute(stops[0], stops[1]);
+    const one = await getRoute(stops[0], stops[1], legAgent(0));
     return { ...one, legs: 1 };
   }
   const route = [];
   let distance = 0;
-  for (let i = 0; i < stops.length - 1; i += 1) {
-    const leg = await getRoute(stops[i], stops[i + 1]);
+  let etaSeconds = 0;
+  let etaKnown = false;
+  for (let i = 0; i < legs; i += 1) {
+    const leg = await getRoute(stops[i], stops[i + 1], legAgent(i));
     const part = normalizeRoute(leg.route);
     distance += Number.isFinite(Number(leg.distance))
       ? Number(leg.distance)
       : Math.max(0, part.length - 1);
+    const legEta = Number(leg.eta_seconds);
+    if (Number.isFinite(legEta)) {
+      etaSeconds += legEta;
+      etaKnown = true;
+    }
     if (!part.length) continue;
     if (!route.length) route.push(...part);
     else route.push(...part.slice(1));
   }
-  return { route, distance, legs: stops.length - 1 };
+  return { route, distance, legs, eta_seconds: etaKnown ? etaSeconds : 0, agent: perLeg };
 }
 
 export async function trainClassifier() {
