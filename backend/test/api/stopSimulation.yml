@@ -1,0 +1,33 @@
+info:
+  name: stopSimulation
+  type: http
+  seq: 62
+
+http:
+  method: POST
+  url: "{{HOST}}/geo/stopSimulation"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "obj": "AT-0001"
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

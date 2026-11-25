@@ -24,6 +24,9 @@ use crate::{
             CalibrateObjectRequest, CalibrationEntry, CalibrationListResponse,
             ForceVehicleRequest, ForceVehicleResponse, PauseAgentRequest, PauseAgentResponse,
             TrackFreshnessQuery, TrackFreshnessResponse,
+            StartSimulationRequest, StartSimulationResponse, StopSimulationRequest,
+            StopSimulationResponse, SimulationStatusQuery, SimulationStatusResponse,
+            FractionalCell,
             ClearCalibrationRequest, Coordinate, ErrorResponse, PageQuery,
             UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
         },
@@ -736,4 +739,303 @@ pub async fn get_transport_positions(
     let (transport, total) = slice_page(result, limit, offset);
 
     Ok(Json(TransportPositionsResponse { transport, total }).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Simulation of movement
+// ---------------------------------------------------------------------------
+
+/// Starts an object moving along a route the road graph plans.
+///
+/// The route is planned once, here, with the graph's per-segment speeds, and
+/// then driven by the server: [`crate::simulation::drive`] republishes the
+/// position every `tick_ms` through the same keys a tracker report writes, so the
+/// dispatcher map, the track history and the SLA forecast see one movement.
+///
+/// The start of the movement is journalled as `simulation_started` — the
+/// organiser checklist asks for the beginning of a movement to be in the journal,
+/// and this is the moment the route is committed to.
+#[utoipa::path(
+    post,
+    path = "/api/geo/startSimulation",
+    tag = "Geo",
+    operation_id = "startSimulation",
+    description = "Plan a route over the road graph and move the object along it, republishing its position with smooth coordinates",
+    security(("bearerAuth" = [])),
+    request_body = StartSimulationRequest,
+    responses(
+        (status = 200, description = "Movement started; the answer carries the plan", body = StartSimulationResponse),
+        (status = 400, description = "Blank obj, fewer than two stops, or no route between them", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 404, description = "Object is unknown to the map, the database and the id shapes", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn start_simulation_handler(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<StartSimulationRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can move agents"));
+    }
+    if payload.obj.trim().is_empty() {
+        return Err(bad_request("obj must not be blank"));
+    }
+    if payload.stops.len() < 2 {
+        return Err(bad_request("stops must name at least a start and an end"));
+    }
+    if payload.tick_ms.is_some_and(|tick| tick < 50) {
+        return Err(bad_request("tick_ms must be at least 50"));
+    }
+    if payload
+        .speed_scale
+        .is_some_and(|scale| !(scale.is_finite() && scale > 0.0))
+    {
+        return Err(bad_request("speed_scale must be a positive number"));
+    }
+    let active = active_map(&app_state)?;
+    let agent = crate::simulation::agent_of(&payload.obj);
+    let route = active
+        .location
+        .graph
+        .route_stops(agent, &payload.stops)
+        .map_err(|error| bad_request(format!("no route: {error}")))?;
+    if route.points.len() < 2 || route.seconds <= 0.0 {
+        return Err(bad_request("the stops are the same cell: nothing to move"));
+    }
+
+    let mut pg_conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire postgres connection");
+        internal_error()
+    })?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    // The object must be one the tracker would accept, otherwise the driver would
+    // publish into nothing and the caller would wait for a movement never seen.
+    let sample = crate::router::track::TrackSample {
+        obj: payload.obj.clone(),
+        lat: None,
+        lon: None,
+        when: None,
+        acc: None,
+        spd: None,
+    };
+    if sample.resolve(&active, &mut pg_conn).is_none() {
+        return Err(not_found("object is unknown to this map and database"));
+    }
+
+    let tick_ms = payload.tick_ms.unwrap_or(crate::simulation::DEFAULT_TICK_MS);
+    let speed_scale = payload.speed_scale.unwrap_or(1.0);
+    let started_at = chrono::Utc::now();
+    let simulation = crate::simulation::Simulation {
+        obj: payload.obj.clone(),
+        route: route.clone(),
+        clock_ms: 0,
+        started_at_ms: started_at.timestamp_millis(),
+        speed_scale,
+        tick_ms,
+    };
+    crate::simulation::save(&mut redis_conn, &active.id, &simulation).map_err(|e| {
+        tracing::error!(error = %e, "failed to store simulation");
+        internal_error()
+    })?;
+
+    // ТЗ requires the beginning of a movement to be in the journal; it is written
+    // at the moment the route is committed to, before the first tick.
+    crate::journal::record(
+        &mut pg_conn,
+        "simulation_started",
+        Some(&payload.obj),
+        None,
+        serde_json::json!({
+            "obj": payload.obj,
+            "stops": payload.stops,
+            "points": route.points.len(),
+            "seconds": route.seconds,
+            "tick_ms": tick_ms,
+            "speed_scale": speed_scale,
+        }),
+        None,
+    );
+
+    tokio::spawn(crate::simulation::drive(
+        Arc::clone(&app_state),
+        payload.obj.clone(),
+    ));
+
+    Ok(Json(StartSimulationResponse {
+        obj: payload.obj,
+        points: route.points,
+        seconds: route.seconds,
+        started_at: started_at.to_rfc3339(),
+        tick_ms,
+        speed_scale,
+    })
+    .into_response())
+}
+
+/// Ends a movement where it stands. The object keeps the position it reached and
+/// its route is dropped, so it can be given a new one.
+#[utoipa::path(
+    post,
+    path = "/api/geo/stopSimulation",
+    tag = "Geo",
+    operation_id = "stopSimulation",
+    description = "Stop a running simulation; the object keeps its last position",
+    security(("bearerAuth" = [])),
+    request_body = StopSimulationRequest,
+    responses(
+        (status = 200, description = "Movement stopped, or none was running", body = StopSimulationResponse),
+        (status = 400, description = "Blank obj", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn stop_simulation_handler(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<StopSimulationRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can stop agents"));
+    }
+    if payload.obj.trim().is_empty() {
+        return Err(bad_request("obj must not be blank"));
+    }
+    let active = active_map(&app_state)?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+    let running = crate::simulation::load(&mut redis_conn, &active.id, &payload.obj);
+    if let Some(simulation) = &running {
+        let sample = simulation.sample();
+        crate::simulation::clear(&mut redis_conn, &active.id, &payload.obj).map_err(|e| {
+            tracing::error!(error = %e, "failed to clear simulation");
+            internal_error()
+        })?;
+        if let Ok(mut pg_conn) = app_state.db_pool.get() {
+            crate::journal::record(
+                &mut pg_conn,
+                "simulation_stopped",
+                Some(&payload.obj),
+                None,
+                serde_json::json!({
+                    "obj": payload.obj,
+                    "x": sample.x,
+                    "y": sample.y,
+                    "remaining_seconds": sample.remaining_seconds,
+                }),
+                None,
+            );
+        }
+    }
+    let point = redis_conn
+        .get(crate::simulation::smooth_key(&active.id, &payload.obj))
+        .ok()
+        .flatten()
+        .and_then(|raw| {
+            let (x, y) = raw.split_once(',')?;
+            Some(FractionalCell {
+                x: x.trim().parse().ok()?,
+                y: y.trim().parse().ok()?,
+            })
+        });
+    Ok(Json(StopSimulationResponse {
+        obj: payload.obj,
+        stopped: running.is_some(),
+        point,
+    })
+    .into_response())
+}
+
+/// Where a simulated object is right now.
+///
+/// The fractional cell is the smooth coordinate; it exists as long as the object
+/// has moved, whether or not a route is still being driven, so a finished journey
+/// can still be inspected.
+#[utoipa::path(
+    get,
+    path = "/api/geo/simulationStatus",
+    tag = "Geo",
+    operation_id = "simulationStatus",
+    description = "Whether the object is moving, its fractional cell in WGS-84 and the route time left",
+    security(("bearerAuth" = [])),
+    params(SimulationStatusQuery),
+    responses(
+        (status = 200, description = "State of the object", body = SimulationStatusResponse),
+        (status = 400, description = "Blank obj", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 422, description = "Query parameters do not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn simulation_status_handler(
+    State(app_state): State<Arc<AppState>>,
+    ApiQuery(query): ApiQuery<SimulationStatusQuery>,
+) -> Result<Response<Body>, Response<Body>> {
+    if query.obj.trim().is_empty() {
+        return Err(bad_request("obj must not be blank"));
+    }
+    let active = active_map(&app_state)?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+    let simulation = crate::simulation::load(&mut redis_conn, &active.id, &query.obj);
+    let paused = super::track::is_paused(&mut redis_conn, &active.id, &query.obj);
+
+    // A stored simulation is authoritative while it runs; afterwards the `smooth`
+    // key is what is left of the journey.
+    let (x, y, remaining, total) = match &simulation {
+        Some(running) => {
+            let sample = running.sample();
+            (
+                Some(sample.x),
+                Some(sample.y),
+                sample.remaining_seconds,
+                running.route.seconds,
+            )
+        }
+        None => (None, None, 0.0, 0.0),
+    };
+    let (x, y) = match (x, y) {
+        (Some(x), Some(y)) => (Some(x), Some(y)),
+        _ => redis_conn
+            .get(crate::simulation::smooth_key(&active.id, &query.obj))
+            .ok()
+            .flatten()
+            .and_then(|raw| {
+                let (x, y) = raw.split_once(',')?;
+                Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+            })
+            .map_or((None, None), |(x, y)| (Some(x), Some(y))),
+    };
+    let (lat, lon) = match (x, y) {
+        (Some(x), Some(y)) => {
+            let (lat, lon) = active.location.graph.project_f64(x, y);
+            (Some(lat), Some(lon))
+        }
+        _ => (None, None),
+    };
+    Ok(Json(SimulationStatusResponse {
+        obj: query.obj,
+        active: simulation.is_some(),
+        x,
+        y,
+        lat,
+        lon,
+        remaining_seconds: remaining,
+        paused,
+        total_seconds: total,
+    })
+    .into_response())
 }

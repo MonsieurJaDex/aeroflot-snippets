@@ -881,3 +881,104 @@ pub struct AllRequests(
     /// Map of aircraft UUID to the request ids attached to it.
     pub BTreeMap<String, Vec<String>>,
 );
+
+// ---------------------------------------------------------------------------
+// Simulation of movement
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /api/geo/startSimulation`.
+///
+/// The organiser checklist asks for objects that move along the road graph at
+/// the graph's own speeds instead of jumping between cells, so a demo can show a
+/// real journey. The route is planned once, at start, and then driven by the
+/// server; the answer carries the plan so the caller can check it.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StartSimulationRequest {
+    /// Object to move: an engineer UUID, a `vehicle-…`/`v-…` id, or a `RA-…` aircraft.
+    pub obj: String,
+    /// Waypoints in order, as `[x, y]` cells. The first is where the object
+    /// stands, the last where it should end up; at least two.
+    pub stops: Vec<Point>,
+    /// How often the position is republished, in milliseconds. Defaults to 500.
+    pub tick_ms: Option<i64>,
+    /// Multiplier over the route's own speeds. `1.0` (the default) keeps the
+    /// graph's timing; `4.0` makes the same journey four times faster.
+    pub speed_scale: Option<f64>,
+}
+
+/// Answer of `POST /api/geo/startSimulation`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StartSimulationResponse {
+    /// Object that is now moving.
+    pub obj: String,
+    /// Cells of the planned route, in order.
+    pub points: Vec<Point>,
+    /// Whole route in seconds, at the graph's speeds.
+    pub seconds: f64,
+    /// Wall-clock instant the movement started, RFC 3339.
+    pub started_at: String,
+    /// Tick the server drives the route at, milliseconds.
+    pub tick_ms: i64,
+    /// Multiplier applied to the route's speeds.
+    pub speed_scale: f64,
+}
+
+/// Body of `POST /api/geo/stopSimulation`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StopSimulationRequest {
+    /// Object whose movement should end.
+    pub obj: String,
+}
+
+/// Answer of `POST /api/geo/stopSimulation`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StopSimulationResponse {
+    pub obj: String,
+    /// `true` when a running simulation was stopped, `false` when there was none.
+    pub stopped: bool,
+    /// Last fractional cell of the object, if it ever moved.
+    pub point: Option<FractionalCell>,
+}
+
+/// A cell position that is not rounded to the grid — the smooth coordinate of a
+/// moving object.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct FractionalCell {
+    /// Fraction of the way along the cell row.
+    pub x: f64,
+    /// Fraction of the way along the cell column.
+    pub y: f64,
+}
+
+/// Query of `GET /api/geo/simulationStatus`.
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct SimulationStatusQuery {
+    /// Object to look at.
+    pub obj: String,
+}
+
+/// Answer of `GET /api/geo/simulationStatus`.
+///
+/// The fractional coordinate is what makes the movement smooth; `cell` is the
+/// same place rounded onto the grid, which is what the map layers read.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SimulationStatusResponse {
+    pub obj: String,
+    /// Whether the object is moving right now.
+    pub active: bool,
+    /// Fractional cell, `[x, y]`.
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    /// WGS-84 of the fractional cell.
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
+    /// Route seconds still to travel.
+    pub remaining_seconds: f64,
+    /// Whether the object is paused; a paused object keeps its route.
+    pub paused: bool,
+    /// Total route seconds, once a route exists.
+    pub total_seconds: f64,
+}

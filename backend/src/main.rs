@@ -47,6 +47,7 @@ mod models;
 mod parser;
 mod rank;
 mod router;
+mod simulation;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -309,6 +310,18 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route(
             "/forceVehicle",
             post(router::geo::force_vehicle_handler),
+        )
+        .route(
+            "/startSimulation",
+            post(router::geo::start_simulation_handler),
+        )
+        .route(
+            "/stopSimulation",
+            post(router::geo::stop_simulation_handler),
+        )
+        .route(
+            "/simulationStatus",
+            get(router::geo::simulation_status_handler),
         )
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&app_state),
