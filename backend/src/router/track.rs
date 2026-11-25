@@ -5,11 +5,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::Json;
 use axum::body::Body;
 use axum::extract::{FromRequest, Query, Request, State};
-use axum::http::{header, Response, StatusCode};
+use axum::http::{Response, StatusCode, header};
 use axum::response::IntoResponse;
-use axum::Json;
 use chrono::{DateTime, SecondsFormat, Utc};
 use redis::TypedCommands;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -19,9 +19,9 @@ use uuid::Uuid;
 use super::{active_map, bad_request};
 use crate::graph::AgentKind;
 use crate::location::ExternalAgent;
-use crate::types::map::Point;
 use crate::types::config::AppState;
 use crate::types::enums::VehicleType;
+use crate::types::map::Point;
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct TrackPoint {
@@ -389,7 +389,11 @@ impl TrackSample {
         active: &'a crate::maps::ActiveMap,
         pg_conn: &mut diesel::PgConnection,
     ) -> Option<TrackedObject<'a>> {
-        let agent = active.location.agents.iter().find(|item| item.obj == self.obj);
+        let agent = active
+            .location
+            .agents
+            .iter()
+            .find(|item| item.obj == self.obj);
         let linked = agent
             .and_then(|item| item.engineer_id.as_deref())
             .and_then(|id| Uuid::parse_str(id).ok())
@@ -538,7 +542,16 @@ pub(crate) fn publish_position(
     obj: &str,
     when: DateTime<Utc>,
     grid: Point,
+    smooth: Option<(f64, f64)>,
 ) {
+    // A tracker reports whole cells, so it writes the cell. A simulation knows the
+    // fraction between two cells, and writes that: the map polls these very keys,
+    // so a whole cell here is what makes its marker jump cell by cell. Readers
+    // that want a cell still get one — `Point::from_value` rounds a fraction.
+    let written = match smooth {
+        Some((x, y)) => format!("{x:.4},{y:.4}"),
+        None => grid.as_value(),
+    };
     let position_id = object.position_id(obj);
     match object.kind {
         "vehicle" => {
@@ -547,19 +560,16 @@ pub(crate) fn publish_position(
                 .and_then(|item| item.vehicle_type.as_deref())
                 .and_then(|name| VehicleType::try_from(name).ok())
                 .unwrap_or(VehicleType::FuelTruck);
-            let _ = redis_conn.set(
-                active.vehicle_position_key(&vehicle, position_id),
-                grid.as_value(),
-            );
+            let _ = redis_conn.set(active.vehicle_position_key(&vehicle, position_id), &written);
         }
         "aircraft" => {
             let _ = redis_conn.set(
                 active.vehicle_position_key(&VehicleType::Aircraft, position_id),
-                grid.as_value(),
+                &written,
             );
         }
         _ => {
-            let _ = redis_conn.set(active.engineer_position_key(position_id), grid.as_value());
+            let _ = redis_conn.set(active.engineer_position_key(position_id), &written);
             let _ = redis_conn.set(
                 active.engineer_timestamp_key(position_id),
                 when.timestamp().to_string(),
@@ -591,6 +601,7 @@ pub(crate) fn publish_simulated_point(
     lon: f64,
     when: DateTime<Utc>,
     speed_mps: Option<f64>,
+    smooth: Option<(f64, f64)>,
 ) {
     let sample = TrackSample {
         obj: obj.to_owned(),
@@ -604,10 +615,10 @@ pub(crate) fn publish_simulated_point(
         return;
     };
     let key = track_key(active, obj);
-    // The cell a simulated fix lands on, from the same projection ingest uses.
-    // The fractional coordinate that makes the movement smooth lives under the
-    // simulation's own `smooth` key; this integer cell is what the track history
-    // and the coordinate keys carry, exactly as for a tracker report.
+    // The cell this fix lands on, from the same projection ingest uses, and the
+    // fraction the simulator actually computed. The fraction is what the map
+    // reads back, so it goes into the coordinate key itself; `from_value` rounds
+    // it for readers that reason in cells.
     let grid = match active.location.graph.snap(lat, lon, object.agent_kind()) {
         Some((snapped, _)) => snapped,
         // A point the graph cannot snap (a leg's off-graph approach) still has a
@@ -617,6 +628,7 @@ pub(crate) fn publish_simulated_point(
             Point::new(cell_x.round() as i64, cell_y.round() as i64)
         }
     };
+    let smooth = smooth;
     let stored = serde_json::json!({
         "lat": lat,
         "lon": lon,
@@ -629,7 +641,9 @@ pub(crate) fn publish_simulated_point(
     if store_point(active, redis_conn, &key, &stored).is_err() {
         return;
     }
-    publish_position(active, redis_conn, pg_conn, &object, obj, when, grid);
+    publish_position(
+        active, redis_conn, pg_conn, &object, obj, when, grid, smooth,
+    );
 }
 
 /// Acknowledges a point without moving the object.
@@ -710,7 +724,16 @@ fn apply_point(
         "spd": sample.spd,
     });
     store_point(active, redis_conn, &key, &stored)?;
-    publish_position(active, redis_conn, pg_conn, &object, &sample.obj, when, grid);
+    publish_position(
+        active,
+        redis_conn,
+        pg_conn,
+        &object,
+        &sample.obj,
+        when,
+        grid,
+        None,
+    );
     Ok(TrackAck {
         accepted: true,
         applied: true,
@@ -718,7 +741,6 @@ fn apply_point(
         t: stamp,
     })
 }
-
 
 pub(super) fn engineer_exists(conn: &mut diesel::PgConnection, id: Uuid) -> bool {
     use crate::database::schema::engineers;

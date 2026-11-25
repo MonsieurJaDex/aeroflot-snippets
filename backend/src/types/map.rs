@@ -346,7 +346,10 @@ impl MapDocument {
             ));
         }
         if self.map.0.iter().any(|row| row.len() != self.width) {
-            return Err(format!("a matrix row is not {width} cells wide", width = self.width));
+            return Err(format!(
+                "a matrix row is not {width} cells wide",
+                width = self.width
+            ));
         }
         if !(self.cell_size_m.is_finite() && self.cell_size_m > 0.0) {
             return Err("cell_size_m must be positive".into());
@@ -359,7 +362,11 @@ impl MapDocument {
             if !seen.insert(entry.id) {
                 return Err(format!("duplicate palette id {}", entry.id));
             }
-            if entry.pass.iter().any(|layer| layer != "road" && layer != "walk") {
+            if entry
+                .pass
+                .iter()
+                .any(|layer| layer != "road" && layer != "walk")
+            {
                 return Err(format!("palette {} has an unknown layer", entry.id));
             }
             if entry.is_obstacle() != entry.speed_class.is_none() {

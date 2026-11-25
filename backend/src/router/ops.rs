@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::http::{header, Response, StatusCode};
+use axum::http::{Response, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use chrono::{Duration, Utc};
@@ -15,7 +15,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::{
-    active_map, bad_request, forbidden, internal_error, not_found, unprocessable, ApiJson,
+    ApiJson, active_map, bad_request, forbidden, internal_error, not_found, unprocessable,
 };
 use crate::database::schema::{defect_types, journal, tasks};
 use crate::graph::AgentKind;

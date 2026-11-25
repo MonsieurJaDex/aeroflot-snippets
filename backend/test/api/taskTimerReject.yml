@@ -1,0 +1,46 @@
+info:
+  name: taskTimerReject
+  type: http
+  seq: 65
+
+http:
+  method: POST
+  url: "{{HOST}}/tasks/{{request_id}}/timer"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "delta_seconds": 0
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    `delta_seconds = 0` ничего не сдвигает, поэтому ручка отвечает 400 с причиной,
+    а не тихим 200. Тело ошибки — общий `ErrorResponse`.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "400"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("rejects a no-op timer change", function () {
+          expect(res.body.code).to.equal("BAD_REQUEST");
+          expect(res.body.message).to.be.a("string");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

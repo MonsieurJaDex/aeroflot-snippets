@@ -6,7 +6,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::database::schema::tasks;
-use crate::tests::support::{expect_status, TestContext};
+use crate::tests::support::{TestContext, expect_status};
 use crate::types::enums::EngineerType;
 use crate::types::map::Point;
 
@@ -268,7 +268,9 @@ async fn ingests_track_points_for_known_objects_only() {
     );
 
     let track_key = format!("map:{}:track:e-01", ctx.active_id());
-    let stored = ctx.redis_lindex(&track_key, 0).expect("track should be stored");
+    let stored = ctx
+        .redis_lindex(&track_key, 0)
+        .expect("track should be stored");
     assert!(stored.contains("\"lat\":55.831"));
     assert!(stored.contains("\"x\":"));
 
@@ -603,7 +605,9 @@ async fn drops_outliers_without_losing_the_previous_point() {
         StatusCode::OK,
     );
     assert_eq!(first["applied"], true);
-    let kept = ctx.redis_lindex(&track_key, 0).expect("track should be stored");
+    let kept = ctx
+        .redis_lindex(&track_key, 0)
+        .expect("track should be stored");
 
     // contract: an accuracy coarser than `max_accuracy_m` (80 m in map2) is an
     // outlier — accepted syntactically, refused semantically, previous point kept.
@@ -625,7 +629,10 @@ async fn drops_outliers_without_losing_the_previous_point() {
     );
     assert_eq!(coarse["accepted"], true);
     assert_eq!(coarse["applied"], false);
-    assert_eq!(ctx.redis_lindex(&track_key, 0).as_deref(), Some(kept.as_str()));
+    assert_eq!(
+        ctx.redis_lindex(&track_key, 0).as_deref(),
+        Some(kept.as_str())
+    );
 
     // contract: jumping ~8 km in one second exceeds `max_speed_mps` (12 m/s), so
     // the point is an outlier as well.
@@ -647,7 +654,10 @@ async fn drops_outliers_without_losing_the_previous_point() {
     );
     assert_eq!(jump["accepted"], true);
     assert_eq!(jump["applied"], false);
-    assert_eq!(ctx.redis_lindex(&track_key, 0).as_deref(), Some(kept.as_str()));
+    assert_eq!(
+        ctx.redis_lindex(&track_key, 0).as_deref(),
+        Some(kept.as_str())
+    );
 
     // Both refusals are journalled, not silently dropped.
     assert_eq!(ctx.journal_count(), seeded + 2);
@@ -668,7 +678,9 @@ async fn ingests_gpslogger_custom_url_query() {
     assert_eq!(point["obj"], "e-01");
     assert_eq!(point["applied"], true);
     assert_eq!(point["t"], "2025-11-24T16:00:00.000Z");
-    let stored = ctx.redis_lindex(&track_key, 0).expect("track should be stored");
+    let stored = ctx
+        .redis_lindex(&track_key, 0)
+        .expect("track should be stored");
     assert!(stored.contains("\"lat\":55.8312"));
     assert!(stored.contains("\"acc\":5.0"));
     assert!(stored.contains("\"spd\":1.2"));
@@ -687,10 +699,11 @@ async fn ingests_gpslogger_custom_url_query() {
     );
     assert_eq!(older["accepted"], true);
     assert_eq!(older["applied"], false);
-    assert!(ctx
-        .redis_lindex(&track_key, 0)
-        .expect("track should be stored")
-        .contains("\"lat\":55.8312"));
+    assert!(
+        ctx.redis_lindex(&track_key, 0)
+            .expect("track should be stored")
+            .contains("\"lat\":55.8312")
+    );
 
     // `%time` is the fallback when `%timestamp` is not part of the URL, and a
     // value the device could not measure arrives as `NaN`.
@@ -1009,9 +1022,10 @@ async fn calibration_refuses_a_cell_that_carries_no_graph_node() {
         .await,
         StatusCode::BAD_REQUEST,
     );
-    assert!(ctx
-        .redis_get(&format!("map:{}:calibration:e-01", ctx.active_id()))
-        .is_none());
+    assert!(
+        ctx.redis_get(&format!("map:{}:calibration:e-01", ctx.active_id()))
+            .is_none()
+    );
 
     // A node of the same map is accepted, so the refusal is about the cell and
     // not about the request.
@@ -1294,8 +1308,14 @@ async fn accepts_organiser_object_ids_from_the_geodata() {
     // shared position key is what it lands under: an engineer gets the plain
     // engineer key, a vehicle and an aircraft the typed vehicle key.
     for (obj, expected_key) in [
-        ("AT-0001", format!("map:{}:position:{{id}}", ctx.active_id())),
-        ("AT-0007", format!("map:{}:position:{{id}}", ctx.active_id())),
+        (
+            "AT-0001",
+            format!("map:{}:position:{{id}}", ctx.active_id()),
+        ),
+        (
+            "AT-0007",
+            format!("map:{}:position:{{id}}", ctx.active_id()),
+        ),
         (
             "vehicle-01",
             format!("map:{}:position:fuel_truck:{{id}}", ctx.active_id()),

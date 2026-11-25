@@ -1,0 +1,55 @@
+info:
+  name: taskTimer
+  type: http
+  seq: 64
+
+http:
+  method: POST
+  url: "{{HOST}}/tasks/{{request_id}}/timer"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "delta_seconds": 300
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Диспетчер двигает дедлайн заявки: `delta_seconds > 0` продлевает, `< 0` сокращает.
+    Ноль → 400, закрытая заявка (`is_active = false`) → 400, без роли диспетчера → 403.
+    `seconds_left` считается от «сейчас», поэтому для свежей заявки он положителен.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.request_id
+      operator: eq
+      value: "{{request_id}}"
+    - expression: res.body.seconds_left
+      operator: gt
+      value: "0"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("moves the deadline by delta_seconds", function () {
+          expect(res.body).to.have.property("ends_at");
+          expect(Date.parse(res.body.ends_at)).to.be.a("number");
+          // The request was just created with the map SLA, so it still has time.
+          expect(res.body.seconds_left).to.be.greaterThan(0);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

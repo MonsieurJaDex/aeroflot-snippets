@@ -1,0 +1,36 @@
+info:
+  name: listPlaneRequestsUnknown
+  type: http
+  seq: 75
+
+http:
+  method: GET
+  url: "{{HOST}}/requests/unknown-plane-{{run_id}}"
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Борт, которого нет на карте, — 404 с `ErrorResponse`, а не пустой список:
+    пустой ответ скрыл бы опечатку в UUID.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "404"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("an unknown aircraft is not found", function () {
+          expect(res.body.code).to.be.a("string");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

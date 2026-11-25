@@ -17,23 +17,22 @@ use super::{
 use crate::middleware::AuthUser;
 use crate::utils::get_transport_from_redis;
 use crate::{
+    calibration,
     database::schema,
     types::{
         config::AppState,
         dto::{
             CalibrateObjectRequest, CalibrationEntry, CalibrationListResponse,
-            ForceVehicleRequest, ForceVehicleResponse, PauseAgentRequest, PauseAgentResponse,
-            TrackFreshnessQuery, TrackFreshnessResponse,
-            StartSimulationRequest, StartSimulationResponse, StopSimulationRequest,
-            StopSimulationResponse, SimulationStatusQuery, SimulationStatusResponse,
-            FractionalCell,
-            ClearCalibrationRequest, Coordinate, ErrorResponse, PageQuery,
-            UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
+            ClearCalibrationRequest, Coordinate, ErrorResponse, ForceVehicleRequest,
+            ForceVehicleResponse, FractionalCell, PageQuery, PauseAgentRequest, PauseAgentResponse,
+            SimulationStatusQuery, SimulationStatusResponse, StartSimulationRequest,
+            StartSimulationResponse, StopSimulationRequest, StopSimulationResponse,
+            TrackFreshnessQuery, TrackFreshnessResponse, UpdateEngineerPositionRequest,
+            UpdateTransportPositionRequest,
         },
         enums::{ObjectKind, UserRole, VehicleType},
         map::Point,
     },
-    calibration,
 };
 
 // ---------------------------------------------------------------------------
@@ -283,11 +282,10 @@ pub async fn get_object_calibrations(
         internal_error()
     })?;
 
-    let calibrations =
-        calibration::list(&mut redis_conn, &active.id).map_err(|e| {
-            tracing::error!(error = %e, "failed to list object calibrations");
-            internal_error()
-        })?;
+    let calibrations = calibration::list(&mut redis_conn, &active.id).map_err(|e| {
+        tracing::error!(error = %e, "failed to list object calibrations");
+        internal_error()
+    })?;
     let entries: Vec<CalibrationEntry> = calibrations
         .into_iter()
         .map(|calibration| calibration_entry(&active, calibration))
@@ -466,13 +464,10 @@ pub async fn track_freshness(
     let mut conn = &mut *redis_conn;
     // The key's own lifetime is the freshness answer: it exists only while the
     // last point is younger than `stale_after_secs`.
-    let ttl: i64 = redis::cmd("TTL")
-        .arg(&key)
-        .query(&mut conn)
-        .map_err(|e| {
-            tracing::error!(error = %e, "failed to read track ttl");
-            internal_error()
-        })?;
+    let ttl: i64 = redis::cmd("TTL").arg(&key).query(&mut conn).map_err(|e| {
+        tracing::error!(error = %e, "failed to read track ttl");
+        internal_error()
+    })?;
 
     Ok(Json(TrackFreshnessResponse {
         obj: query.obj,
@@ -830,7 +825,9 @@ pub async fn start_simulation_handler(
         return Err(not_found("object is unknown to this map and database"));
     }
 
-    let tick_ms = payload.tick_ms.unwrap_or(crate::simulation::DEFAULT_TICK_MS);
+    let tick_ms = payload
+        .tick_ms
+        .unwrap_or(crate::simulation::DEFAULT_TICK_MS);
     let speed_scale = payload.speed_scale.unwrap_or(1.0);
     let started_at = chrono::Utc::now();
     let simulation = crate::simulation::Simulation {

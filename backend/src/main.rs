@@ -2,10 +2,10 @@ use crate::{
     database::{establish_pg_connection, establish_redis_connection},
     logging::init_logger,
     router::{
-        arrive_aircraft, assign_candidates, assign_engineer, classify_problem, complete_current_task,
-        current_task_aog, current_task_aog_post, depart_aircraft, get_active_map, get_current_task,
-        get_route, list_aircraft, list_aircraft_movements, list_aog, list_maps, set_active_map,
-        train_classifier,
+        arrive_aircraft, assign_candidates, assign_engineer, classify_problem,
+        complete_current_task, current_task_aog, current_task_aog_post, depart_aircraft,
+        get_active_map, get_current_task, get_route, list_aircraft, list_aircraft_movements,
+        list_aog, list_maps, set_active_map, train_classifier,
     },
     types::{
         config::{AppConfig, AppState, Args},
@@ -222,7 +222,6 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
         .route("/assign/candidates", post(assign_candidates))
-        
         .route("/alerts", get(router::ops::list_alerts))
         .route("/defects", post(router::ops::create_defect))
         .route("/journal.csv", get(router::ops::export_journal))
@@ -249,6 +248,21 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route("/tasks/aog", get(list_aog))
         .route("/classify", post(classify_problem))
         .route("/classify/train", post(train_classifier))
+        .route("/requests", post(router::ops::create_request))
+        .route("/requests/all", get(router::ops::list_all_requests))
+        .route(
+            "/requests/{plane_id}",
+            get(router::ops::list_requests_for_plane),
+        )
+        .route("/requests/{id}/queue", post(router::ops::queue_request))
+        .route(
+            "/requests/{id}/reassign",
+            post(router::ops::reassign_request),
+        )
+        .route(
+            "/requests/{id}/unassign",
+            post(router::ops::unassign_request),
+        )
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&app_state),
             middleware::auth_middleware,
@@ -285,18 +299,9 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
             get(router::geo::get_transport_positions),
         )
         .route("/activeEngineers", get(router::geo::active_engineers))
-        .route(
-            "/trackFreshness",
-            get(router::geo::track_freshness),
-        )
-        .route(
-            "/pauseAgent",
-            post(router::geo::pause_agent_handler),
-        )
-        .route(
-            "/forceVehicle",
-            post(router::geo::force_vehicle_handler),
-        )
+        .route("/trackFreshness", get(router::geo::track_freshness))
+        .route("/pauseAgent", post(router::geo::pause_agent_handler))
+        .route("/forceVehicle", post(router::geo::force_vehicle_handler))
         .route(
             "/startSimulation",
             post(router::geo::start_simulation_handler),
@@ -319,21 +324,6 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route(
             "/v1/track",
             post(router::track::ingest).get(router::track::ingest_query),
-        )
-        .route("/requests", post(router::ops::create_request))
-        .route("/requests/all", get(router::ops::list_all_requests))
-        .route(
-            "/requests/{plane_id}",
-            get(router::ops::list_requests_for_plane),
-        )
-        .route("/requests/{id}/queue", post(router::ops::queue_request))
-        .route(
-            "/requests/{id}/reassign",
-            post(router::ops::reassign_request),
-        )
-        .route(
-            "/requests/{id}/unassign",
-            post(router::ops::unassign_request),
         )
         .nest("/auth", auth_router)
         .nest("/geo", geo_routes)

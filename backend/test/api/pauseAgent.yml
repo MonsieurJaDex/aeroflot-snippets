@@ -1,0 +1,54 @@
+info:
+  name: pauseAgent
+  type: http
+  seq: 68
+
+http:
+  method: POST
+  url: "{{HOST}}/geo/pauseAgent"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "obj": "{{engineer_id}}",
+        "paused": true
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Ставит агента на паузу, не обрывая маршрут: флаг `map:{id}:paused:{obj}`.
+    Входящие точки принимаются, но не применяются. Ответ повторяет запрос.
+    Пустой `obj` → 400, не диспетчер → 403.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.obj
+      operator: eq
+      value: "{{engineer_id}}"
+    - expression: res.body.paused
+      operator: eq
+      value: "true"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("pauses the agent and echoes the flag", function () {
+          expect(res.body.obj).to.equal(bru.getVar("engineer_id"));
+          expect(res.body.paused).to.equal(true);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

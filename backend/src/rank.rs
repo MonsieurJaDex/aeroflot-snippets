@@ -400,9 +400,7 @@ fn admits(location: &Location, chapter: &str, kind: EngineerType, licence: Optio
         }
     }
     let needle = engineer_type_name(kind);
-    item.admissions
-        .iter()
-        .any(|admission| admission == &needle)
+    item.admissions.iter().any(|admission| admission == &needle)
 }
 
 pub fn engineer_type_name(kind: EngineerType) -> &'static str {
