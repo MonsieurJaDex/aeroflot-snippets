@@ -8,8 +8,8 @@ import { formatEta, relativeRu } from "../lib/format.js";
 import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
-import { getRoute, loadStaff, normalizeRoute, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
-import { apiRequest, clearSession, getApiBase, getSession, hydrateProfile } from "../lib/session.js";
+import { getRoute, loadStaff, normalizeRoute, postTrackPoint, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
+import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { apronOverlayUrl } from "../lib/apronSvg.js";
 import { whenVisible } from "../lib/visibility.js";
 import { CELL_METERS, expandRouteOnRoads, pointAt, totalMeters, turnHint, WALK_MPS } from "../lib/walk.js";
@@ -181,6 +181,8 @@ export default function WorkerPage() {
   const [gpsWatching, setGpsWatching] = useState(false);
   const [gpsAcc, setGpsAcc] = useState(null);
   const [gpsFix, setGpsFix] = useState(null);
+  const [gpsLink, setGpsLink] = useState("search");
+  const [gpsNet, setGpsNet] = useState(null);
   const gpsCellRef = useRef(null);
   const gpsFixRef = useRef(null);
   const gpsOutsideNoted = useRef(false);
@@ -358,6 +360,10 @@ export default function WorkerPage() {
         gpsWatchId.current = null;
       }
       setGpsWatching(false);
+      setGpsLink("search");
+      setGpsNet(null);
+      setGpsFix(null);
+      setGpsAcc(null);
     }
 
     if (!wantGps) {
@@ -378,15 +384,19 @@ export default function WorkerPage() {
       const coarse = accuracy == null || accuracy > 80;
       if (coarse) {
         if (gpsFixRef.current?.good) return;
+        const meters = accuracy == null ? null : Math.round(accuracy);
+        setGpsNet(meters);
+        setGpsLink("net");
         if (!gpsCoarseNoted.current) {
           gpsCoarseNoted.current = true;
           statusNoteAt.current = Date.now();
-          const meters = accuracy == null ? "—" : Math.round(accuracy);
-          setNotice(`Сеть ±${meters} м (${lat.toFixed(5)}, ${lon.toFixed(5)}). Это не GPS. На iPhone: Настройки → Конфиденциальность → Службы геолокации → Safari → Точная геопозиция. Ждём спутник.`);
+          setNotice(`Сеть ±${meters ?? "—"} м (${lat.toFixed(5)}, ${lon.toFixed(5)}). Это не GPS. На iPhone: Настройки → Конфиденциальность → Службы геолокации → Safari → Точная геопозиция.`);
         }
         return;
       }
+      setGpsNet(null);
       setGpsAcc(accuracy);
+      setGpsLink("live");
       const fix = { lat, lon, good: true };
       gpsFixRef.current = fix;
       setGpsFix(fix);
@@ -415,26 +425,47 @@ export default function WorkerPage() {
           }
         }
       }
-      // ПОЗИЦИЯ ИНЖЕНЕРА: единственный писатель — /api/geo/updateEngineerPosition
-      // (авторизация, батч [точка, unix-секунды], выигрывает самый поздний штамп).
-      // /api/v1/track — канал журнала/телеметрии трекера и позицию инженера
-      // больше не пишет: одна точка места — одна модель времени, иначе метка уезжает.
       const now = Date.now();
       if (now - lastTrackAt.current < 2000) return;
       lastTrackAt.current = now;
       const userId = getSession()?.userId;
       if (!userId) return;
       const cell = gpsCellRef.current;
-      if (!cell) return;
       const t = Math.floor(pos.timestamp / 1000);
-      updateEngineerPosition(userId, [[cell, t]]).then(() => {
+      const speed = Number(pos.coords.speed);
+      postTrackPoint({
+        obj: userId,
+        lat,
+        lon,
+        t: new Date(pos.timestamp).toISOString(),
+        acc: accuracy,
+        spd: Number.isFinite(speed) && speed >= 0 ? speed : null,
+      }).then((ack) => {
         lastGeoAt.current = Date.now();
         setOutboxCount(pendingCount());
+        setGpsLink(ack?.applied === false ? "held" : "live");
+        if (ack?.applied === false && !gpsTrackNoted.current) {
+          gpsTrackNoted.current = true;
+          statusNoteAt.current = Date.now();
+          setNotice("Сервер принял точку и не сдвинул позицию.");
+        }
       }).catch((error) => {
-        // Сеть пропала — точка ждёт в очереди гео и уйдёт тем же единственным путём.
-        enqueueEngineerPoint(userId, cell, t);
+        if (Number(error?.status) === 404 && cell) {
+          updateEngineerPosition(userId, [[cell, t]]).then(() => {
+            lastGeoAt.current = Date.now();
+            setGpsLink("legacy");
+            setOutboxCount(pendingCount());
+          }).catch((fallbackError) => {
+            enqueueEngineerPoint(userId, cell, t);
+            setOutboxCount(pendingCount());
+            console.warn("[worker] позиция", fallbackError);
+          });
+          return;
+        }
+        if (cell) enqueueEngineerPoint(userId, cell, t);
+        setGpsLink("queue");
         setOutboxCount(pendingCount());
-        console.warn("[worker] позиция", error);
+        console.warn("[worker] трек", error);
         if (gpsCellRef.current || gpsTrackNoted.current) return;
         gpsTrackNoted.current = true;
         statusNoteAt.current = Date.now();
@@ -458,6 +489,8 @@ export default function WorkerPage() {
     };
 
     gpsLiveRef.current = true;
+    setGpsWatching(true);
+    setGpsLink((prev) => (prev === "live" || prev === "held" || prev === "legacy" || prev === "queue" ? prev : "search"));
     gpsWatchId.current = navigator.geolocation.watchPosition(onFix, onErr, {
       enableHighAccuracy: true,
       maximumAge: 0,
@@ -1241,16 +1274,7 @@ export default function WorkerPage() {
               Нет связи{lastGeoAt.current ? ` · гео ${relativeRu(lastGeoAt.current, Date.now())}` : ""}
             </span>
           ) : null}
-          {gpsWatching ? (
-            <span
-              className="worker-task-badge gps"
-              title="Реальный GPS · позиция на /api/geo/updateEngineerPosition"
-            >
-              {gpsFix
-                ? `GPS ${gpsFix.lat.toFixed(5)}, ${gpsFix.lon.toFixed(5)}${gpsAcc != null ? ` ±${Math.round(gpsAcc)} м` : ""}`
-                : "GPS · ждём спутник"}
-            </span>
-          ) : null}
+          {gpsWatching ? <span className="worker-task-badge gps">GPS</span> : null}
         </div>
 
         <StatusChain current={step} />
@@ -1270,6 +1294,37 @@ export default function WorkerPage() {
             <li><kbd>Esc</kbd> — закрыть тост</li>
           </ul>
         </details>
+
+        {gpsWatching ? (
+          <section className={`gps-panel ${gpsLink}`} role="status">
+            <div className="gps-panel-main">
+              <span className="gps-dot" aria-hidden="true" />
+              <div>
+                <strong>{gpsLink === "net" ? "Сеть" : gpsFix ? "Спутник" : "Ждём спутник"}</strong>
+                <p>
+                  {gpsFix
+                    ? `${gpsFix.lat.toFixed(5)}, ${gpsFix.lon.toFixed(5)}`
+                    : gpsLink === "net"
+                      ? `±${gpsNet ?? "—"} м. На карту не ставим.`
+                      : "Точка хуже 80 м не используется."}
+                </p>
+              </div>
+            </div>
+            <div className="gps-panel-meta">
+              {gpsFix && gpsAcc != null ? <span>±{Math.round(gpsAcc)} м</span> : null}
+              <span>
+                {{
+                  live: "На сервере",
+                  held: "Не сдвинули",
+                  queue: "В очереди",
+                  legacy: "Старый сервер",
+                  net: "Ждём спутник",
+                  search: "Ищем спутник",
+                }[gpsLink]}
+              </span>
+            </div>
+          </section>
+        ) : null}
 
         <section className="worker-map-card">
           <div className="section-heading">
@@ -1294,9 +1349,23 @@ export default function WorkerPage() {
             <div className="task-content">
               {task ? (
                 <>
-                  <strong>ВС {planeLabel(task)}</strong><br />
-                  {issueLabel(task.issue)}<br />
-                  {task.description || ""}<br />
+                  <div className="task-id-row">
+                    <div style={{ flex: "1 1 16rem" }}>
+                      <strong>{issueLabel(task.issue) || "Заявка"}</strong><br />
+                      {task.description || "Описание не указано"}<br />
+                      ВС {planeLabel(task)}
+                    </div>
+                    {canDecide ? (
+                      <div className="mcc-list-actions">
+                        <button id="accept-task" className="worker-action worker-action-accept" type="button" disabled={busyAction === "accept"} onClick={acceptTask} title="A" style={{ flex: "0 0 auto" }}>
+                          {busyAction === "accept" ? "…" : <>Принять <span className="hotkey-mark">· A</span></>}
+                        </button>
+                        <button id="reject-task" className="worker-action worker-action-danger" type="button" disabled={busyAction === "reject"} onClick={rejectTask} title="R" style={{ flex: "0 0 auto" }}>
+                          {busyAction === "reject" ? "…" : <>Отклонить <span className="hotkey-mark">· R</span></>}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                   {routeText}<br />
                   ETA: {etaClock || (minutes != null ? `${minutes} мин` : "—")}
                   {etaLeft === 0 ? " · на месте" : ""}
@@ -1365,8 +1434,8 @@ export default function WorkerPage() {
                 </>
               ) : (
                 <>
-                  Новых заявок нет.<br />
-                  Опрос идёт автоматически — экран можно не трогать.<br />
+                  Назначения ждут.<br />
+                  Диспетчер ещё не передал заявку. Опрос идёт автоматически.<br />
                   <span className="shortcut-inline"><kbd>F</kbd> — принудительно обновить · <kbd>G</kbd> — отправить гео.</span>
                 </>
               )}
@@ -1378,12 +1447,6 @@ export default function WorkerPage() {
         </section>
       </div>
       <div className="worker-dock" role="group" aria-label="Действия по задаче">
-        <button id="accept-task" className="worker-action worker-action-accept" type="button" hidden={!canDecide} disabled={busyAction === "accept"} onClick={acceptTask} title="A">
-          {busyAction === "accept" ? "…" : <>Принять <span className="hotkey-mark">· A</span></>}
-        </button>
-        <button id="reject-task" className="worker-action worker-action-danger" type="button" hidden={!canDecide} disabled={busyAction === "reject"} onClick={rejectTask} title="R">
-          {busyAction === "reject" ? "…" : <>Отклонить <span className="hotkey-mark">· R</span></>}
-        </button>
         <button id="save-mel" className="worker-action worker-action-secondary" type="button" hidden={!task} disabled={busyAction === "mel"} onClick={saveMel} title="M">
           {busyAction === "mel" ? "…" : <>Сохранить MEL <span className="hotkey-mark">· M</span></>}
         </button>
@@ -1430,7 +1493,7 @@ export default function WorkerPage() {
           className={gpsManual || gpsWatching ? "worker-action worker-action-primary" : "worker-action worker-action-secondary"}
           type="button"
           onClick={toggleGpsManual}
-          title={`Полевой GPS · позиция → ${getApiBase()}/api/geo/updateEngineerPosition`}
+          title="Полевой GPS · точка уходит на /api/v1/track"
         >
           {gpsManual || gpsWatching ? "GPS · вкл" : "GPS"}
         </button>

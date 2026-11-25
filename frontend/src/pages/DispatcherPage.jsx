@@ -74,6 +74,14 @@ const LEGEND = [
   ["#c5161c", "маршрут"],
 ];
 
+function proposedEngineer(candidates, chosenId) {
+  if (!Array.isArray(candidates) || !candidates.length) return null;
+  const eligible = candidates.find((row) => row.eligible);
+  if (eligible) return eligible;
+  const chosen = chosenId ? candidates.find((row) => row.engineerId === chosenId) : null;
+  return chosen || null;
+}
+
 function freshInbox() {
   // В очереди только ещё не назначенные; assigned — только после успешного /api/assign.
   return listMcc()
@@ -173,6 +181,7 @@ export default function DispatcherPage() {
   })());
   const lastAuto = useRef("");
   const skipAuto = useRef(false);
+  const cardPreview = useRef("");
   const alertCountRef = useRef(0);
   const inboxCountRef = useRef(0);
 
@@ -242,6 +251,7 @@ export default function DispatcherPage() {
   const [trackObj, setTrackObj] = useState(() => localStorage.getItem("oto-track-obj") || "e-01");
   const [trackLat, setTrackLat] = useState(() => localStorage.getItem("oto-track-lat") || "55.8304");
   const [trackLon, setTrackLon] = useState(() => localStorage.getItem("oto-track-lon") || "37.6310");
+  const [trackAcc, setTrackAcc] = useState(() => localStorage.getItem("oto-track-acc") || "8");
   const [trackNote, setTrackNote] = useState("");
   const [trackPending, setTrackPending] = useState(false);
   const [movements, setMovements] = useState([]);
@@ -776,7 +786,7 @@ export default function DispatcherPage() {
           else if (routeSpansMap(tmj, line.getBounds())) map.fitBounds(line.getBounds(), { padding: [80, 80], maxZoom: 3 });
           return line;
         },
-        async assign() {
+        async assign(engineerId) {
           const form = formRef.current;
           const standsNow = readDemoStands();
           // plane_point — клетка выбранной стоянки из oto-demo-stands.
@@ -824,6 +834,9 @@ export default function DispatcherPage() {
               .find((value) => UUID_RE.test(value)) || "";
             const planePoint = [Number(plane.point[0]), Number(plane.point[1])];
             const oldBody = { issue: issueValue, plane_point: planePoint, description: text };
+            const manualId = typeof engineerId === "string" && UUID_RE.test(engineerId.trim())
+              ? engineerId.trim()
+              : "";
             let response;
             if (requestId && planeUuid) {
               const nextBody = {
@@ -833,10 +846,11 @@ export default function DispatcherPage() {
                 issue: issueValue,
                 plane_uuid: planeUuid,
               };
+              if (manualId) nextBody.engineer_id = manualId;
               try {
                 response = await apiRequest("/api/assign", { method: "POST", body: nextBody });
               } catch (error) {
-                if (Number(error?.status) !== 422) throw error;
+                if (Number(error?.status) !== 422 || manualId) throw error;
                 response = await apiRequest("/api/assign", { method: "POST", body: oldBody });
               }
             } else {
@@ -981,15 +995,61 @@ export default function DispatcherPage() {
     setDescription(text);
     sessionStorage.setItem("oto-disp-draft", text);
     if (item.serverId) setReassignId(String(item.serverId));
+    cardPreview.current = item.id;
     setResult({
       type: "info",
-      text: "Замечание подставлено в заявку. Можно назначать без очереди.",
+      text: item.serverId
+        ? "Заявка открыта. Считаю, кого назначить."
+        : "Замечание подставлено в заявку. Можно назначать без очереди.",
+      candidates: [],
+      chosenId: "",
     });
+    if (item.serverId) void loadCardCandidates(item);
     window.queueMicrotask?.(() => {
       const btn = document.getElementById("assign-button");
       btn?.scrollIntoView({ block: "nearest", behavior: "smooth" });
       btn?.focus();
     });
+  }
+
+  async function loadCardCandidates(item) {
+    try {
+      const data = await apiRequest("/api/assign/candidates", {
+        method: "POST",
+        body: { request_id: String(item.serverId) },
+      });
+      if (cardPreview.current !== item.id) return;
+      const raw = Array.isArray(data?.candidates) ? data.candidates : [];
+      const candidates = await Promise.all(raw.map(async (row) => ({
+        engineerId: String(row.engineer_id ?? ""),
+        name: await engineerName(row.engineer_id),
+        eligible: Boolean(row.eligible),
+        reason: row.reason == null ? "" : String(row.reason),
+        etaSeconds: row.eta_seconds,
+        usesVehicle: Boolean(row.uses_vehicle),
+      })));
+      if (cardPreview.current !== item.id) return;
+      const proposed = proposedEngineer(candidates, "");
+      setResult({
+        type: "info",
+        text: proposed
+          ? `На карточке ${proposed.name}. Можно назначить его.`
+          : "Сервер не предложил инженера.",
+        candidates,
+        chosenId: proposed?.engineerId || "",
+      });
+    } catch (error) {
+      if (cardPreview.current !== item.id) return;
+      const missing = Number(error?.status) === 404;
+      setResult({
+        type: missing ? "info" : "error",
+        text: missing
+          ? "Этот сервер не отдаёт рейтинг. Назначьте нижней кнопкой."
+          : `Рейтинг не пришёл: ${assignErrorMessage(error)}`,
+        candidates: [],
+        chosenId: "",
+      });
+    }
   }
 
   function toggleLayer(name, on) {
@@ -1253,12 +1313,19 @@ export default function DispatcherPage() {
     setTrackPending(true);
     setTrackNote("");
     try {
-      const ack = await postTrackPoint({ obj: trackObj.trim(), lat, lon });
+      const acc = Number(trackAcc);
+      const ack = await postTrackPoint({
+        obj: trackObj.trim(),
+        lat,
+        lon,
+        acc: Number.isFinite(acc) && acc >= 0 ? acc : null,
+      });
       localStorage.setItem("oto-track-obj", trackObj.trim());
       localStorage.setItem("oto-track-lat", String(lat));
       localStorage.setItem("oto-track-lon", String(lon));
+      localStorage.setItem("oto-track-acc", trackAcc);
       softBeep(ack?.applied ? 620 : 440, 120);
-      setTrackNote(`track: accepted=${ack?.accepted} applied=${ack?.applied} obj=${ack?.obj || trackObj}`);
+      setTrackNote(ack?.applied ? `Точка легла на карту · ${ack.obj || trackObj}` : `Точка принята, позицию не сдвинули · ${ack?.obj || trackObj}`);
     } catch (error) {
       setTrackNote(assignErrorMessage(error));
       softBeep(320, 200);
@@ -1544,7 +1611,11 @@ export default function DispatcherPage() {
               if (!rows.length) {
                 return <p className="mcc-empty">{urgentOnly ? "Нет срочных замечаний." : "Нет новых замечаний от ЦПУ."}</p>;
               }
-              return rows.map((item) => (
+              return rows.map((item) => {
+                const proposed = item.id === activeMcc
+                  ? proposedEngineer(result.candidates, result.chosenId)
+                  : null;
+                return (
                 <div
                   key={item.id}
                   className={[
@@ -1558,6 +1629,21 @@ export default function DispatcherPage() {
                     <span>Борт {String(item.planeUuid).slice(0, 8)} · {item.status === "assigned" ? "назначена" : "не назначена"} · {relativeRu(item.createdAt, nowTick)}</span>
                     <span>{item.description}</span>
                   </button>
+                  {proposed ? (
+                    <>
+                      <strong>{proposed.name}</strong>
+                      <button
+                        type="button"
+                        className="shift-button"
+                        disabled={pending}
+                        onClick={() => actions.current.assign?.(proposed.engineerId)}
+                      >
+                        Назначить его
+                      </button>
+                    </>
+                  ) : item.id === activeMcc ? (
+                    <span>Рейтинг инженеров ещё не пришёл</span>
+                  ) : null}
                   {item.serverId ? (
                     <button
                       type="button"
@@ -1569,7 +1655,8 @@ export default function DispatcherPage() {
                     </button>
                   ) : null}
                 </div>
-              ));
+                );
+              });
             })()}
           </div>
           {queueNote ? <p className="fault-hint">{queueNote}</p> : null}
@@ -1982,13 +2069,14 @@ export default function DispatcherPage() {
           </div>
         </section>
         <details className="request-panel">
-          <summary>Имитатор track</summary>
+          <summary>Точка GPS</summary>
           <form onSubmit={onSendTrack}>
-            <label>obj<input type="text" value={trackObj} autoComplete="off" onChange={(event) => setTrackObj(event.target.value)} /></label>
-            <label>lat<input type="text" inputMode="decimal" value={trackLat} autoComplete="off" onChange={(event) => setTrackLat(event.target.value)} /></label>
-            <label>lon<input type="text" inputMode="decimal" value={trackLon} autoComplete="off" onChange={(event) => setTrackLon(event.target.value)} /></label>
+            <label>Объект<input type="text" value={trackObj} autoComplete="off" placeholder="uuid инженера, v-01 или RA-…" onChange={(event) => setTrackObj(event.target.value)} /></label>
+            <label>Широта<input type="text" inputMode="decimal" value={trackLat} autoComplete="off" onChange={(event) => setTrackLat(event.target.value)} /></label>
+            <label>Долгота<input type="text" inputMode="decimal" value={trackLon} autoComplete="off" onChange={(event) => setTrackLon(event.target.value)} /></label>
+            <label>Точность, м<input type="text" inputMode="decimal" value={trackAcc} autoComplete="off" onChange={(event) => setTrackAcc(event.target.value)} /></label>
             <button type="submit" className="shift-button" disabled={trackPending}>
-              {trackPending ? "Отправка…" : "POST /api/v1/track"}
+              {trackPending ? "Отправка…" : "Отправить точку"}
             </button>
           </form>
           {trackNote ? <p className="fault-hint">{trackNote}</p> : null}

@@ -490,6 +490,18 @@ button.mcc-item.selected::after { content: none; }
 .worker-task-badge.stale { background: var(--red); color: #fff; }
 .sla-inline { color: var(--red); }
 .worker-task-badge.gps { background: var(--green); color: #fff; }
+.gps-panel { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 12px; padding: 14px 16px; border: 1px solid var(--border); border-left: 4px solid var(--blue); border-radius: 16px; background: #fff; color: var(--text); }
+.gps-panel.live, .gps-panel.legacy { border-left-color: var(--green); }
+.gps-panel.held, .gps-panel.queue, .gps-panel.net, .gps-panel.search { border-left-color: var(--red); }
+.gps-panel-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gps-panel strong { display: block; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+.gps-panel p { margin: 2px 0 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.gps-panel-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; color: var(--blue); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.gps-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--blue); flex: 0 0 auto; }
+.gps-panel.live .gps-dot, .gps-panel.legacy .gps-dot { background: var(--green); }
+.gps-panel.held .gps-dot, .gps-panel.queue .gps-dot, .gps-panel.net .gps-dot, .gps-panel.search .gps-dot { background: var(--red); }
+.gps-panel.search .gps-dot, .gps-panel.net .gps-dot { animation: gps-pulse 1.4s ease-in-out infinite; }
+@keyframes gps-pulse { 50% { opacity: .35; } }
 .task-state { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .1em; }
 .task-content { color: var(--muted); line-height: 1.65; min-height: 96px; }
 .task-content strong { color: var(--text); font-size: 16px; }
@@ -546,6 +558,8 @@ button.mcc-item.selected::after { content: none; }
   .account-copy .section-label, .worker-account .account-role { display: none; }
   .account-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
   .worker-status-bar { margin: 0; gap: 4px; }
+  .gps-panel { margin: 0; padding: 10px 12px; align-items: flex-start; }
+  .gps-panel-meta { align-items: flex-start; }
   .worker-status, .worker-task-badge { flex: 0 1 auto; text-align: center; padding: 4px 8px; font-size: 12px; min-height: 0; }
   .worker-profile { display: none; }
   .worker-grid { display: block; min-width: 0; min-height: 0; max-height: 16dvh; overflow: auto; flex: 0 0 auto; }

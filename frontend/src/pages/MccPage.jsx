@@ -41,6 +41,12 @@ function confidenceLabel(value) {
   return `${Math.round(pct)}%`;
 }
 
+function urgencyCaption(value) {
+  if (value === "urgent") return "срочная";
+  if (value === "normal") return "обычная";
+  return "не указана";
+}
+
 const EMAIL_RE = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -453,28 +459,33 @@ export default function MccPage() {
               </div>
             </div>
             <div className="mcc-inbox">
-              {items.length ? items.map((item) => (
-                <div className={item.urgency === "urgent" ? "mcc-item urgent" : "mcc-item"} key={item.id}>
-                  <strong>{issueLabel(item.issue)}{item.urgency === "urgent" ? " · срочно" : ""}</strong>
-                  <span>
-                    {String(item.planeUuid || "").slice(0, 8)} · {isMccAssigned(item) ? "назначена" : "не назначена"}
-                    {item.serverId ? ` · сервер ${item.status}` : " · локально"}
-                    {item.createdAt ? ` · ${relativeRu(item.createdAt, nowTick)}` : ""}
-                  </span>
-                  {item.serverId ? (
-                    <button
-                      type="button"
-                      className="ghost-copy"
-                      onClick={async () => {
-                        const ok = await copyText(item.serverId);
-                        setStatus(ok ? `Скопирован id ${String(item.serverId).slice(0, 8)}` : "Не удалось скопировать id");
-                      }}
-                    >
-                      Копировать id
-                    </button>
-                  ) : null}
-                </div>
-              )) : <p className="mcc-empty">Пока ничего не передано.</p>}
+              {items.length ? items.map((item) => {
+                const plane = String(item.planeUuid || "").trim();
+                return (
+                  <article className={item.urgency === "urgent" ? "auth-panel mcc-item urgent" : "auth-panel mcc-item"} key={item.id}>
+                    <strong>{item.description || issueLabel(item.issue)}</strong>
+                    <span>Борт {plane || "не указан"}</span>
+                    <span>Срочность {urgencyCaption(item.urgency)}</span>
+                    <span>{isMccAssigned(item) ? "назначена" : "не назначена"}</span>
+                    <span>
+                      {item.serverId ? `сервер ${item.status}` : "локально"}
+                      {item.createdAt ? ` · ${relativeRu(item.createdAt, nowTick)}` : ""}
+                    </span>
+                    {item.serverId ? (
+                      <button
+                        type="button"
+                        className="ghost-copy"
+                        onClick={async () => {
+                          const ok = await copyText(item.serverId);
+                          setStatus(ok ? `Скопирован id ${String(item.serverId).slice(0, 8)}` : "Не удалось скопировать id");
+                        }}
+                      >
+                        Копировать id
+                      </button>
+                    ) : null}
+                  </article>
+                );
+              }) : <p className="mcc-empty">Пока ничего не передано.</p>}
             </div>
           </section>
         </section>
