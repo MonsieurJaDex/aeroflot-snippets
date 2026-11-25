@@ -1,0 +1,147 @@
+{
+  "qualifications": [
+    {
+      "tabel_id": "AT-0001",
+      "grade": "Инженер",
+      "scope": "ME",
+      "skill": "B1,A",
+      "scope_desc": "Двигатель;Планер"
+    },
+    {
+      "tabel_id": "AT-0002",
+      "grade": "Техник",
+      "scope": "ME",
+      "skill": "B1",
+      "scope_desc": "Двигатель;Планер"
+    },
+    {
+      "tabel_id": "AT-0003",
+      "grade": "Техник",
+      "scope": "ME",
+      "skill": "B1",
+      "scope_desc": "Двигатель;Планер"
+    },
+    {
+      "tabel_id": "AT-0004",
+      "grade": "Стажёр",
+      "scope": "ME",
+      "skill": "AM",
+      "scope_desc": "Двигатель;Планер"
+    },
+    {
+      "tabel_id": "AT-0005",
+      "grade": "Техник",
+      "scope": "ME",
+      "skill": "B1",
+      "scope_desc": "Двигатель;Планер"
+    },
+    {
+      "tabel_id": "AT-0006",
+      "grade": "Инженер",
+      "scope": "AV",
+      "skill": "B2",
+      "scope_desc": "Радиоэлектронное и навигационное оборудование"
+    },
+    {
+      "tabel_id": "AT-0007",
+      "grade": "Техник",
+      "scope": "Cabbin",
+      "skill": "CAB",
+      "scope_desc": "Интерьерное оборудование"
+    }
+  ],
+  "ata": [
+    {
+      "chapter": "21",
+      "title": "Кондиционирование",
+      "admissions": [
+        "aviation_technician"
+      ],
+      "skills": [
+        "B1",
+        "A"
+      ]
+    },
+    {
+      "chapter": "28",
+      "title": "Топливная система",
+      "admissions": [
+        "fueling_crew",
+        "engine_technician"
+      ],
+      "skills": [
+        "B1",
+        "A"
+      ]
+    },
+    {
+      "chapter": "30",
+      "title": "Противообледенительная система",
+      "admissions": [
+        "avionics_engineer",
+        "aviation_technician"
+      ],
+      "skills": [
+        "B1",
+        "A",
+        "B2"
+      ]
+    },
+    {
+      "chapter": "36",
+      "title": "Пневматическая система",
+      "admissions": [
+        "integrity_inspector",
+        "aviation_technician"
+      ],
+      "skills": [
+        "B1",
+        "A"
+      ]
+    },
+    {
+      "chapter": "49",
+      "title": "ВСУ",
+      "admissions": [
+        "engine_technician"
+      ],
+      "skills": [
+        "B1",
+        "A"
+      ]
+    },
+    {
+      "chapter": "72",
+      "title": "Двигатель",
+      "admissions": [
+        "engine_technician"
+      ],
+      "skills": [
+        "B1",
+        "A"
+      ]
+    },
+    {
+      "chapter": "34",
+      "title": "Навигация",
+      "admissions": [
+        "avionics_engineer"
+      ],
+      "skills": [
+        "B2"
+      ]
+    },
+    {
+      "chapter": "5",
+      "title": "Замечания экипажа",
+      "admissions": [
+        "crew_remarks_handler"
+      ],
+      "skills": [
+        "CAB",
+        "B1",
+        "A"
+      ]
+    }
+  ]
+}

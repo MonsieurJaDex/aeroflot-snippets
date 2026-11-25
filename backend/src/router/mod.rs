@@ -1535,6 +1535,40 @@ pub(crate) async fn build_candidates(
             tracing::error!(error = %e, "failed to load engineers");
             internal_error()
         })?;
+    // The organiser geodata states each engineer's licence by `tabel_id`; the
+    // account stores that id, so the ranking can gate on the licence itself
+    // rather than on the specialization typed at registration.
+    // The organiser roster is keyed by `tabel_id` alone, so an account reaches
+    // its licence either through the column the registration form may send or
+    // through a name the roster uses verbatim (`AT-0001`).
+    let licences: HashMap<Uuid, crate::location::Qualification> = engineers::table
+        .select((engineers::id, engineers::name, engineers::tabel_id))
+        .load::<(Uuid, String, Option<String>)>(pg_conn)
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load engineer roster ids");
+            internal_error()
+        })?
+        .into_iter()
+        .filter_map(|(id, name, tabel_id)| {
+            let roster_id = tabel_id
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| {
+                    let name = name.trim();
+                    active
+                        .location
+                        .qualifications
+                        .iter()
+                        .any(|item| item.tabel_id == name)
+                        .then(|| name.to_owned())
+                })?;
+            let qualification = active
+                .location
+                .qualifications
+                .iter()
+                .find(|item| item.tabel_id == roster_id)?;
+            Some((id, qualification.clone()))
+        })
+        .collect();
     let ids: Vec<Uuid> = roster.iter().map(|(id, _)| *id).collect();
     let by_point = load_engineer_positions(redis_conn, &active, &ids)?;
     let mut positions = HashMap::new();
@@ -1598,6 +1632,7 @@ pub(crate) async fn build_candidates(
         chapter: chapter.as_deref(),
         aircraft,
         engineers: roster,
+        licences,
         positions,
         in_progress,
         load,

@@ -607,6 +607,11 @@ pub struct RegisterRequest {
 
     /// Required when `user_role == engineer`, ignored otherwise.
     pub engineer_type: Option<EngineerType>,
+
+    /// Organiser roster id (`AT-0001` …) from `engineers_positions.geojson`.
+    /// Optional: without it the account is gated by `engineer_type` alone.
+    #[schema(example = "AT-0001")]
+    pub tabel_id: Option<String>,
 }
 
 impl fmt::Debug for RegisterRequest {
@@ -617,6 +622,7 @@ impl fmt::Debug for RegisterRequest {
             .field("password", &"<redacted>")
             .field("user_role", &self.user_role)
             .field("engineer_type", &self.engineer_type)
+            .field("tabel_id", &self.tabel_id)
             .finish()
     }
 }

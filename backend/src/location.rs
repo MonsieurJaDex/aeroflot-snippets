@@ -39,6 +39,30 @@ pub struct AtaChapter {
     #[allow(dead_code)]
     pub title: String,
     pub admissions: Vec<String>,
+    /// Licence skills the chapter admits, taken from the organiser data
+    /// (`skill` in `engineers_positions.geojson`, for example `B1,A`). Empty
+    /// means the chapter states no skill and only `admissions` decides.
+    #[serde(default)]
+    pub skills: Vec<String>,
+}
+
+/// One engineer's licence as the organiser geodata states it.
+///
+/// `tabel_id` is what ties a registered account to the organiser's roster:
+/// registration issues its own uuid, so the account carries this id instead
+/// (see `Engineer::tabel_id`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct Qualification {
+    pub tabel_id: String,
+    #[serde(default)]
+    pub grade: String,
+    #[serde(default)]
+    pub scope: String,
+    /// Comma-separated licence skills, for example `B1,A`, `B2`, `CAB`, `AM`.
+    #[serde(default)]
+    pub skill: String,
+    #[serde(default)]
+    pub scope_desc: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -91,6 +115,9 @@ struct LocationFile {
     objects: Vec<MapObject>,
     #[serde(default)]
     ata: Vec<AtaChapter>,
+    /// Per-engineer licences from the organiser geodata.
+    #[serde(default)]
+    qualifications: Vec<Qualification>,
     #[serde(default)]
     agents: Vec<ExternalAgent>,
     #[serde(default)]
@@ -171,6 +198,9 @@ pub struct Location {
     pub zones: Vec<Zone>,
     pub objects: Vec<MapObject>,
     pub ata: Vec<AtaChapter>,
+    /// Licences the organiser geodata states per `tabel_id`; empty for a map
+    /// whose sidecar carries none, and then `engineer_type` alone decides.
+    pub qualifications: Vec<Qualification>,
     pub agents: Vec<ExternalAgent>,
     pub graph: RoadGraph,
 }
@@ -227,6 +257,7 @@ pub fn load_location(map_path: &Path, document: &MapDocument) -> Location {
             zones: Vec::new(),
             objects: Vec::new(),
             ata: Vec::new(),
+            qualifications: Vec::new(),
             agents: Vec::new(),
             closed_cells: Vec::new(),
         });
@@ -345,40 +376,64 @@ pub fn load_location(map_path: &Path, document: &MapDocument) -> Location {
         zones,
         objects,
         ata,
+        qualifications: file.qualifications,
         agents: file.agents,
         graph,
     }
 }
 
+/// Chapters and the licence skills each admits.
+///
+/// The skills are the vocabulary the organiser geodata uses in
+/// `engineers_positions.geojson` — `B1`/`A` for the mechanical scope (`ME`,
+/// «Двигатель;Планер»), `B2` for the avionics scope (`AV`,
+/// «Радиоэлектронное и навигационное оборудование»), `CAB` for the cabin scope
+/// (`Cabbin`, «Интерьерное оборудование»). `AM` is the trainee licence and
+/// admits no chapter on its own. An empty list makes `engineer_type` alone
+/// decide, which is what a map without the organiser data needs.
 fn default_ata() -> Vec<AtaChapter> {
     vec![
-        chapter("21", "Кондиционирование", &["aviation_technician"]),
+        chapter(
+            "21",
+            "Кондиционирование",
+            &["aviation_technician"],
+            &["B1", "A"],
+        ),
         chapter(
             "28",
             "Топливная система",
             &["fueling_crew", "engine_technician"],
+            &["B1", "A"],
         ),
         chapter(
             "30",
             "Противообледенительная система",
             &["avionics_engineer", "aviation_technician"],
+            &["B1", "A", "B2"],
         ),
         chapter(
             "36",
             "Пневматическая система",
             &["integrity_inspector", "aviation_technician"],
+            &["B1", "A"],
         ),
-        chapter("49", "ВСУ", &["engine_technician"]),
-        chapter("72", "Двигатель", &["engine_technician"]),
-        chapter("34", "Навигация", &["avionics_engineer"]),
-        chapter("5", "Замечания экипажа", &["crew_remarks_handler"]),
+        chapter("49", "ВСУ", &["engine_technician"], &["B1", "A"]),
+        chapter("72", "Двигатель", &["engine_technician"], &["B1", "A"]),
+        chapter("34", "Навигация", &["avionics_engineer"], &["B2"]),
+        chapter(
+            "5",
+            "Замечания экипажа",
+            &["crew_remarks_handler"],
+            &["CAB", "B1", "A"],
+        ),
     ]
 }
 
-fn chapter(id: &str, title: &str, admissions: &[&str]) -> AtaChapter {
+fn chapter(id: &str, title: &str, admissions: &[&str], skills: &[&str]) -> AtaChapter {
     AtaChapter {
         chapter: id.to_owned(),
         title: title.to_owned(),
         admissions: admissions.iter().map(|item| (*item).to_owned()).collect(),
+        skills: skills.iter().map(|item| (*item).to_owned()).collect(),
     }
 }
