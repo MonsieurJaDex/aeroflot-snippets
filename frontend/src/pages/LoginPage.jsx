@@ -171,7 +171,7 @@ export default function LoginPage() {
       <NetBanner />
       <div className="gate-split">
         <aside className="gate-brand">
-          <h1>Аэрофлот</h1>
+          <img className="gate-mark" src="/aeroflot-mark.png" alt="Аэрофлот" />
           <p className="gate-lead">Замечание идёт через три руки: фиксация, назначение, выход к борту.</p>
           <ol className="gate-steps">
             <li><span>01</span>ЦПУ записывает</li>

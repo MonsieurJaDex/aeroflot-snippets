@@ -14,8 +14,8 @@
   --field: #ffffff;
   --map: #cfdce8;
   --radius: 12px;
-  --font: "Golos Text", "Segoe UI", sans-serif;
-  --font-display: "PT Sans Narrow", "Golos Text", sans-serif;
+  --font: "Roboto", "Segoe UI", sans-serif;
+  --font-display: "Roboto", "Segoe UI", sans-serif;
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.45;
@@ -24,6 +24,8 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+button, input, select, textarea { font-family: inherit; }
+.leaflet-container { font-family: var(--font); }
 body { overflow: hidden; }
 .skip-link {
   position: absolute;
@@ -770,7 +772,7 @@ button.mcc-item.selected::after { content: none; }
 }
 .scenario-detail h2 {
   margin: 0;
-  font-family: "PT Sans Narrow", sans-serif;
+  font-family: var(--font);
   font-size: 34px;
 }
 .scenario-panels {
@@ -845,14 +847,12 @@ button.mcc-item.selected::after { content: none; }
   height: 8px;
   background: linear-gradient(90deg, #fff 0 34%, #00529b 34% 67%, #c5161c 67% 100%);
 }
-.gate-brand h1 {
+.gate-brand .gate-mark {
+  width: min(100%, 440px);
+  height: auto;
+  display: block;
   margin: 0;
-  max-width: 8ch;
-  color: #fff;
-  font-size: clamp(64px, 7vw, 104px);
-  line-height: .86;
-  letter-spacing: -.02em;
-  text-align: left;
+  filter: brightness(0) invert(1);
 }
 .gate-lead { margin: 0; max-width: 28ch; color: rgba(255,255,255,.82); font-size: 18px; line-height: 1.45; }
 .gate-steps { list-style: none; margin: 28px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -910,12 +910,12 @@ button.mcc-item.selected::after { content: none; }
   color: #fff;
 }
 .gate .role-card:nth-child(2) > span:last-child { background: var(--red); }
-.gate .auth-panel { margin: 0; width: min(480px, 100%); max-width: none; border-top: 0; border-left: 4px solid var(--red); }
+.gate .auth-panel { margin: 0; width: min(640px, 100%); max-width: none; padding: 28px; border-top: 0; border-left: 4px solid var(--red); }
 @media (max-width: 860px) {
   .gate.role-page { height: auto; min-height: 100%; }
   .gate-split { display: block; min-height: 0; }
   .gate-brand { justify-content: flex-start; padding: 28px 20px 24px; }
-  .gate-brand h1 { font-size: 56px; }
+  .gate-brand .gate-mark { width: min(100%, 280px); }
   .gate-lead { font-size: 16px; }
   .gate-steps { margin-top: 16px; }
   .gate-stage { display: block; padding: 18px 14px 28px; }

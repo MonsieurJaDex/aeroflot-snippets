@@ -43,7 +43,7 @@ const LEGEND_ROWS = [
 
 // Заливки в самом SVG: Leaflet берёт файл как картинку.
 const APRON_STYLE = `
-.apron-svg{font-family:sans-serif}
+.apron-svg{font-family:Roboto,sans-serif}
 .apron-grass{fill:#c5d4b4}
 .apron-grass-band{fill:none;stroke:#b7c9a4}
 .apron-runway{fill:#1f2937}
