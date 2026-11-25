@@ -173,8 +173,16 @@ function demoVehicleId(type) {
 }
 
 function mergePlanes(apiList, stands) {
-  const extra = stands.filter((stand) => !apiList.some((plane) => plane.id === stand.id));
-  return apiList.length ? [...apiList, ...extra] : stands;
+  return apiList.length ? apiList : stands;
+}
+
+function storedDemoVehicleId(type) {
+  try {
+    const bag = JSON.parse(localStorage.getItem(VEHICLE_IDS_KEY) || "{}");
+    return bag?.[type] ? String(bag[type]) : "";
+  } catch {
+    return "";
+  }
 }
 
 export default function DispatcherPage() {
@@ -518,7 +526,7 @@ export default function DispatcherPage() {
       });
       bag.map = map;
       const picture = apronPictureUrl(tmj);
-      map.getContainer().style.background = `#c5d4b4 url("${picture}") center / contain no-repeat`;
+      map.getContainer().style.background = "#c5d4b4";
       const overlay = L.imageOverlay(picture, bounds).addTo(map);
       addPlaceLabels(map, tmj);
       // zoomSnap 0: полигон вписывается в прямоугольник контейнера целиком.
@@ -767,47 +775,96 @@ export default function DispatcherPage() {
       }
       bag.frame = requestAnimationFrame(tick);
 
+      const aircraftMarkers = new Map();
+      const staffMarkers = new Map();
+
+      function planeIcon(isAog) {
+        return L.divIcon({
+          className: isAog ? "aircraft-marker aog" : "aircraft-marker",
+          html: "",
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+        });
+      }
+
       function renderAircraftMarkers(list, aog) {
-        standsLayer.clearLayers();
+        const seen = new Set();
         for (const plane of list) {
+          if (!plane.point) continue;
+          const id = String(plane.id);
+          if (seen.has(id)) continue;
+          seen.add(id);
           const isAog = aog.has(plane.id);
-          L.marker(cellToLatLng(tmj, plane.point[0], plane.point[1]), {
-            icon: L.divIcon({
-              className: isAog ? "aircraft-marker aog" : "aircraft-marker",
-              html: "",
-              iconSize: [16, 16],
-              iconAnchor: [8, 8],
-            }),
-          }).bindTooltip(`${isAog ? "AOG · " : ""}ВС ${plane.id.slice(0, 8)}`, {
-            permanent: true,
-            direction: "top",
-            className: "map-label",
-            offset: [0, -6],
-          }).addTo(standsLayer);
+          const latlng = cellToLatLng(tmj, plane.point[0], plane.point[1]);
+          const label = `${isAog ? "AOG · " : ""}ВС ${id.slice(0, 8)}`;
+          const held = aircraftMarkers.get(id);
+          if (!held) {
+            aircraftMarkers.set(id, L.marker(latlng, { icon: planeIcon(isAog) }).bindTooltip(label, {
+              permanent: true,
+              direction: "top",
+              className: "map-label",
+              offset: [0, -6],
+            }).addTo(standsLayer));
+            continue;
+          }
+          held.setLatLng(latlng);
+          held.setIcon(planeIcon(isAog));
+          held.setTooltipContent(label);
+          if (!standsLayer.hasLayer(held)) held.addTo(standsLayer);
+        }
+        for (const [id, marker] of aircraftMarkers) {
+          if (seen.has(id)) continue;
+          standsLayer.removeLayer(marker);
+          aircraftMarkers.delete(id);
         }
       }
 
       function renderStaffMarkers() {
-        staffLayer.clearLayers();
         const seen = new Set();
         for (const agent of agents) {
-          const walk = walks.get(String(agent.id));
+          const id = String(agent.id);
+          const walk = walks.get(id);
           if (walk) {
             const cell = agent.point;
             if (Array.isArray(cell) && cell.length >= 2 && Number.isFinite(cell[0]) && Number.isFinite(cell[1])) {
               walk.marker.setLatLng(cellToLatLng(tmj, cell[0], cell[1]));
               walk.followGps = true;
             }
-            walk.marker.addTo(staffLayer);
-            seen.add(String(agent.id));
+            if (!staffLayer.hasLayer(walk.marker)) walk.marker.addTo(staffLayer);
+            const spare = staffMarkers.get(id);
+            if (spare) {
+              staffLayer.removeLayer(spare);
+              staffMarkers.delete(id);
+            }
+            seen.add(id);
             continue;
           }
-          const statusText = agent.busy ? "занят на задаче" : "свободен";
           if (!Array.isArray(agent.point) || !Number.isFinite(agent.point[0]) || !Number.isFinite(agent.point[1])) continue;
-          staffMarker(cellToLatLng(tmj, agent.point[0], agent.point[1]), agent.busy, `${agent.name} · ${statusText}`);
+          seen.add(id);
+          const latlng = cellToLatLng(tmj, agent.point[0], agent.point[1]);
+          const label = `${agent.name} · ${agent.busy ? "занят на задаче" : "свободен"}`;
+          const held = staffMarkers.get(id);
+          if (!held) {
+            staffMarkers.set(id, staffMarker(latlng, agent.busy, label));
+            continue;
+          }
+          held.setLatLng(latlng);
+          held.setIcon(L.divIcon({
+            className: `agent-marker ${agent.busy ? "agent-busy" : "agent-free"}`,
+            html: "",
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+          }));
+          held.setTooltipContent(label);
+          if (!staffLayer.hasLayer(held)) held.addTo(staffLayer);
+        }
+        for (const [id, marker] of staffMarkers) {
+          if (seen.has(id)) continue;
+          staffLayer.removeLayer(marker);
+          staffMarkers.delete(id);
         }
         for (const [id, walk] of walks) {
-          if (!seen.has(id)) walk.marker.addTo(staffLayer);
+          if (!seen.has(id) && !staffLayer.hasLayer(walk.marker)) walk.marker.addTo(staffLayer);
         }
       }
 
@@ -815,8 +872,22 @@ export default function DispatcherPage() {
 
       function renderTransportMarkers() {
         const seen = new Set();
+        const skip = new Set();
+        const byType = new Map();
+        for (const vehicle of fleet) {
+          const type = vehicle.vehicle_type || "";
+          const group = byType.get(type) || [];
+          group.push(vehicle);
+          byType.set(type, group);
+        }
+        for (const [type, group] of byType) {
+          if (group.length < 2) continue;
+          const demoId = storedDemoVehicleId(type);
+          if (demoId && group.some((item) => String(item.id) !== demoId)) skip.add(demoId);
+        }
         for (const vehicle of fleet) {
           const id = String(vehicle.id);
+          if (skip.has(id)) continue;
           if (!Array.isArray(vehicle.point) || !Number.isFinite(vehicle.point[0]) || !Number.isFinite(vehicle.point[1])) continue;
           seen.add(id);
           const cell = [Math.floor(vehicle.point[0]), Math.floor(vehicle.point[1])];
@@ -840,9 +911,16 @@ export default function DispatcherPage() {
           }
           const moved = held.cell[0] !== cell[0] || held.cell[1] !== cell[1];
           if (moved) {
-            const ride = rides.get(id);
-            const from = ride && !ride.done ? rideCell(ride) : held.cell;
-            beginGlide(vehicle, from, cell, held.marker);
+            const hop = Math.max(Math.abs(held.cell[0] - cell[0]), Math.abs(held.cell[1] - cell[1]));
+            if (hop > 3) {
+              rides.delete(id);
+              held.marker.setLatLng(cellToLatLng(tmj, cell[0], cell[1]));
+              held.marker.setTooltipContent(vehicle.label);
+            } else {
+              const ride = rides.get(id);
+              const from = ride && !ride.done ? rideCell(ride) : held.cell;
+              beginGlide(vehicle, from, cell, held.marker);
+            }
             held.cell = cell;
             continue;
           }
@@ -856,10 +934,13 @@ export default function DispatcherPage() {
         }
       }
 
+      let refreshGen = 0;
+
       async function refresh() {
+        const gen = ++refreshGen;
         const started = performance.now();
         const staff = await loadStaff();
-        if (cancelled) return;
+        if (cancelled || gen !== refreshGen) return;
         agents = staff.plotted;
         setStaffError(staff.error?.message || "");
         aircraftNow = await loadAircraft();
@@ -868,7 +949,7 @@ export default function DispatcherPage() {
         const aog = await loadAogIds();
         fleet = await loadTransport();
         busyIds = await loadBusyEngineerIds();
-        if (cancelled) return;
+        if (cancelled || gen !== refreshGen) return;
         for (const agent of agents) agent.busy = busyIds.has(String(agent.id));
         lastAog = aog;
         const rows = [
@@ -905,6 +986,14 @@ export default function DispatcherPage() {
           const stamp = Math.floor(Date.now() / 1000);
           try {
             await updateEngineerPosition(own ? sessionId : id, [[point, stamp]]);
+            const latlng = cellToLatLng(tmj, point[0], point[1]);
+            const walk = walks.get(String(id));
+            if (walk) {
+              walk.followGps = true;
+              walk.marker.setLatLng(latlng);
+            } else {
+              staffMarkers.get(String(id))?.setLatLng(latlng);
+            }
           } catch (error) {
             // Чужого инженера правит только он сам (403). /api/simulate удалён из
             // бэкенда, поэтому запасного адреса больше нет — показываем причину.
@@ -916,15 +1005,25 @@ export default function DispatcherPage() {
         }
         if (mode === "transport") {
           const type = CLICK_VEHICLES.includes(clickRef.current.vehicleType) ? clickRef.current.vehicleType : "FuelTruck";
-          const id = demoVehicleId(type);
+          const sameType = fleet.filter((item) => item.vehicle_type === type);
+          const demoId = storedDemoVehicleId(type);
+          const existing = sameType.find((item) => item.id !== demoId) || sameType[0];
+          const id = existing?.id || demoVehicleId(type);
           await updateTransportPosition(id, type, point);
           fleet = await loadTransport();
           setFleet(fleet);
           renderTransportMarkers();
           return `${vehicleLabel(type)} · [${point[0]}, ${point[1]}]`;
         }
-        const known = readDemoStands();
         const selected = clickRef.current.planeId;
+        const live = aircraftNow.find((plane) => plane.id === selected);
+        if (live && UUID_RE.test(String(live.id))) {
+          await updateTransportPosition(live.id, "Aircraft", point);
+          live.point = [point[0], point[1]];
+          renderAircraftMarkers(aircraftNow, lastAog);
+          return `Стоянка ${String(live.id).slice(0, 8)} · [${point[0]}, ${point[1]}]`;
+        }
+        const known = readDemoStands();
         const id = known.some((stand) => stand.id === selected) ? selected : (known[0]?.id || DEMO_STAND_ID);
         const stands = writeDemoStand(point, id);
         setDemoStands(stands);

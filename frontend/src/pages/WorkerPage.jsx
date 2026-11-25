@@ -807,6 +807,7 @@ export default function WorkerPage() {
   useEffect(() => {
     if (!allowed) return undefined;
     let cancelled = false;
+    let userPanned = false;
     const bag = { map: null, frame: 0, cleanupResize: null };
     let walk = null;
     let selfMarker = null;
@@ -838,6 +839,7 @@ export default function WorkerPage() {
       if (walk?.line) latlngs.push(...walk.line.getLatLngs());
       if (walk?.dest) latlngs.push(walk.dest.getLatLng());
       if (selfMarker) latlngs.push(selfMarker.getLatLng());
+      if (userPanned) return;
       if (latlngs.length >= 2) {
         const bounds = L.latLngBounds(latlngs);
         if (routeSpansMap(tmj, bounds)) bag.map.fitBounds(bounds, { padding: [36, 36], maxZoom: 2 });
@@ -888,8 +890,7 @@ export default function WorkerPage() {
       lastSelfRef.current = next;
       if (same && selfMarker && bag.map?.hasLayer(selfMarker)) return;
       placeSelfMarker();
-      if (opts.follow && selfMarker && bag.map) bag.map.panTo(selfMarker.getLatLng());
-      else if (!walk) focus();
+      if (opts.follow && selfMarker && bag.map && !userPanned) bag.map.panTo(selfMarker.getLatLng());
     }
 
     function tick(now) {
@@ -993,7 +994,7 @@ export default function WorkerPage() {
       setSelfText(`ВЫ: ${selfPoint[0]}, ${selfPoint[1]}`);
       setDistance(`${Math.max(0, roadRoute.length - 1)} КЛЕТОК`);
       setRouteHint(turnHint(centers, 1));
-      if (routeSpansMap(tmj, walk.line.getBounds())) {
+      if (!userPanned && routeSpansMap(tmj, walk.line.getBounds())) {
         bag.map.fitBounds(walk.line.getBounds(), { padding: [36, 36], maxZoom: 2 });
       }
       bag.frame = requestAnimationFrame(tick);
@@ -1019,7 +1020,7 @@ export default function WorkerPage() {
       L.control.zoom({ position: "bottomright" }).addTo(map);
       const bounds = [[0, 0], [tmj.height * tmj.tileheight, tmj.width * tmj.tilewidth]];
       const picture = apronPictureUrl(tmj);
-      map.getContainer().style.background = `#c5d4b4 url("${picture}") center / contain no-repeat`;
+      map.getContainer().style.background = "#c5d4b4";
       const overlay = L.imageOverlay(picture, bounds).addTo(map);
       addPlaceLabels(map, tmj);
       // zoomSnap 0: полигон вписывается в прямоугольник контейнера целиком.
@@ -1083,8 +1084,8 @@ export default function WorkerPage() {
         }
         return map;
       };
-      map.on("dragstart", () => { userMoved = true; holdPhone = false; });
-      map.on("zoomstart", (event) => { if (event.originalEvent) { userMoved = true; holdPhone = false; } });
+      map.on("dragstart", () => { userMoved = true; userPanned = true; holdPhone = false; });
+      map.on("zoomstart", (event) => { if (event.originalEvent) { userMoved = true; userPanned = true; holdPhone = false; } });
       map.on("zoomend", stampOverlay);
       overlay.on("add", () => {
         map.off("viewreset", stampOverlay);
@@ -1155,20 +1156,40 @@ export default function WorkerPage() {
       });
       boxObserver.observe(map.getContainer());
       const planeLayer = L.layerGroup().addTo(map);
+      const planeMarkers = new Map();
+      let planeGen = 0;
       async function showPlanes() {
+        const gen = ++planeGen;
         const list = await loadAircraft();
-        if (cancelled) return;
-        planeLayer.clearLayers();
+        if (cancelled || gen !== planeGen) return;
+        const seen = new Set();
         for (const plane of list) {
           if (!plane.point) continue;
-          L.marker(cellToLatLng(tmj, plane.point[0], plane.point[1]), {
-            icon: L.divIcon({ className: "aircraft-marker", html: "", iconSize: [16, 16], iconAnchor: [8, 8] }),
-          }).bindTooltip(`ВС ${String(plane.id).slice(0, 8)}`, {
-            permanent: true,
-            direction: "top",
-            className: "map-label",
-            offset: [0, -6],
-          }).addTo(planeLayer);
+          const id = String(plane.id);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          const latlng = cellToLatLng(tmj, plane.point[0], plane.point[1]);
+          const label = `ВС ${id.slice(0, 8)}`;
+          const held = planeMarkers.get(id);
+          if (!held) {
+            planeMarkers.set(id, L.marker(latlng, {
+              icon: L.divIcon({ className: "aircraft-marker", html: "", iconSize: [16, 16], iconAnchor: [8, 8] }),
+            }).bindTooltip(label, {
+              permanent: true,
+              direction: "top",
+              className: "map-label",
+              offset: [0, -6],
+            }).addTo(planeLayer));
+            continue;
+          }
+          held.setLatLng(latlng);
+          held.setTooltipContent(label);
+          if (!planeLayer.hasLayer(held)) held.addTo(planeLayer);
+        }
+        for (const [id, marker] of planeMarkers) {
+          if (seen.has(id)) continue;
+          planeLayer.removeLayer(marker);
+          planeMarkers.delete(id);
         }
       }
       showPlanes();
