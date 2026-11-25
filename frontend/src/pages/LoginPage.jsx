@@ -15,7 +15,7 @@ function validEmail(value) {
 
 const ROLE_LABELS = {
   Mcc: "ЦПУ",
-  Dispatcher: "Начальник смены",
+  Dispatcher: "Диспетчер",
   Engineer: "Инженер",
 };
 
@@ -194,7 +194,7 @@ export default function LoginPage() {
           <p className="gate-lead">Замечание идёт через три руки: фиксация, назначение, выход к борту.</p>
           <ol className="gate-steps">
             <li><span>01</span>ЦПУ записывает</li>
-            <li><span>02</span>Смена выбирает инженера</li>
+            <li><span>02</span>Диспетчер выбирает инженера</li>
             <li><span>03</span>Инженер идёт по маршруту</li>
           </ol>
         </aside>
@@ -308,7 +308,7 @@ export default function LoginPage() {
             </button>
             <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Dispatcher")} onFocus={() => prefetchRole("Dispatcher")} onClick={() => openRole("Dispatcher")}>
               <span className="role-card-number">02</span>
-              <h2>Начальник смены</h2>
+              <h2>Диспетчер</h2>
               <p>Назначает инженера и снимает его только после статуса «в работе».</p>
               <span>Войти</span>
             </button>

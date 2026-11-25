@@ -413,7 +413,7 @@ export default function DispatcherPage() {
   }, [deferredPlaneFilter, aircraft, demoStands, planeId]);
 
   useEffect(() => {
-    const bits = ["ОТО · смена"];
+    const bits = ["ОТО · диспетчер"];
     if (inbox.length) bits.push(`очередь ${inbox.length}`);
     if (alerts.length) bits.push(`риски ${alerts.length}`);
     if (aogList.length) bits.push(`AOG ${aogList.length}`);
@@ -567,23 +567,91 @@ export default function DispatcherPage() {
         crs: L.CRS.Simple,
         minZoom: -4,
         maxZoom: 6,
-        zoomSnap: 0.25,
+        zoomSnap: 0,
         attributionControl: false,
       });
       bag.map = map;
-      L.imageOverlay(apronOverlayUrl(tmj) || renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
+      const overlay = L.imageOverlay(apronOverlayUrl(tmj) || renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
       addPlaceLabels(map, tmj);
-      let apronFitted = false;
-      const fitApron = () => {
-        const node = mapNode.current;
-        if (!node || node.clientWidth < 2 || node.clientHeight < 2) return;
-        map.invalidateSize();
-        if (apronFitted) return;
-        map.fitBounds(bounds, { padding: [16, 16] });
-        apronFitted = true;
+      // zoomSnap 0: полигон вписывается в прямоугольник контейнера целиком.
+      const apronPad = { padding: [16, 16], animate: false };
+      const lngSpan = Math.abs(bounds[1][1] - bounds[0][1]);
+      const latSpan = Math.abs(bounds[1][0] - bounds[0][0]);
+      let settled = false;
+      let userMoved = false;
+      let lastFit = { target: bounds, options: apronPad };
+
+      function stampOverlay() {
+        const img = overlay.getElement();
+        const zoom = map.getZoom();
+        if (!img || !Number.isFinite(zoom)) return;
+        img.style.setProperty("width", `${lngSpan * Math.pow(2, zoom)}px`, "important");
+        img.style.setProperty("height", `${latSpan * Math.pow(2, zoom)}px`, "important");
+        img.style.setProperty("max-width", "none", "important");
+        img.style.setProperty("max-height", "none", "important");
+        img.style.objectFit = "fill";
+      }
+
+      function applyFit(target, options = {}) {
+        const node = map.getContainer();
+        const pad = options.padding || [0, 0];
+        const padX = Number(pad[0]) || 0;
+        const padY = Number(pad[1] ?? pad[0]) || 0;
+        const w = node.clientWidth - padX * 2;
+        const h = node.clientHeight - padY * 2;
+        if (w < 8 || h < 8) return false;
+        const box = L.latLngBounds(target);
+        const lng = Math.abs(box.getEast() - box.getWest());
+        const lat = Math.abs(box.getNorth() - box.getSouth());
+        if (lng < 1 || lat < 1) return false;
+        const cap = typeof options.maxZoom === "number" ? options.maxZoom : map.getMaxZoom();
+        const zoom = Math.max(map.getMinZoom(), Math.min(cap, Math.log2(Math.min(w / lng, h / lat))));
+        if (map._loaded) map.invalidateSize(false);
+        map.setView(box.getCenter(), zoom, { animate: false });
+        stampOverlay();
+        return true;
+      }
+
+      function isApronTarget(target) {
+        const box = L.latLngBounds(target);
+        return Math.abs(Math.abs(box.getEast() - box.getWest()) - lngSpan) < 1
+          && Math.abs(Math.abs(box.getNorth() - box.getSouth()) - latSpan) < 1;
+      }
+
+      map.fitBounds = (target, options) => {
+        const opts = options || {};
+        const next = isApronTarget(target) && !opts.padding ? { ...opts, padding: [16, 16] } : opts;
+        lastFit = { target, options: next };
+        if (applyFit(target, next)) settled = true;
+        return map;
       };
-      fitApron();
-      requestAnimationFrame(fitApron);
+      map.on("dragstart", () => { userMoved = true; });
+      map.on("zoomstart", (event) => { if (event.originalEvent) userMoved = true; });
+      map.on("zoomend", stampOverlay);
+      overlay.on("add load", stampOverlay);
+
+      function ensureFitted() {
+        if (userMoved || settled) return;
+        if (applyFit(lastFit.target, lastFit.options)) settled = true;
+      }
+
+      function apronUnderfilled() {
+        const node = map.getContainer();
+        const zoom = map.getZoom();
+        if (!Number.isFinite(zoom) || node.clientWidth < 32 || node.clientHeight < 32) return false;
+        const limit = Math.min((node.clientWidth - 32) / lngSpan, (node.clientHeight - 32) / latSpan);
+        return Math.pow(2, zoom) < limit * 0.92;
+      }
+
+      map.fitBounds(bounds, apronPad);
+      bag.fitFrame = requestAnimationFrame(() => {
+        if (cancelled || userMoved) return;
+        if (settled && !isApronTarget(lastFit.target)) return;
+        if (!settled || apronUnderfilled()) {
+          settled = false;
+          ensureFitted();
+        }
+      });
 
       const standsLayer = L.layerGroup().addTo(map);
       const staffLayer = L.layerGroup().addTo(map);
@@ -595,11 +663,17 @@ export default function DispatcherPage() {
       }
 
       const onResize = () => {
-        map.invalidateSize();
-        if (!apronFitted) fitApron();
+        map.invalidateSize(false);
+        ensureFitted();
       };
       window.addEventListener("resize", onResize);
-      bag.cleanupResize = () => window.removeEventListener("resize", onResize);
+      const boxObserver = new ResizeObserver(() => ensureFitted());
+      boxObserver.observe(map.getContainer());
+      bag.cleanupResize = () => {
+        cancelAnimationFrame(bag.fitFrame);
+        boxObserver.disconnect();
+        window.removeEventListener("resize", onResize);
+      };
 
       function staffMarker(latlng, busy, label) {
         return L.marker(latlng, {
@@ -1219,7 +1293,7 @@ export default function DispatcherPage() {
       softBeep(320, 200);
       return;
     }
-    const confirmed = window.confirm("Переназначить может только старший смены. Продолжить?");
+    const confirmed = window.confirm("Переназначить может только диспетчер. Продолжить?");
     if (!confirmed) return;
     setReassignPending(true);
     setReassignNote("");
@@ -1563,7 +1637,7 @@ export default function DispatcherPage() {
         <div className="brand-row">
           <div>
             <p className="eyebrow">АЭРОФЛОТ · ОТО</p>
-            <h1>Начальник смены <span className={staleLive ? "status-dot stale" : "status-dot"} title={staleLive ? "Нет свежих данных" : "LIVE"} /></h1>
+            <h1>Диспетчер <span className={staleLive ? "status-dot stale" : "status-dot"} title={staleLive ? "Нет свежих данных" : "LIVE"} /></h1>
           </div>
           <button type="button" className="role-link" onClick={logout}>Выйти</button>
         </div>

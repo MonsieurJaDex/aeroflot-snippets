@@ -205,7 +205,7 @@ export default function MccPage() {
       sessionStorage.removeItem("oto-mcc-draft");
       setDraftText("");
       setHint("");
-      setStatus("Замечание в очереди начальника смены в этом браузере.");
+      setStatus("Замечание в очереди диспетчера в этом браузере.");
       setItems(freshList());
     } finally {
       setPending(false);
@@ -467,7 +467,7 @@ export default function MccPage() {
             </button>
             {hint ? <p className="mcc-hint">{hint}</p> : null}
             <button type="submit" disabled={pending || !draftText.trim()} aria-busy={pending}>
-              {pending ? "Запись…" : "Передать начальнику смены"}
+              {pending ? "Запись…" : "Передать диспетчеру"}
             </button>
             {error ? <div className="auth-error">{error}</div> : null}
             {status ? <div className="auth-status">{status}</div> : null}
