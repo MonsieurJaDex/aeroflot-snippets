@@ -2,6 +2,7 @@
 // Совпадает с map2.location.json cell_size_m.
 export const CELL_METERS = 5;
 export const WALK_MPS = 5 / 3.6;
+export const VEHICLE_MPS = 20 / 3.6;
 
 function keyOf(x, y) {
   return `${x},${y}`;

@@ -20,6 +20,8 @@ export function getApiBase() {
   const loopback = !host || host === "localhost" || host === "127.0.0.1" || host === "::1";
   // Телефон и туннель: /api этого же сайта. Сохранённый 127.0.0.1 там — сам телефон.
   if (!loopback) return window.location.origin;
+  // https-страница не может звать http://127.0.0.1:3001: браузер режет mixed content, /api идёт в прокси этого же сайта.
+  if (window.location.protocol === "https:") return window.location.origin;
   const saved = localStorage.getItem(API_BASE_KEY);
   if (saved) return saved;
   return DEFAULT_API_BASE;

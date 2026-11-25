@@ -64,7 +64,7 @@ function normalizeV2(data) {
   const walkIds = new Set((data.layers?.walk || []).map(Number));
   const roadIds = new Set((data.layers?.road || []).map(Number));
   activeRoadIds = roadIds;
-  return {
+  const out = {
     format: 2,
     width,
     height,
@@ -81,6 +81,30 @@ function normalizeV2(data) {
     zones: Array.isArray(data.zones) ? data.zones : [],
     layers: [{ name: "полигон", type: "tilelayer", width, height, data: matrix.flat() }],
   };
+  if (typeof data.id === "string") out.id = data.id;
+  if (typeof data.name === "string") out.name = data.name;
+  return out;
+}
+
+function rememberMapStamp(map) {
+  try {
+    const stamp = `${map.id || "map"}:${map.width}x${map.height}`;
+    const prev = localStorage.getItem("oto-map-stamp");
+    if (prev && prev !== stamp) {
+      localStorage.removeItem("oto-demo-stands");
+    } else {
+      const raw = JSON.parse(localStorage.getItem("oto-demo-stands") || "[]");
+      if (Array.isArray(raw)) {
+        const kept = raw.filter((row) => {
+          const x = Number(row?.point?.[0]);
+          const y = Number(row?.point?.[1]);
+          return x >= 0 && y >= 0 && x < map.width && y < map.height;
+        });
+        if (kept.length !== raw.length) localStorage.setItem("oto-demo-stands", JSON.stringify(kept));
+      }
+    }
+    localStorage.setItem("oto-map-stamp", stamp);
+  } catch (_) {}
 }
 
 function decodeGid(raw) {
@@ -129,16 +153,32 @@ export function gpsToCell(tmj, lat, lon) {
 export async function loadApronMap() {
   try {
     const data = await apiRequest("/api/map");
-    if (isV2(data)) return normalizeV2(data);
+    if (data && typeof data === "object") {
+      const matrix = data.matrix || data.map;
+      if (Array.isArray(matrix) && Array.isArray(data.palette)) {
+        const map = normalizeV2(data);
+        rememberMapStamp(map);
+        return map;
+      }
+      throw new Error("Сервер отдал карту без матрицы.");
+    }
+    throw new Error("Сервер отдал карту без матрицы.");
   } catch (error) {
-    console.warn("[map] /api/map без палитры", error?.message || error);
+    const status = error?.status;
+    if (error?.message === "Сервер отдал карту без матрицы.") throw error;
+    if (status !== undefined && status !== 0) throw error;
+    console.warn("[map] /api/map недоступен", error?.message || error);
   }
 
   try {
     const res = await fetch("/it2026_aero.json");
     if (res.ok) {
       const data = await res.json();
-      if (isV2(data)) return normalizeV2(data);
+      if (isV2(data)) {
+        const map = normalizeV2(data);
+        rememberMapStamp(map);
+        return map;
+      }
     }
   } catch (error) {
     console.warn("[map] файл полигона", error);

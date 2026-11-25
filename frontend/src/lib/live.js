@@ -287,7 +287,9 @@ export function findTransportOnRoute(route, fleet) {
   if (!route || route.length < 3 || !fleet.length) return null;
   const middle = route.slice(1, -1);
   for (const vehicle of fleet) {
-    const hit = middle.find(([x, y]) => x === vehicle.point[0] && y === vehicle.point[1]);
+    const hit = middle.find(([x, y]) => (
+      Math.floor(x) === Math.floor(vehicle.point[0]) && Math.floor(y) === Math.floor(vehicle.point[1])
+    ));
     if (hit) return vehicle;
   }
   return null;
@@ -348,6 +350,35 @@ export async function reassignRequest(id, engineerId, reason) {
 
 export async function queueRequest(id) {
   return apiRequest(`/api/requests/${encodeURIComponent(id)}/queue`, { method: "POST" });
+}
+
+// Цепочка requests → queue → assign для диспетчера.
+export async function assignLiveRequest({ text, point, planeUuid, issue, engineerId, requestId }) {
+  const label = String(text || "").trim() || "Замечание";
+  const cell = cellPair(point);
+  let id = String(requestId || "").trim();
+  if (!id) {
+    if (!cell) throw new Error("Нет клетки стоянки.");
+    const body = { text: label, point: cell, source: "dispatcher" };
+    if (planeUuid && UUID_RE.test(String(planeUuid))) body.plane_uuid = String(planeUuid);
+    const created = await apiRequest("/api/requests", { method: "POST", body });
+    id = String(created?.id || "").trim();
+    if (!id) throw new Error("Сервер не вернул id заявки.");
+  }
+  try {
+    await queueRequest(id);
+  } catch (error) {
+    const queued = statusOf(error) === 400 && /only a crew remark/i.test(String(error?.message || ""));
+    if (!queued) throw error;
+  }
+  const assignBody = {
+    request_id: id,
+    classifier_text: label,
+    plane_uuid: planeUuid && UUID_RE.test(String(planeUuid)) ? String(planeUuid) : "00000000-0000-0000-0000-000000000000",
+  };
+  if (issue) assignBody.issue = issue;
+  if (engineerId && UUID_RE.test(String(engineerId))) assignBody.engineer_id = String(engineerId);
+  return apiRequest("/api/assign", { method: "POST", body: assignBody });
 }
 
 export async function createDefect(text, ataChapter) {
