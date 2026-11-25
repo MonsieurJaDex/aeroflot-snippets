@@ -76,6 +76,12 @@ impl Point {
     ///
     /// Whitespace around each coordinate is trimmed. Extra `,` characters
     /// cause a parse error.
+    ///
+    /// A coordinate may carry a fractional part, which is rounded to the cell it
+    /// falls on: a simulated object publishes the smooth position it really has,
+    /// and every reader of the coordinate keys — the map, the ETA forecast, the
+    /// aircraft list — still wants a cell. Rounding here keeps one format for one
+    /// key instead of a second contract every reader would have to learn.
     pub fn from_value(value: impl AsRef<str>) -> anyhow::Result<Self> {
         let value = value.as_ref().trim();
         let (x_str, y_str) = value
@@ -84,14 +90,14 @@ impl Point {
 
         let x = x_str
             .trim()
-            .parse::<i64>()
+            .parse::<f64>()
             .context("invalid x coordinate")?;
         let y = y_str
             .trim()
-            .parse::<i64>()
+            .parse::<f64>()
             .context("invalid y coordinate")?;
 
-        Ok(Self(x, y))
+        Ok(Self(x.round() as i64, y.round() as i64))
     }
 }
 

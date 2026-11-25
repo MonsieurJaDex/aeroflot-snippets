@@ -840,6 +840,7 @@ pub async fn start_simulation_handler(
         started_at_ms: started_at.timestamp_millis(),
         speed_scale,
         tick_ms,
+        run: Uuid::new_v4().to_string(),
     };
     crate::simulation::save(&mut redis_conn, &active.id, &simulation).map_err(|e| {
         tracing::error!(error = %e, "failed to store simulation");
