@@ -318,6 +318,27 @@ export async function downloadJournalCsv() {
   URL.revokeObjectURL(url);
 }
 
+export async function pauseAgent(obj, paused) {
+  return apiRequest("/api/geo/pauseAgent", {
+    method: "POST",
+    body: { obj, paused: Boolean(paused) },
+  });
+}
+
+export async function forceVehicle(engineerId, forced) {
+  return apiRequest("/api/geo/forceVehicle", {
+    method: "POST",
+    body: { engineer_id: engineerId, forced: Boolean(forced) },
+  });
+}
+
+export async function shiftTaskTimer(id, deltaSeconds) {
+  return apiRequest(`/api/tasks/${encodeURIComponent(id)}/timer`, {
+    method: "POST",
+    body: { delta_seconds: deltaSeconds },
+  });
+}
+
 export async function reassignRequest(id, engineerId, reason) {
   return apiRequest(`/api/requests/${encodeURIComponent(id)}/reassign`, {
     method: "POST",

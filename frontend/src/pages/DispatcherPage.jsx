@@ -30,8 +30,11 @@ import {
   loadStaff,
   loadTransport,
   normalizeRoute,
+  forceVehicle,
+  pauseAgent,
   postTrackPoint,
   queueRequest,
+  shiftTaskTimer,
   reassignRequest,
   setActiveMap,
   trainClassifier,
@@ -73,6 +76,40 @@ const LEGEND = [
   ["#c5161c", "AOG"],
   ["#c5161c", "маршрут"],
 ];
+
+const FACTOR_RU = {
+  eta: "путь",
+  late: "опоздание",
+  load: "загрузка",
+  aog_bonus: "AOG",
+  arrival_bonus: "прилёт",
+  urgency_bonus: "срочность",
+  mel_bonus: "MEL",
+};
+
+function factorLine(row) {
+  const factors = Array.isArray(row?.factors) ? row.factors : [];
+  return factors
+    .filter((item) => Number.isFinite(Number(item?.seconds)) && Math.round(Number(item.seconds)) !== 0)
+    .map((item) => {
+      const sec = Math.round(Number(item.seconds));
+      const title = FACTOR_RU[item.name] || item.name;
+      return `${title} ${sec > 0 ? "+" : ""}${sec} с`;
+    })
+    .join(", ");
+}
+
+async function mapCandidate(row) {
+  return {
+    engineerId: String(row.engineer_id ?? ""),
+    name: await engineerName(row.engineer_id),
+    eligible: Boolean(row.eligible),
+    reason: row.reason == null ? "" : String(row.reason),
+    etaSeconds: row.eta_seconds,
+    usesVehicle: Boolean(row.uses_vehicle),
+    factors: factorLine(row),
+  };
+}
 
 function proposedEngineer(candidates, chosenId) {
   if (!Array.isArray(candidates) || !candidates.length) return null;
@@ -253,6 +290,12 @@ export default function DispatcherPage() {
   const [trackLon, setTrackLon] = useState(() => localStorage.getItem("oto-track-lon") || "37.6310");
   const [trackAcc, setTrackAcc] = useState(() => localStorage.getItem("oto-track-acc") || "8");
   const [trackNote, setTrackNote] = useState("");
+  const [examNote, setExamNote] = useState("");
+  const [examBusy, setExamBusy] = useState("");
+  const [pauseObj, setPauseObj] = useState("");
+  const [forceId, setForceId] = useState("");
+  const [timerId, setTimerId] = useState("");
+  const [timerDelta, setTimerDelta] = useState("-300");
   const [trackPending, setTrackPending] = useState(false);
   const [movements, setMovements] = useState([]);
   const [layersOn, setLayersOn] = useState(layersRef.current);
@@ -454,7 +497,15 @@ export default function DispatcherPage() {
           loadAogAircraft(),
         ]);
         if (cancelled) return;
-        setAlerts(list);
+        const named = await Promise.all(list.map(async (item) => {
+          const id = item.alternative_engineer_id;
+          if (!id) return item;
+          const name = await engineerName(id);
+          const message = String(item.message || "").split(String(id)).join(name);
+          return { ...item, message, alternativeName: name };
+        }));
+        if (cancelled) return;
+        setAlerts(named);
         if (list.length > alertCountRef.current) softBeep(880, 180);
         alertCountRef.current = list.length;
         setMovements(moves);
@@ -577,7 +628,10 @@ export default function DispatcherPage() {
           const traveled = ((now - walk.startedAt) / 1000) * WALK_MPS;
           const sample = pointAt(walk.centers, traveled);
           if (!sample) continue;
-          walk.marker.setLatLng(centerToLatLng(tmj, sample.done ? walk.centers.at(-1) : sample.point));
+          // followGps: маркер держит клетку с сервера, линия хода остаётся.
+          if (!walk.followGps) {
+            walk.marker.setLatLng(centerToLatLng(tmj, sample.done ? walk.centers.at(-1) : sample.point));
+          }
           if (sample.done) {
             if (map.hasLayer(walk.line)) map.removeLayer(walk.line);
             walk.line = null;
@@ -618,6 +672,11 @@ export default function DispatcherPage() {
         for (const agent of agents) {
           const walk = walks.get(String(agent.id));
           if (walk) {
+            const cell = agent.point;
+            if (Array.isArray(cell) && cell.length >= 2 && Number.isFinite(cell[0]) && Number.isFinite(cell[1])) {
+              walk.marker.setLatLng(cellToLatLng(tmj, cell[0], cell[1]));
+              walk.followGps = true;
+            }
             walk.marker.addTo(staffLayer);
             seen.add(String(agent.id));
             continue;
@@ -896,14 +955,7 @@ export default function DispatcherPage() {
             // На старом ответе candidates нет — строки не собираем.
             const chosenId = String(response.engineer_uuid ?? "");
             const rawCandidates = Array.isArray(response.candidates) ? response.candidates : [];
-            const candidates = await Promise.all(rawCandidates.map(async (row) => ({
-              engineerId: String(row.engineer_id ?? ""),
-              name: await engineerName(row.engineer_id),
-              eligible: Boolean(row.eligible),
-              reason: row.reason == null ? "" : String(row.reason),
-              etaSeconds: row.eta_seconds,
-              usesVehicle: Boolean(row.uses_vehicle),
-            })));
+            const candidates = await Promise.all(rawCandidates.map((row) => mapCandidate(row)));
             candidates.sort((a, b) => {
               if (a.engineerId === chosenId) return -1;
               if (b.engineerId === chosenId) return 1;
@@ -1020,14 +1072,7 @@ export default function DispatcherPage() {
       });
       if (cardPreview.current !== item.id) return;
       const raw = Array.isArray(data?.candidates) ? data.candidates : [];
-      const candidates = await Promise.all(raw.map(async (row) => ({
-        engineerId: String(row.engineer_id ?? ""),
-        name: await engineerName(row.engineer_id),
-        eligible: Boolean(row.eligible),
-        reason: row.reason == null ? "" : String(row.reason),
-        etaSeconds: row.eta_seconds,
-        usesVehicle: Boolean(row.uses_vehicle),
-      })));
+      const candidates = await Promise.all(raw.map((row) => mapCandidate(row)));
       if (cardPreview.current !== item.id) return;
       const proposed = proposedEngineer(candidates, "");
       setResult({
@@ -1122,8 +1167,8 @@ export default function DispatcherPage() {
     const known = listMcc().find((item) => String(item.serverId || "") === id);
     const fromAlert = alerts.find((item) => String(item.request_id || "") === id);
     const knownStatus = known?.status || fromAlert?.status || "";
-    if (knownStatus && knownStatus !== "in_progress") {
-      setReassignNote("Переназначить можно только задачу в работе.");
+    if (knownStatus === "done" || knownStatus === "completed" || knownStatus === "rejected") {
+      setReassignNote("Заявка уже закрыта, переназначить нельзя.");
       softBeep(320, 200);
       return;
     }
@@ -1293,6 +1338,29 @@ export default function DispatcherPage() {
       softBeep(320, 200);
     } finally {
       setMapPending(false);
+    }
+  }
+
+  async function runExam(kind, job) {
+    setExamBusy(kind);
+    setExamNote("");
+    try {
+      const data = await job();
+      const left = data?.seconds_left;
+      const line = data?.paused != null
+        ? `${data.obj}: ${data.paused ? "пауза" : "снова идёт"}`
+        : data?.forced != null
+          ? `${String(data.engineer_id || "").slice(0, 8)}: транспорт ${data.forced ? "принудительно" : "как обычно"}`
+          : left != null
+            ? `До конца норматива ${left} с`
+            : "Готово";
+      setExamNote(line);
+      softBeep(640, 90);
+    } catch (error) {
+      setExamNote(assignErrorMessage(error));
+      softBeep(320, 160);
+    } finally {
+      setExamBusy("");
     }
   }
 
@@ -1563,9 +1631,11 @@ export default function DispatcherPage() {
           <div className="mcc-inbox">
             {alerts.length ? alerts.map((item, index) => {
               const minutes = marginMinutes(item.alternative_margin_seconds);
-              const alt = item.alternative_engineer_id
-                ? `Альтернатива ${String(item.alternative_engineer_id).slice(0, 8)}`
-                : null;
+              const alt = item.alternativeName
+                ? `Альтернатива ${item.alternativeName}`
+                : item.alternative_engineer_id
+                  ? `Альтернатива ${String(item.alternative_engineer_id).slice(0, 8)}`
+                  : null;
               return (
                 <button
                   type="button"
@@ -1957,6 +2027,16 @@ export default function DispatcherPage() {
                 ) : null}
                 Борт {result.plane} · {result.issue}<br />
                 {result.onSite ? "Инженер уже у воздушного судна, маршрут пустой." : <>Маршрут: <strong>{result.cells} клеток</strong><br />В пути: <strong>{result.minutes} мин</strong></>}
+                {(() => {
+                  const chosen = (result.candidates || []).find((row) => row.engineerId === result.chosenId);
+                  if (!chosen) return null;
+                  return (
+                    <>
+                      {chosen.usesVehicle ? <><br />Прогноз со спецтранспортом, посадка 10 с уже внутри.</> : <><br />Прогноз пешком по скоростям графа.</>}
+                      {String(chosen.reason || "").includes("нужен склад") ? <><br />В прогнозе есть заход на склад, 30 с.</> : null}
+                    </>
+                  );
+                })()}
                 {result.pickup ? <><br />Маршрут заезжает за спецтранспорт: <strong>{result.pickup}</strong>.</> : null}
                 {result.needed ? <><br />Для неисправности нужен: <strong>{result.needed}</strong>.</> : null}
                 {result.skipped ? <><br /><em>Занятые инженеры пропущены ({result.skipped}).</em></> : null}
@@ -1985,7 +2065,7 @@ export default function DispatcherPage() {
                     className="ghost-copy"
                     style={{ marginTop: 8, marginLeft: 8 }}
                     onClick={async () => {
-                      const header = "engineer_id;name;eligible;reason;eta_min;vehicle;chosen";
+                      const header = "engineer_id;name;eligible;reason;eta_min;vehicle;factors;chosen";
                       const rows = result.candidates.map((row) => {
                         const etaMin = row.etaSeconds == null || Number.isNaN(Number(row.etaSeconds))
                           ? ""
@@ -1997,6 +2077,7 @@ export default function DispatcherPage() {
                           String(row.reason || "").replace(/;/g, ","),
                           etaMin,
                           row.usesVehicle ? "1" : "0",
+                          String(row.factors || "").replace(/;/g, ","),
                           row.engineerId === result.chosenId ? "1" : "0",
                         ].join(";");
                       });
@@ -2020,6 +2101,7 @@ export default function DispatcherPage() {
                           <th>Причина</th>
                           <th>ETA</th>
                           <th>Техника</th>
+                          <th>Слагаемые</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2057,6 +2139,7 @@ export default function DispatcherPage() {
                               <td>{row.reason || "—"}</td>
                               <td>{etaMin}</td>
                               <td>{row.usesVehicle ? "да" : "нет"}</td>
+                              <td>{row.factors || "—"}</td>
                             </tr>
                           );
                         })}
@@ -2068,6 +2151,72 @@ export default function DispatcherPage() {
             ) : result.text}
           </div>
         </section>
+        <details className="request-panel">
+          <summary>Проверка на площадке</summary>
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            const obj = pauseObj.trim();
+            if (!obj) {
+              setExamNote("Нужен obj агента: e-01, v-01 или борт.");
+              return;
+            }
+            runExam("pause", () => pauseAgent(obj, true));
+          }}>
+            <label>Пауза агента
+              <input type="text" value={pauseObj} autoComplete="off" placeholder="e-01, v-01, RA-…" onChange={(event) => setPauseObj(event.target.value)} />
+            </label>
+            <button type="submit" className="shift-button" disabled={examBusy === "pause"}>Пауза</button>
+            <button type="button" className="shift-button" disabled={examBusy === "resume" || !pauseObj.trim()} onClick={() => runExam("resume", () => pauseAgent(pauseObj.trim(), false))}>Снять паузу</button>
+          </form>
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            const id = (forceId || clickEngineerId).trim();
+            if (!id) {
+              setExamNote("Выберите инженера.");
+              return;
+            }
+            runExam("force", () => forceVehicle(id, true));
+          }}>
+            <label>Принудительный транспорт
+              <select value={forceId || clickEngineerId} onChange={(event) => setForceId(event.target.value)}>
+                <option value="">инженер</option>
+                {staffRows.map((row) => (
+                  <option key={row.id} value={row.id}>{row.name || row.id.slice(0, 8)}</option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" className="shift-button" disabled={examBusy === "force"}>Всегда на технике</button>
+            <button type="button" className="shift-button" disabled={examBusy === "unforce" || !(forceId || clickEngineerId)} onClick={() => runExam("unforce", () => forceVehicle((forceId || clickEngineerId).trim(), false))}>Снова пешком, если быстрее</button>
+          </form>
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            const id = (timerId || reassignId).trim();
+            const delta = Number(timerDelta);
+            if (!id || !Number.isFinite(delta) || delta === 0) {
+              setExamNote("Нужны id заявки и сдвиг в секундах, не ноль.");
+              return;
+            }
+            runExam("timer", () => shiftTaskTimer(id, delta));
+          }}>
+            <label>Заявка
+              <input type="text" value={timerId || reassignId} autoComplete="off" placeholder="id заявки" onChange={(event) => setTimerId(event.target.value)} />
+            </label>
+            <label>Сдвиг, с
+              <input type="text" inputMode="numeric" value={timerDelta} autoComplete="off" onChange={(event) => setTimerDelta(event.target.value)} />
+            </label>
+            <button type="submit" className="shift-button" disabled={examBusy === "timer"}>Сдвинуть таймер</button>
+            <button type="button" className="shift-button" disabled={examBusy === "timer"} onClick={() => {
+              setTimerDelta("-300");
+              const id = (timerId || reassignId).trim();
+              if (!id) {
+                setExamNote("Нужен id заявки.");
+                return;
+              }
+              runExam("timer", () => shiftTaskTimer(id, -300));
+            }}>Минус 5 мин</button>
+          </form>
+          {examNote ? <p className="fault-hint">{examNote}</p> : null}
+        </details>
         <details className="request-panel">
           <summary>Точка GPS</summary>
           <form onSubmit={onSendTrack}>

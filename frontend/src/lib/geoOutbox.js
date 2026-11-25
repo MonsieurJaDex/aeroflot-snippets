@@ -21,6 +21,14 @@ export function enqueueEngineerPoint(id, point, t = Math.floor(Date.now() / 1000
   write(rows);
 }
 
+export function enqueueGpsFix(id, fix) {
+  // Последний GPS-фикс на id; клеточные строки без kind не трогаем.
+  const { lat, lon, t, acc, spd } = fix;
+  const rows = read().filter((row) => row.kind !== "gps" || String(row.id) !== String(id));
+  rows.push({ kind: "gps", id, lat, lon, t, acc, spd });
+  write(rows);
+}
+
 export function pendingCount() {
   return read().length;
 }
