@@ -35,6 +35,7 @@ __pycache__
 *.docx
 *.rtf
 *регламент*
+*новые требования*
 frontend/_reglement.txt
 
 # Локальный контракт от бэкендера — не коммитить
@@ -42,3 +43,6 @@ frontend/_reglement.txt
 /_tz_extract.txt
 /_geodata_new/
 
+
+# локальный self-signed серт для прогулки с телефона
+frontend/certs/

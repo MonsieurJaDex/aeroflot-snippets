@@ -443,12 +443,27 @@ export default function WorkerPage() {
       }).then((ack) => {
         lastGeoAt.current = Date.now();
         setOutboxCount(pendingCount());
-        setGpsLink(ack?.applied === false ? "held" : "live");
-        if (ack?.applied === false && !gpsTrackNoted.current) {
-          gpsTrackNoted.current = true;
-          statusNoteAt.current = Date.now();
-          setNotice("Сервер принял точку и не сдвинул позицию.");
+        if (ack?.applied === false && cell) {
+          updateEngineerPosition(userId, [[cell, t]]).then(() => {
+            lastGeoAt.current = Date.now();
+            setGpsLink("legacy");
+            setOutboxCount(pendingCount());
+          }).catch((fallbackError) => {
+            enqueueEngineerPoint(userId, cell, t);
+            setGpsLink("queue");
+            setOutboxCount(pendingCount());
+            console.warn("[worker] позиция", fallbackError);
+          });
+          if (!gpsTrackNoted.current) {
+            gpsTrackNoted.current = true;
+            statusNoteAt.current = Date.now();
+            setNotice("Трек точку не применил, позиция уходит напрямую.");
+          }
+          return;
         }
+        // Точку сервер принял, но применить не смог (вне полигона): не выдаём
+        // «На сервере» за сдвинутую позицию.
+        setGpsLink(ack?.applied === false ? "held" : "live");
       }).catch((error) => {
         if (Number(error?.status) === 404 && cell) {
           updateEngineerPosition(userId, [[cell, t]]).then(() => {

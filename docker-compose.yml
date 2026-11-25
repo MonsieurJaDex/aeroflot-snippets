@@ -41,6 +41,16 @@ services:
       timeout: 5s
       retries: 10
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8002:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   redis:
     image: redis:latest
     ports:
