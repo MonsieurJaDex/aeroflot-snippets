@@ -1016,7 +1016,7 @@ export default function WorkerPage() {
       bag.map = map;
       L.control.zoom({ position: "bottomright" }).addTo(map);
       const bounds = [[0, 0], [tmj.height * tmj.tileheight, tmj.width * tmj.tilewidth]];
-      const overlay = L.imageOverlay(renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
+      const overlay = L.imageOverlay(apronOverlayUrl(tmj) || renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
       addPlaceLabels(map, tmj);
       // zoomSnap 0: полигон вписывается в прямоугольник контейнера целиком.
       const apronPad = { padding: [16, 16], animate: false };
@@ -1029,7 +1029,16 @@ export default function WorkerPage() {
       let fittedH = 0;
       let lastFit = { target: bounds, options: apronPad };
 
-      function stampOverlay() {}
+      function stampOverlay() {
+        const img = overlay.getElement();
+        const zoom = map.getZoom();
+        if (!img || !Number.isFinite(zoom)) return;
+        img.style.setProperty("width", `${lngSpan * Math.pow(2, zoom)}px`, "important");
+        img.style.setProperty("height", `${latSpan * Math.pow(2, zoom)}px`, "important");
+        img.style.setProperty("max-width", "none", "important");
+        img.style.setProperty("max-height", "none", "important");
+        img.style.objectFit = "fill";
+      }
 
       function applyFit(target, options = {}) {
         const node = map.getContainer();
