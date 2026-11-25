@@ -275,7 +275,7 @@ export function renderCanvas(tmj, grid, tilesets) {
   canvas.width = tmj.width * tileW;
   canvas.height = tmj.height * tileH;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#c5d4b4";
+  ctx.fillStyle = "#cfdce8";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   for (let row = 0; row < tmj.height; row += 1) {
     for (let col = 0; col < tmj.width; col += 1) {

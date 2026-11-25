@@ -311,14 +311,14 @@ body::before {
 
 #sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 20px 0 8px; }
 #sidebar section:first-of-type h2 { margin-top: 0; }
-#map { flex: 1; height: 100%; max-width: 100%; overflow: hidden; background: #e7eef2; }
+#map { flex: 1; height: 100%; max-width: 100%; overflow: hidden; background: var(--map); }
 .leaflet-image-layer { max-width: none !important; max-height: none !important; }
 .layer-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
 .layer-row input { cursor: pointer; accent-color: var(--accent); }
 #tile-info { font-size: 12px; line-height: 1.5; white-space: pre-wrap; background: var(--field); border: 1px solid var(--border); border-radius: 5px; padding: 8px; min-height: 60px; color: var(--muted); }
 .legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 0; color: var(--muted); }
 .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(20,32,51,.12); flex: none; }
-.leaflet-container { max-width: 100%; background: #e7eef2; }
+.leaflet-container { max-width: 100%; background: var(--map); }
 .leaflet-control-zoom { border: 1px solid var(--border) !important; }
 .leaflet-control-zoom a { background: var(--panel) !important; border-color: var(--border) !important; color: var(--text) !important; }
 .map-label { background: #ffffff; border: 1px solid #b7c6d6; border-radius: 3px; padding: 3px 6px; color: var(--text); font-size: 12px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 8px rgba(20,50,90,.16); }
@@ -435,6 +435,7 @@ button.mcc-item.selected::after { content: none; }
 .auth-form input, .auth-form select { display: block; width: 100%; margin-top: 5px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--field); color: var(--text); }
 .auth-form select { padding-right: 36px; }
 .remember-row { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; font-weight: 600; }
+.auth-form .remember-row input { width: auto; margin-top: 0; }
 .remember-row input { width: auto; margin: 0; accent-color: var(--blue); }
 .auth-form button[type=submit] { margin-top: 4px; padding: 12px; border: 0; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 700; cursor: pointer; }
 .auth-form button[type=submit]:hover { background: var(--accent-hover); }
@@ -512,7 +513,7 @@ button.mcc-item.selected::after { content: none; }
   to { transform: translateY(0); opacity: 1; }
 }
 .worker-map-card { margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; border-top: 3px solid var(--blue); }
-#worker-map { height: 480px; max-width: 100%; overflow: hidden; background: #e7eef2; }
+#worker-map { height: 480px; max-width: 100%; overflow: hidden; background: var(--map); }
 .worker-map-engineer, .worker-map-stand, .worker-map-self { width: 18px; height: 18px; border: 3px solid #ffffff; border-radius: 50%; box-shadow: 0 2px 8px rgba(20,50,90,.25); }
 .worker-map-engineer { background: var(--green); }
 .worker-map-stand { background: var(--blue); }
@@ -551,7 +552,7 @@ button.mcc-item.selected::after { content: none; }
   .worker-page .notice-card { margin-top: 0; max-height: none; overflow: visible; }
   .worker-page .worker-shell > * + * { margin-top: 8px; }
   .section-heading { flex-wrap: wrap; gap: 6px; }
-  #worker-map { width: 100%; max-width: 100%; height: 58dvh; min-height: 320px; flex: none; min-width: 0; overflow: hidden; background: #d5e2d4; }
+  #worker-map { width: 100%; max-width: 100%; height: 58dvh; min-height: 320px; flex: none; min-width: 0; overflow: hidden; background: var(--map); }
   #worker-map .leaflet-container { width: 100% !important; height: 100% !important; }
   .worker-dock {
     position: sticky;
@@ -590,7 +591,7 @@ button.mcc-item.selected::after { content: none; }
   .worker-toast { right: 12px; left: 12px; top: 12px; bottom: auto; max-width: none; }
 
   .dispatcher-page { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
-  .dispatcher-page #map { order: -1; flex: 0 0 58dvh; width: 100%; height: 58dvh; min-height: 320px; overflow: hidden; background: #d5e2d4; }
+  .dispatcher-page #map { order: -1; flex: 0 0 58dvh; width: 100%; height: 58dvh; min-height: 320px; overflow: hidden; background: var(--map); }
   .dispatcher-page #map.leaflet-container { height: 58dvh; min-height: 320px; }
   .dispatcher-page #sidebar { width: 100%; min-width: 0; flex: 1 1 auto; height: auto; min-height: 0; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; border-right: 0; border-top: 1px solid var(--border); box-shadow: none; padding: 14px 14px calc(16px + env(safe-area-inset-bottom)); }
   .dispatcher-page #sidebar > :not(.brand-row) { margin-left: 0; margin-right: 0; }
@@ -865,8 +866,16 @@ button.mcc-item.selected::after { content: none; }
 .gate .role-card,
 .gate .role-card:nth-child(2),
 .gate .role-card:nth-child(3) {
+  display: block;
+  width: 100%;
   min-height: 0;
   height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.gate .role-card-body {
   display: grid;
   grid-template-columns: auto 1fr auto;
   grid-template-areas: "num title go" "num copy go";
@@ -880,14 +889,14 @@ button.mcc-item.selected::after { content: none; }
   background: #fff;
   box-shadow: 0 12px 28px rgba(11, 31, 51, .06);
 }
-.gate .role-card:nth-child(2) { border-left-color: var(--red); }
-.gate .role-card:nth-child(3) { border-left-color: var(--blue-deep); }
-.gate .role-card:hover { transform: translateX(4px); border-color: #b7c9da; background: #fff; }
+.gate .role-card:nth-child(2) .role-card-body { border-left-color: var(--red); }
+.gate .role-card:nth-child(3) .role-card-body { border-left-color: var(--blue-deep); }
+.gate .role-card:hover .role-card-body { transform: translateX(4px); border-color: #b7c9da; background: #fff; }
 .gate .role-card-number { grid-area: num; color: var(--blue); font-size: 28px; }
 .gate .role-card:nth-child(2) .role-card-number { color: var(--red); }
 .gate .role-card h2 { grid-area: title; margin: 0; font-size: 26px; }
 .gate .role-card p { grid-area: copy; margin: 0; }
-.gate .role-card > span:last-child {
+.gate .role-card-body > span:last-child {
   grid-area: go;
   display: inline-flex;
   align-items: center;
@@ -899,26 +908,30 @@ button.mcc-item.selected::after { content: none; }
   background: var(--blue);
   color: #fff;
 }
-.gate .role-card:nth-child(2) > span:last-child { background: var(--red); }
+.gate .role-card:nth-child(2) .role-card-body > span:last-child { background: var(--red); }
 .gate .auth-panel { margin: 0; width: min(640px, 100%); max-width: none; padding: 28px; border-top: 0; border-left: 4px solid var(--red); }
 @media (max-width: 860px) {
-  .gate.role-page { height: 100dvh; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; scroll-padding-top: 10px; }
+  .gate.role-page { height: 100dvh; height: 100svh; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; scroll-padding-top: 10px; }
   .gate-split { display: block; min-height: 0; }
   .gate-brand { justify-content: flex-start; padding: 28px 20px 24px; }
+  .gate-open .gate-brand { display: none; }
   .gate-brand .gate-mark { width: min(100%, 280px); }
   .gate-lead { font-size: 16px; }
   .gate-steps { margin-top: 16px; }
-  .gate-stage { display: block; padding: 18px 14px 28px; }
-  .gate .role-card,
-  .gate .role-card:nth-child(2),
-  .gate .role-card:nth-child(3) {
+  .gate-stage { display: block; padding: 18px 14px calc(28px + env(safe-area-inset-bottom)); }
+  .gate .role-card-body {
     grid-template-columns: auto 1fr;
     grid-template-areas: "num title" "copy copy" "go go";
     row-gap: 8px;
     padding: 16px;
   }
-  .gate .role-card > span:last-child { justify-self: start; }
-  .gate .auth-panel { width: 100%; }
-  .gate .auth-panel .auth-error { scroll-margin-bottom: 64px; }
-  .gate .auth-panel .auth-form button[type=submit] { scroll-margin-bottom: 16px; }
+  .gate .role-card-body > span:last-child { justify-self: start; }
+  .gate .auth-panel { width: 100%; padding: 16px; }
+  .gate .auth-panel .auth-error { scroll-margin-bottom: 72px; }
+  .gate .auth-form button[type=submit] {
+    position: sticky;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    z-index: 2;
+    scroll-margin-bottom: 16px;
+  }
 }

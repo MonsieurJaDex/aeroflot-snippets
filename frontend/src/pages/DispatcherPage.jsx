@@ -525,7 +525,6 @@ export default function DispatcherPage() {
       });
       bag.map = map;
       const picture = renderCanvas(tmj, grid, tilesets).toDataURL("image/png");
-      map.getContainer().style.background = "#c5d4b4";
       const overlay = L.imageOverlay(picture, bounds).addTo(map);
       addPlaceLabels(map, tmj);
       // zoomSnap 0: полигон вписывается в прямоугольник контейнера целиком.

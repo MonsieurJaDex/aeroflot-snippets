@@ -24,6 +24,17 @@ function homeForRole(role) {
   return "/";
 }
 
+function humanAuthError(message) {
+  const text = String(message || "");
+  if (/email already registered|already exists/i.test(text)) {
+    return "Эта почта уже есть. Откройте вкладку «Вход» и войдите, повторно регистрироваться не нужно.";
+  }
+  if (/invalid email or password/i.test(text)) return "Неверная почта или пароль.";
+  if (/requires engineer_type/i.test(text)) return "Для инженера выберите специализацию.";
+  if (/timed?\s?out|не успел ответить/i.test(text)) return text;
+  return text;
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -128,25 +139,34 @@ export default function LoginPage() {
     }
   }
 
+  function formProblem() {
+    if (mode === "register" && !name.trim()) return "Введите имя.";
+    if (!validEmail(email)) return "Почта: имя@сервис.домен, например ivan@mail.ru";
+    if (!password) return "Введите пароль.";
+    return "";
+  }
+
   async function onLogin(event) {
     event.preventDefault();
     setError("");
-    if (!validEmail(email)) {
-      setError("Почта: имя@сервис.домен, например ivan@mail.ru");
+    const problem = formProblem();
+    if (problem) {
+      setError(problem);
       return;
     }
+    const nextEmail = email.trim().toLowerCase();
     setPending(true);
     try {
-      const session = await login(email.trim(), password);
+      const session = await login(nextEmail, password);
       if (session.role !== role) {
         clearSession();
-        setError(`Этот аккаунт зарегистрирован как ${ROLE_LABELS[session.role] || session.role}.`);
+        setError(`Этот аккаунт зарегистрирован как ${ROLE_LABELS[session.role] || session.role}. Откройте карточку «${ROLE_LABELS[session.role] || "другой роли"}».`);
         return;
       }
-      storeRemember(email.trim());
+      storeRemember(nextEmail);
       navigate(homeForRole(session.role));
     } catch (err) {
-      setError(err.message);
+      setError(humanAuthError(err.message));
     } finally {
       setPending(false);
     }
@@ -155,30 +175,37 @@ export default function LoginPage() {
   async function onRegister(event) {
     event.preventDefault();
     setError("");
-    if (!validEmail(email)) {
-      setError("Почта: имя@сервис.домен, например ivan@mail.ru");
+    const problem = formProblem();
+    if (problem) {
+      setError(problem);
       return;
     }
+    const nextEmail = email.trim().toLowerCase();
     setPending(true);
     try {
       const session = await register({
         name: name.trim(),
-        email: email.trim(),
+        email: nextEmail,
         password,
         userRole: role,
         engineerType: role === "Engineer" ? skill : undefined,
       });
-      storeRemember(email.trim());
+      if (session?.role !== "Dispatcher" && session?.role !== "Engineer") {
+        clearSession();
+        setError("Сервер не подтвердил роль. Повторите регистрацию.");
+        return;
+      }
+      storeRemember(nextEmail);
       navigate(homeForRole(session.role));
     } catch (err) {
-      setError(err.message);
+      setError(humanAuthError(err.message));
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <main id="app-main" className="role-page gate" tabIndex={-1}>
+    <main id="app-main" className={role ? "role-page gate gate-open" : "role-page gate"} tabIndex={-1}>
       <NetBanner />
       <div className="gate-split">
         <aside className="gate-brand">
@@ -239,9 +266,9 @@ export default function LoginPage() {
               <button className={mode === "register" ? "auth-tab active" : "auth-tab"} type="button" onClick={() => switchMode("register")}>Регистрация</button>
             </div>
             {mode === "login" ? (
-              <form className="auth-form" key={`login-${role}`} autoComplete="off" onSubmit={onLogin}>
+              <form className="auth-form" key={`login-${role}`} autoComplete="off" noValidate onSubmit={onLogin}>
                 <label>Email
-                  <input type="email" name="email" required autoComplete="username" autoFocus value={email} onChange={(event) => setEmail(event.target.value)} />
+                  <input type="email" name="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="username" autoFocus value={email} onChange={(event) => setEmail(event.target.value)} />
                 </label>
                 <PasswordField
                   autoComplete="current-password"
@@ -258,12 +285,12 @@ export default function LoginPage() {
                 <button type="submit" disabled={pending} aria-busy={pending}>{pending ? "Вход…" : "Войти"}</button>
               </form>
             ) : (
-              <form className="auth-form" key={`register-${role}`} autoComplete="off" onSubmit={onRegister}>
+              <form className="auth-form" key={`register-${role}`} autoComplete="off" noValidate onSubmit={onRegister}>
                 <label>Имя
-                  <input type="text" name="full-name" required autoComplete="off" autoFocus value={name} onChange={(event) => setName(event.target.value)} />
+                  <input type="text" name="full-name" autoComplete="name" autoFocus value={name} onChange={(event) => setName(event.target.value)} />
                 </label>
                 <label>Email
-                  <input type="email" name="email" required autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
+                  <input type="email" name="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
                 </label>
                 <PasswordField
                   autoComplete="new-password"
@@ -292,16 +319,20 @@ export default function LoginPage() {
         ) : (
           <div className="role-grid">
             <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Dispatcher")} onFocus={() => prefetchRole("Dispatcher")} onClick={() => openRole("Dispatcher")}>
-              <span className="role-card-number">01</span>
-              <h2>Диспетчер</h2>
-              <p>Назначает инженера и снимает его только после статуса «в работе».</p>
-              <span>Войти</span>
+              <span className="role-card-body">
+                <span className="role-card-number">01</span>
+                <h2>Диспетчер</h2>
+                <p>Назначает инженера и снимает его только после статуса «в работе».</p>
+                <span>Войти</span>
+              </span>
             </button>
             <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Engineer")} onFocus={() => prefetchRole("Engineer")} onClick={() => openRole("Engineer")}>
-              <span className="role-card-number">02</span>
-              <h2>Инженер</h2>
-              <p>Принимает заявку, идёт по маршруту, ставит MEL или AOG.</p>
-              <span>Войти</span>
+              <span className="role-card-body">
+                <span className="role-card-number">02</span>
+                <h2>Инженер</h2>
+                <p>Принимает заявку, идёт по маршруту, ставит MEL или AOG.</p>
+                <span>Войти</span>
+              </span>
             </button>
           </div>
         )}

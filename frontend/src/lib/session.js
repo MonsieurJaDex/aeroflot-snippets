@@ -163,7 +163,7 @@ export async function register({ email, name, password, userRole, engineerType }
       name,
       password,
       user_role: userRole,
-      engineer_type: engineerType || null,
+      ...(engineerType ? { engineer_type: engineerType } : {}),
     },
   });
   saveSession({
