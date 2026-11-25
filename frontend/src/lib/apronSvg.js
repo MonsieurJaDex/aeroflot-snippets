@@ -24,10 +24,10 @@ const TRACK_IDS = new Set([1, 2, 8, 9, 10, 11, 12]);
 // Заливки в самом SVG: Leaflet берёт файл как картинку.
 const APRON_STYLE = `
 .apron-svg{font-family:Roboto,sans-serif}
-.apron-grass{fill:#d5e2d4}
-.apron-runway{fill:#0c2748;stroke:#0c2748;stroke-width:5;stroke-linejoin:round}
-.apron-shoulder{fill:#1a3f68}
-.apron-taxi{fill:#4f6e90;stroke:#4f6e90;stroke-width:3.5;stroke-linejoin:round}
+.apron-grass{fill:#7da36a}
+.apron-runway{fill:#162033;stroke:#162033;stroke-width:8;stroke-linejoin:round}
+.apron-shoulder{fill:#243e5c}
+.apron-taxi{fill:#3e5168;stroke:#3e5168;stroke-width:6;stroke-linejoin:round}
 .apron-walk{fill:#3d7ec4}
 .apron-svc-5{fill:#f4f8fc}
 .apron-svc-8{fill:#d4e4f4}
@@ -414,9 +414,9 @@ function drawRunway(svg, defs, paths, cells, objects, tileW, tileH) {
     el("path", {
       class: "apron-centerline",
       d: `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}`,
-      "stroke-width": 2.6,
+      "stroke-width": 6,
       "stroke-linecap": "round",
-      "stroke-dasharray": "12 11",
+      "stroke-dasharray": "18 14",
     }, group);
   }
   const named = (objects || []).find((obj) => obj.kind === "runway" && obj.name);
@@ -633,7 +633,7 @@ function drawZones(svg, zones, tileW, tileH, metres, objects) {
       cx: cx.toFixed(1),
       cy: cy.toFixed(1),
       r: r.toFixed(2),
-      "stroke-width": 2.4,
+      "stroke-width": 5,
       "stroke-dasharray": "6 4",
     }, group);
     const caption = zoneCaption(zone);

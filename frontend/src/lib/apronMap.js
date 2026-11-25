@@ -355,31 +355,17 @@ export function apronFocusCell(tmj) {
   if (runway) {
     return {
       col: Number(runway.x) + Number(runway.w || 1) / 2,
-      row: Number(runway.y) + Number(runway.h || 1) / 2 + 12,
+      row: Number(runway.y) + Number(runway.h || 1) / 2,
     };
   }
-  const pts = [];
-  for (const zone of tmj?.zones || []) {
-    const x = Number(zone.x);
-    const y = Number(zone.y);
-    if (Number.isFinite(x) && Number.isFinite(y)) pts.push([x, y]);
-  }
-  if (!pts.length) {
-    for (const obj of tmj?.objects || []) {
-      pts.push([Number(obj.x) + Number(obj.w || 1) / 2, Number(obj.y) + Number(obj.h || 1) / 2]);
-    }
-  }
-  if (!pts.length) return { col: (tmj?.width || 2) / 2, row: (tmj?.height || 2) / 2 };
-  const col = pts.reduce((sum, point) => sum + point[0], 0) / pts.length;
-  const row = pts.reduce((sum, point) => sum + point[1], 0) / pts.length;
-  return { col, row };
+  return { col: (tmj?.width || 2) / 2, row: (tmj?.height || 2) / 2 };
 }
 
 export function applyPhoneApron(map, tmj) {
   if (!window.matchMedia("(max-width: 860px)").matches) return false;
   const tile = tmj.tilewidth || 4;
+  const zoom = Math.log2(6 / tile);
   const focus = apronFocusCell(tmj);
-  const zoom = Math.log2(7 / tile);
   const z = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), zoom));
   map._sizeChanged = true;
   if (map._loaded) map.invalidateSize(false);
@@ -391,30 +377,45 @@ export function roadHint(cells) {
   return cells.some((cell) => activeRoadIds.has(cell.gid)) ? " (дорога)" : "";
 }
 
+function placeTitle(name) {
+  const text = String(name || "").replace(/^стоянка\s+/i, "").trim();
+  if (!text) return "";
+  return text.length > 16 ? `${text.slice(0, 14)}…` : text;
+}
+
 export function addPlaceLabels(map, tmj) {
   const layer = L.layerGroup().addTo(map);
-  const places = [
-    ...(tmj.objects || []).map((obj) => ({
-      name: obj.name,
+  const seen = new Set();
+  const places = [];
+  for (const obj of tmj.objects || []) {
+    const name = placeTitle(obj.name);
+    if (!name) continue;
+    seen.add(name.toLowerCase());
+    places.push({
+      name,
       col: Number(obj.x) + Number(obj.w || 1) / 2,
       row: Number(obj.y) + Number(obj.h || 1) / 2,
-    })),
-    ...(tmj.zones || []).map((zone) => ({
-      name: zone.label,
+    });
+  }
+  for (const zone of tmj.zones || []) {
+    const name = placeTitle(zone.label || zone.id);
+    if (!name || seen.has(name.toLowerCase())) continue;
+    places.push({
+      name,
       col: Number(zone.x) + 0.5,
       row: Number(zone.y) + 0.5,
-    })),
-  ];
+    });
+  }
   for (const place of places) {
-    if (!place.name) continue;
     L.marker(cellToLatLng(tmj, place.col, place.row), {
       interactive: false,
       keyboard: false,
       icon: L.divIcon({ className: "map-pin-hidden", html: "", iconSize: [1, 1] }),
     }).bindTooltip(place.name, {
-      permanent: false,
-      direction: "center",
+      permanent: true,
+      direction: "top",
       className: "map-label",
+      offset: [0, -2],
     }).addTo(layer);
   }
   return layer;
