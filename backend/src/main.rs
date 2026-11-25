@@ -222,21 +222,7 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route("/getRoute", post(get_route))
         .route("/assign", post(assign_engineer))
         .route("/assign/candidates", post(assign_candidates))
-        .route("/requests", post(router::ops::create_request))
-        .route("/requests/all", get(router::ops::list_all_requests))
-        .route(
-            "/requests/{plane_id}",
-            get(router::ops::list_requests_for_plane),
-        )
-        .route("/requests/{id}/queue", post(router::ops::queue_request))
-        .route(
-            "/requests/{id}/reassign",
-            post(router::ops::reassign_request),
-        )
-        .route(
-            "/requests/{id}/unassign",
-            post(router::ops::unassign_request),
-        )
+        
         .route("/alerts", get(router::ops::list_alerts))
         .route("/defects", post(router::ops::create_defect))
         .route("/journal.csv", get(router::ops::export_journal))
@@ -333,6 +319,21 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route(
             "/v1/track",
             post(router::track::ingest).get(router::track::ingest_query),
+        )
+        .route("/requests", post(router::ops::create_request))
+        .route("/requests/all", get(router::ops::list_all_requests))
+        .route(
+            "/requests/{plane_id}",
+            get(router::ops::list_requests_for_plane),
+        )
+        .route("/requests/{id}/queue", post(router::ops::queue_request))
+        .route(
+            "/requests/{id}/reassign",
+            post(router::ops::reassign_request),
+        )
+        .route(
+            "/requests/{id}/unassign",
+            post(router::ops::unassign_request),
         )
         .nest("/auth", auth_router)
         .nest("/geo", geo_routes)

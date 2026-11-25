@@ -126,6 +126,12 @@ pub struct Simulation {
     pub speed_scale: f64,
     /// Tick the driver runs at, in milliseconds.
     pub tick_ms: i64,
+    /// Identifies the driver loop that owns this state. A second
+    /// `startSimulation` on the same object overwrites the state and therefore
+    /// the run: the older loop sees a different token on its next tick and stops
+    /// instead of driving the same clock twice.
+    #[serde(default)]
+    pub run: String,
 }
 
 impl Simulation {
@@ -278,13 +284,13 @@ fn current_speed_mps(route: &PlannedRoute, elapsed: f64) -> Option<f64> {
 /// and a `stopSimulation` from any request take effect on the next tick, and it
 /// means a restarted process picks the movement up where it stopped.
 pub async fn drive(app_state: Arc<AppState>, obj: String) {
-    let tick_ms = {
+    let (tick_ms, run) = {
         let active = match app_state.active.read() {
             Ok(guard) => guard.clone(),
             Err(_) => return,
         };
         match load_maybe(&app_state, &active.id, &obj) {
-            Some(simulation) => simulation.tick_ms.max(1),
+            Some(simulation) => (simulation.tick_ms.max(1), simulation.run),
             None => return,
         }
     };
@@ -304,6 +310,10 @@ pub async fn drive(app_state: Arc<AppState>, obj: String) {
                     return;
                 }
             };
+        // A newer start on this object owns the clock now; this loop is stale.
+        if load(&mut redis_conn, &active.id, &obj).is_some_and(|current| current.run != run) {
+            return;
+        }
         let Some(step) = step(&active, &mut redis_conn, &mut pg_conn, &obj, passed) else {
             return;
         };
@@ -337,7 +347,9 @@ fn load_maybe(app_state: &AppState, map_id: &str, obj: &str) -> Option<Simulatio
 /// `RA-…` is an aircraft, `vehicle-…`/`v-…` a vehicle, everything else walks.
 #[must_use]
 pub fn agent_of(obj: &str) -> crate::graph::AgentKind {
-    if obj.starts_with("vehicle-") || obj.starts_with("v-") {
+    // An aircraft is not a pedestrian: it moves on the vehicle side of the graph,
+    // where the apron and runway speeds live. Only an engineer walks.
+    if obj.starts_with("vehicle-") || obj.starts_with("v-") || obj.starts_with("RA-") {
         crate::graph::AgentKind::Vehicle
     } else {
         crate::graph::AgentKind::Engineer
