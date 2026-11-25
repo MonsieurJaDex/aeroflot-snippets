@@ -689,12 +689,10 @@ export default function DispatcherPage() {
           try {
             await updateEngineerPosition(own ? sessionId : id, [[point, stamp]]);
           } catch (error) {
-            // 403 чужого инженера не успех: точка пишется только ответом simulate.
+            // Чужого инженера правит только он сам (403). /api/simulate удалён из
+            // бэкенда, поэтому запасного адреса больше нет — показываем причину.
             if (own || Number(error?.status) !== 403) throw error;
-            await apiRequest("/api/simulate/update_engineer_position", {
-              method: "POST",
-              body: { id, new_point: point },
-            });
+            throw new Error("Точку чужого инженера ставит только он сам (403).");
           }
           await refresh();
           return `Инженер · [${point[0]}, ${point[1]}]`;
