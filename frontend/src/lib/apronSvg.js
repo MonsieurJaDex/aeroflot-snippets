@@ -21,69 +21,45 @@ const DRAW_ORDER = [10, 3, 4, 5, 6, 2, 7, 1, 9, 12, 8, 11];
 const SHADOW_IDS = new Set([8, 9, 11, 12]);
 const TRACK_IDS = new Set([1, 2, 8, 9, 10, 11, 12]);
 
-const LEGEND_ROWS = [
-  [
-    ["apron-runway", "ВПП"],
-    ["apron-taxi", "рулёжка"],
-    ["apron-walk", "пешеход"],
-  ],
-  [
-    ["apron-svc-5", "сервис 5"],
-    ["apron-svc-8", "сервис 8"],
-    ["apron-svc-10", "сервис 10"],
-    ["apron-svc-20", "сервис 20"],
-  ],
-  [
-    ["apron-terminal", "терминал"],
-    ["apron-hangar", "ангар"],
-    ["apron-warehouse", "склад"],
-    ["apron-parking", "стоянка"],
-  ],
-];
-
 // Заливки в самом SVG: Leaflet берёт файл как картинку.
 const APRON_STYLE = `
 .apron-svg{font-family:Roboto,sans-serif}
-.apron-grass{fill:#c5d4b4}
-.apron-grass-band{fill:none;stroke:#b7c9a4}
-.apron-runway{fill:#1f2937}
-.apron-shoulder{fill:#243044}
-.apron-taxi{fill:#64748b}
-.apron-walk{fill:#2f6fed}
-.apron-svc-5{fill:#c4a15a}
-.apron-svc-8{fill:#d7b56e}
-.apron-svc-10{fill:#e7c98a}
-.apron-svc-20{fill:#f6e2a8}
+.apron-grass{fill:#d5e2d4}
+.apron-runway{fill:#0c2748;stroke:#0c2748;stroke-width:5;stroke-linejoin:round}
+.apron-shoulder{fill:#1a3f68}
+.apron-taxi{fill:#4f6e90;stroke:#4f6e90;stroke-width:3.5;stroke-linejoin:round}
+.apron-walk{fill:#3d7ec4}
+.apron-svc-5{fill:#f4f8fc}
+.apron-svc-8{fill:#d4e4f4}
+.apron-svc-10{fill:#8eb4d8}
+.apron-svc-20{fill:#2f6eae}
 .apron-terminal{fill:#00529b}
-.apron-hangar{fill:#4a5568}
-.apron-warehouse{fill:#8c4a32}
-.apron-parking{fill:#8d6a3a}
-.apron-other{fill:#6b7280}
-.apron-shadow{fill:#14181d;opacity:.32}
-.apron-taxi-line{fill:none;stroke:#e6c84a}
+.apron-hangar{fill:#143864}
+.apron-warehouse{fill:#5d7fa0}
+.apron-parking{fill:#ffffff}
+.apron-other{fill:#7f96ad}
+.apron-shadow{fill:#0a1628;opacity:.28}
+.apron-taxi-line{fill:none;stroke:#ffffff}
 .apron-edge{fill:none;stroke:#f4f7fb}
 .apron-threshold{fill:#f4f7fb}
 .apron-centerline{fill:none;stroke:#f4f7fb}
 .apron-roof{fill:#e8eef3}
 .apron-ribbon{fill:#00366d}
 .apron-ribbon-2{fill:#5aa6d6}
-.apron-window{fill:#e7f6ff}
-.apron-roof-metal{fill:#8d98a4}
-.apron-rib{fill:none;stroke:#2c3440}
-.apron-door-frame{fill:#1e242b}
-.apron-door{fill:#12161b}
-.apron-roof-wood{fill:#6a341f}
-.apron-stall{fill:none;stroke:#f3efe4}
-.apron-place{fill:#f8fafc;stroke:#1a1f24;paint-order:stroke}
+.apron-window{fill:#ffffff}
+.apron-roof-metal{fill:#d5dee8}
+.apron-rib{fill:none;stroke:#1a3f68}
+.apron-door-frame{fill:#0e243c}
+.apron-door{fill:#071422}
+.apron-roof-wood{fill:#4a6d90}
+.apron-stall{fill:none;stroke:#00529b}
+.apron-place{fill:#f8fafc;stroke:#0a2744;paint-order:stroke}
 .apron-zone{fill:none;stroke:#c5161c}
-.apron-zone-label{fill:#7f1216;stroke:#fff8f0;paint-order:stroke}
-.apron-legend-shadow{fill:#1a1f24;opacity:.22}
-.apron-legend-bg{fill:#f7f4ee;stroke:#243044}
-.apron-legend-swatch{stroke:#243044}
-.apron-legend-text{fill:#1a1f24}
+.apron-zone-label{fill:#9b1218;stroke:#ffffff;paint-order:stroke}
 `;
 
 let cachedSvg = { key: "", markup: "" };
+let labelFrame = null;
 
 function el(name, attrs, parent) {
   const node = document.createElementNS(SVG_NS, name);
@@ -337,40 +313,64 @@ function boundsOf(cells) {
   return { minX, minY, maxX, maxY };
 }
 
+function measureLabel(value, size) {
+  return String(value || "").length * size * 0.58;
+}
+
+function fitFont(value, size, pxW) {
+  const room = Math.max(12, pxW - 8);
+  const width = measureLabel(value, size);
+  if (!width || width <= room) return size;
+  return Math.max(9, (size * room) / width);
+}
+
+function clampLabel(x, y, value, size, anchor, box) {
+  if (!box) return [x, y, size];
+  const font = fitFont(value, size, box.w);
+  const width = measureLabel(value, font);
+  const halfH = font * 0.65;
+  const pad = 4;
+  let left = x - width / 2;
+  if (anchor === "start") left = x;
+  else if (anchor === "end") left = x - width;
+  const overflowR = left + width - (box.w - pad);
+  if (overflowR > 0) {
+    x -= overflowR;
+    left -= overflowR;
+  }
+  if (left < pad) x += pad - left;
+  if (y + halfH > box.h - pad) y = box.h - pad - halfH;
+  if (y - halfH < pad) y = pad + halfH;
+  return [x, y, font];
+}
+
 function placeLabel(parent, x, y, value, size, extra) {
+  const anchor = extra?.["text-anchor"] || "middle";
+  const [px, py, font] = clampLabel(x, y, value, size, anchor, labelFrame);
+  let attrs = extra;
+  if (attrs?.transform && /rotate\(/.test(attrs.transform)) {
+    attrs = {
+      ...attrs,
+      transform: attrs.transform.replace(
+        /rotate\(([^ )]+) [^)]+\)/,
+        `rotate($1 ${px.toFixed(1)} ${py.toFixed(1)})`,
+      ),
+    };
+  }
   text(parent, {
     class: "apron-place",
-    x: x.toFixed(1),
-    y: y.toFixed(1),
     "text-anchor": "middle",
     "dominant-baseline": "middle",
-    "font-size": size,
-    "stroke-width": Math.max(3, size * 0.16).toFixed(1),
-    ...extra,
+    "font-size": Number(font).toFixed(1),
+    "stroke-width": Math.max(2.4, font * 0.18).toFixed(1),
+    ...attrs,
+    x: Number(px).toFixed(1),
+    y: Number(py).toFixed(1),
   }, value);
 }
 
-function drawGrass(svg, defs, pxW, pxH) {
-  const pattern = el("pattern", {
-    id: "apron-grass",
-    width: 56,
-    height: 56,
-    patternUnits: "userSpaceOnUse",
-  }, defs);
-  el("rect", { width: 56, height: 56, class: "apron-grass" }, pattern);
-  el("path", {
-    class: "apron-grass-band",
-    d: "M-56 56 L0 0 M0 56 L56 0 M56 56 L112 0",
-    "stroke-width": 22,
-    "stroke-linecap": "square",
-  }, pattern);
-  el("rect", {
-    x: 0,
-    y: 0,
-    width: pxW,
-    height: pxH,
-    fill: "url(#apron-grass)",
-  }, svg);
+function drawGrass(svg, pxW, pxH) {
+  el("rect", { class: "apron-grass", x: 0, y: 0, width: pxW, height: pxH }, svg);
 }
 
 function drawRunway(svg, defs, paths, cells, objects, tileW, tileH) {
@@ -597,15 +597,14 @@ function drawParking(svg, defs, paths, obj, tileW, tileH) {
       "stroke-linecap": "butt",
     }, g);
   }
-  text(svg, {
-    class: "apron-place",
-    x: ((x0 + w + 0.8) * tileW).toFixed(1),
-    y: ((y0 + h / 2) * tileH).toFixed(1),
-    "text-anchor": "start",
-    "dominant-baseline": "middle",
-    "font-size": 15,
-    "stroke-width": 3.5,
-  }, obj.name || "Стоянка");
+  placeLabel(
+    svg,
+    (x0 + 0.4) * tileW,
+    (y0 + h / 2) * tileH,
+    obj.name || "Стоянка",
+    15,
+    { "text-anchor": "start" },
+  );
 }
 
 function zoneCaption(zone) {
@@ -632,15 +631,22 @@ function drawZones(svg, zones, tileW, tileH, metres) {
       "stroke-dasharray": "6 4",
     }, group);
     let x = cx;
-    let y = cy - r - 9;
-    for (let n = 0; n < 6; n += 1) {
-      const hit = placed.some((item) => Math.abs(item.x - x) < 54 && Math.abs(item.y - y) < 16);
+    let y = cy - r - 11;
+    const limit = labelFrame?.h || y + 18;
+    for (let n = 0; n < 8; n += 1) {
+      const hit = placed.some((item) => Math.abs(item.x - x) < 96 && Math.abs(item.y - y) < 18);
       if (!hit) break;
-      x += n % 2 ? 30 : -18;
-      if (n % 2) y += 13;
+      y = y + 18 < limit - 8 ? y + 18 : y - 18;
+    }
+    let font = 16;
+    const caption = zoneCaption(zone);
+    if (caption) {
+      const fitted = clampLabel(x, y, caption, 16, "middle", labelFrame);
+      x = fitted[0];
+      y = fitted[1];
+      font = fitted[2];
     }
     placed.push({ x, y });
-    const caption = zoneCaption(zone);
     if (!caption) continue;
     text(group, {
       class: "apron-zone-label",
@@ -648,63 +654,10 @@ function drawZones(svg, zones, tileW, tileH, metres) {
       y: y.toFixed(1),
       "text-anchor": "middle",
       "dominant-baseline": "middle",
-      "font-size": 14,
+      "font-size": Number(font).toFixed(1),
       "stroke-width": 3,
     }, caption);
   }
-}
-
-function drawLegend(svg) {
-  const itemW = 156;
-  const rowH = 32;
-  const pad = 12;
-  const sw = 22;
-  const sh = 15;
-  const cols = Math.max(...LEGEND_ROWS.map((row) => row.length));
-  const boxW = pad * 2 + cols * itemW;
-  const boxH = pad * 2 + LEGEND_ROWS.length * rowH;
-  const ox = 14;
-  const oy = 14;
-  const g = el("g", { class: "apron-legend" }, svg);
-  el("rect", {
-    class: "apron-legend-shadow",
-    x: ox + 4,
-    y: oy + 5,
-    width: boxW,
-    height: boxH,
-    rx: 8,
-  }, g);
-  el("rect", {
-    class: "apron-legend-bg",
-    x: ox,
-    y: oy,
-    width: boxW,
-    height: boxH,
-    rx: 8,
-    "stroke-width": 2,
-  }, g);
-  LEGEND_ROWS.forEach((row, rowIndex) => {
-    row.forEach(([klass, label], col) => {
-      const x = ox + pad + col * itemW;
-      const y = oy + pad + rowIndex * rowH;
-      el("rect", {
-        class: `${klass} apron-legend-swatch`,
-        x,
-        y: y + (rowH - sh) / 2,
-        width: sw,
-        height: sh,
-        rx: 2,
-        "stroke-width": 1,
-      }, g);
-      text(g, {
-        class: "apron-legend-text",
-        x: x + sw + 8,
-        y: y + rowH / 2,
-        "dominant-baseline": "middle",
-        "font-size": 22,
-      }, label);
-    });
-  });
 }
 
 function thinMask(mask, width, height) {
@@ -864,19 +817,20 @@ function buildApronSvg(tmj, data) {
   const height = tmj.height;
   const pxW = width * tileW;
   const pxH = height * tileH;
+  labelFrame = { w: pxW, h: pxH };
   const { paths, cells } = runsOf(data, width, height, tileW, tileH);
   const svg = el("svg", {
     xmlns: SVG_NS,
     viewBox: `0 0 ${pxW} ${pxH}`,
     width: pxW,
     height: pxH,
-    preserveAspectRatio: "none",
+    preserveAspectRatio: "xMidYMid meet",
     class: "apron-svg",
   });
   const style = el("style", { type: "text/css" }, svg);
   style.textContent = APRON_STYLE;
   const defs = el("defs", {}, svg);
-  drawGrass(svg, defs, pxW, pxH);
+  drawGrass(svg, pxW, pxH);
   const ground = el("g", { class: "apron-cells" }, svg);
   for (const id of DRAW_ORDER) {
     const d = paths.get(id);
@@ -911,7 +865,7 @@ function buildApronSvg(tmj, data) {
     } else if (obj.kind === "parking") drawParking(svg, defs, paths, obj, tileW, tileH);
   }
   drawZones(svg, tmj.zones, tileW, tileH, tmj.cell_size_m || 5);
-  drawLegend(svg);
+  labelFrame = null;
   return svg;
 }
 

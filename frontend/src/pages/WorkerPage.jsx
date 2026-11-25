@@ -1014,9 +1014,22 @@ export default function WorkerPage() {
       const bounds = [[0, 0], [tmj.height * tmj.tileheight, tmj.width * tmj.tilewidth]];
       L.imageOverlay(apronOverlayUrl(tmj) || renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
       addPlaceLabels(map, tmj);
-      map.fitBounds(bounds);
+      let apronFitted = false;
+      const fitApron = () => {
+        const node = mapNode.current;
+        if (!node || node.clientWidth < 2 || node.clientHeight < 2) return;
+        map.invalidateSize();
+        if (apronFitted) return;
+        map.fitBounds(bounds, { padding: [16, 16] });
+        apronFitted = true;
+      };
+      fitApron();
+      requestAnimationFrame(fitApron);
       // Клики по карте не имитируют GPS — полевой трек отдельно через GPS Logger.
-      const onResize = () => map.invalidateSize();
+      const onResize = () => {
+        map.invalidateSize();
+        if (!apronFitted) fitApron();
+      };
       window.addEventListener("resize", onResize);
       bag.cleanupResize = () => window.removeEventListener("resize", onResize);
       mapApi.current = {

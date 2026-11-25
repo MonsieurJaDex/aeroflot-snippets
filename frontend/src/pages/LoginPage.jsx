@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import NetBanner from "../components/NetBanner.jsx";
 import PasswordField from "../components/PasswordField.jsx";
@@ -8,7 +8,9 @@ import { clearSession, getApiBase, getSession, login, register, setApiBase } fro
 const EMAIL_RE = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i;
 
 function validEmail(value) {
-  return EMAIL_RE.test(String(value || "").trim());
+  const email = String(value || "").trim();
+  if (!email) return false;
+  return EMAIL_RE.test(email);
 }
 
 const ROLE_LABELS = {
@@ -39,6 +41,23 @@ export default function LoginPage() {
   const [skill, setSkill] = useState(ENGINEER_TYPES[0][0]);
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(() => localStorage.getItem("oto-remember") === "1");
+  const panelRef = useRef(null);
+
+  useEffect(() => {
+    if (!role) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const errorNode = error ? panel.querySelector(".auth-error") : null;
+    if (errorNode) {
+      errorNode.scrollIntoView({ block: "nearest", inline: "nearest" });
+      return;
+    }
+    if (mode === "register") {
+      panel.querySelector(".auth-form button[type=submit]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      return;
+    }
+    panel.scrollIntoView({ block: "start", inline: "nearest" });
+  }, [role, mode, error]);
 
   useEffect(() => {
     document.title = "Аэрофлот ОТО · вход";
@@ -216,7 +235,7 @@ export default function LoginPage() {
         </details> : null}
 
         {role ? (
-          <section className="auth-panel">
+          <section className="auth-panel" ref={panelRef}>
             <div className="auth-card-head">
               <div>
                 <div className="auth-role-badge">{ROLE_LABELS[role]}</div>
@@ -244,6 +263,7 @@ export default function LoginPage() {
                   <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
                   Запомнить почту
                 </label>
+                {error ? <div className="auth-error" role="alert">{error}</div> : null}
                 <button type="submit" disabled={pending} aria-busy={pending}>{pending ? "Вход…" : "Войти"}</button>
               </form>
             ) : (
@@ -272,10 +292,10 @@ export default function LoginPage() {
                   <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
                   Запомнить почту
                 </label>
+                {error ? <div className="auth-error" role="alert">{error}</div> : null}
                 <button type="submit" disabled={pending}>{pending ? "Регистрация…" : "Зарегистрироваться"}</button>
               </form>
             )}
-            {error ? <div className="auth-error">{error}</div> : null}
             {status ? <div className="auth-status">{status}</div> : null}
           </section>
         ) : (

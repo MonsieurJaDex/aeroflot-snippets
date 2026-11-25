@@ -7,7 +7,7 @@ import { copyText } from "../lib/copyText.js";
 import { relativeRu } from "../lib/format.js";
 import { classifyRemark, createRemark, trainClassifier } from "../lib/mccApi.js";
 import { addMcc, clearAllMcc, clearAssignedMcc, countOpenMcc, isMccAssigned, listMcc, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
-import { clearSession, getSession, login } from "../lib/session.js";
+import { clearSession, getSession, login, register } from "../lib/session.js";
 
 const ISSUES = AIRCRAFT_ISSUES.filter(([value]) => value !== "other");
 
@@ -93,6 +93,9 @@ export default function MccPage() {
   const [pending, setPending] = useState(false);
   const [classifying, setClassifying] = useState(false);
   const [sessionName, setSessionName] = useState(() => getSession()?.name || "");
+  const [authMode, setAuthMode] = useState("login");
+  const [authName, setAuthName] = useState("");
+  const [authError, setAuthError] = useState("");
   const [authPending, setAuthPending] = useState(false);
   const [trainPending, setTrainPending] = useState(false);
   const [authEmail, setAuthEmail] = useState("");
@@ -209,12 +212,18 @@ export default function MccPage() {
     }
   }
 
+  function switchAuth(next) {
+    setAuthMode(next);
+    setAuthPassword("");
+    setShowPassword(false);
+    setAuthError("");
+  }
+
   async function onAuth(event) {
     event.preventDefault();
-    setError("");
+    setAuthError("");
     if (!EMAIL_RE.test(authEmail.trim())) {
-      setError("Почта: имя@сервис.домен, например ivan@mail.ru");
-      setAuthPending(false);
+      setAuthError("Почта: имя@сервис.домен, например ivan@mail.ru");
       return;
     }
     setAuthPending(true);
@@ -225,7 +234,39 @@ export default function MccPage() {
       setShowPassword(false);
       setStatus(`Вход: ${session?.name || "ок"}. Можно писать замечания на сервер.`);
     } catch (err) {
-      setError(readError(err));
+      setAuthError(readError(err));
+    } finally {
+      setAuthPending(false);
+    }
+  }
+
+  async function onRegister(event) {
+    event.preventDefault();
+    setAuthError("");
+    const name = authName.trim();
+    if (!name) {
+      setAuthError("Укажите имя.");
+      return;
+    }
+    if (!EMAIL_RE.test(authEmail.trim())) {
+      setAuthError("Почта: имя@сервис.домен, например ivan@mail.ru");
+      return;
+    }
+    setAuthPending(true);
+    try {
+      const session = await register({
+        email: authEmail.trim(),
+        name,
+        password: authPassword,
+        userRole: "Dispatcher",
+      });
+      const shown = session?.name || name;
+      setSessionName(shown);
+      setAuthPassword("");
+      setShowPassword(false);
+      setStatus(`Регистрация: ${shown}. Можно писать замечания на сервер.`);
+    } catch (err) {
+      setAuthError(readError(err));
     } finally {
       setAuthPending(false);
     }
@@ -236,6 +277,8 @@ export default function MccPage() {
     setSessionName("");
     setAuthPassword("");
     setShowPassword(false);
+    setAuthError("");
+    setAuthMode("login");
     setStatus("Вышли. Серверные замечания снова недоступны без входа.");
   }
 
@@ -303,19 +346,44 @@ export default function MccPage() {
           <p className="mcc-intro">Фиксация замечания без назначения инженера. Для записи на сервер нужен вход.</p>
 
           {!sessionName ? (
-            <form className="auth-panel auth-form" autoComplete="off" onSubmit={onAuth}>
-              <p className="section-label">Вход для записи на сервер</p>
-              <label>Email
-                <input type="email" name="email" required autoComplete="username" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} />
-              </label>
-              <PasswordField
-                value={authPassword}
-                onChange={(event) => setAuthPassword(event.target.value)}
-                show={showPassword}
-                onToggle={() => setShowPassword((prev) => !prev)}
-              />
-              <button type="submit" disabled={authPending}>{authPending ? "Вход…" : "Войти"}</button>
-            </form>
+            <div className="auth-panel mcc-auth">
+              <div className="auth-tabs" role="tablist" aria-label="Вход или регистрация">
+                <button className={authMode === "login" ? "auth-tab active" : "auth-tab"} type="button" role="tab" aria-selected={authMode === "login"} onClick={() => switchAuth("login")}>Вход</button>
+                <button className={authMode === "register" ? "auth-tab active" : "auth-tab"} type="button" role="tab" aria-selected={authMode === "register"} onClick={() => switchAuth("register")}>Регистрация</button>
+              </div>
+              {authMode === "login" ? (
+                <form className="auth-form" autoComplete="off" onSubmit={onAuth}>
+                  <label>Email
+                    <input type="email" name="email" required autoComplete="username" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} />
+                  </label>
+                  <PasswordField
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    show={showPassword}
+                    onToggle={() => setShowPassword((prev) => !prev)}
+                  />
+                  <button type="submit" disabled={authPending}>{authPending ? "Вход…" : "Войти"}</button>
+                </form>
+              ) : (
+                <form className="auth-form" autoComplete="off" onSubmit={onRegister}>
+                  <label>Имя
+                    <input type="text" name="name" required autoComplete="name" value={authName} onChange={(event) => setAuthName(event.target.value)} />
+                  </label>
+                  <label>Email
+                    <input type="email" name="email" required autoComplete="username" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} />
+                  </label>
+                  <PasswordField
+                    autoComplete="new-password"
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    show={showPassword}
+                    onToggle={() => setShowPassword((prev) => !prev)}
+                  />
+                  <button type="submit" disabled={authPending}>{authPending ? "Регистрация…" : "Зарегистрироваться"}</button>
+                </form>
+              )}
+              {authError ? <div className="auth-error" role="alert">{authError}</div> : null}
+            </div>
           ) : (
             <div className="auth-panel mcc-session-panel">
               <p className="section-label">Сессия</p>

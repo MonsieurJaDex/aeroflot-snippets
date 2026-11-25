@@ -573,7 +573,17 @@ export default function DispatcherPage() {
       bag.map = map;
       L.imageOverlay(apronOverlayUrl(tmj) || renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
       addPlaceLabels(map, tmj);
-      map.fitBounds(bounds);
+      let apronFitted = false;
+      const fitApron = () => {
+        const node = mapNode.current;
+        if (!node || node.clientWidth < 2 || node.clientHeight < 2) return;
+        map.invalidateSize();
+        if (apronFitted) return;
+        map.fitBounds(bounds, { padding: [16, 16] });
+        apronFitted = true;
+      };
+      fitApron();
+      requestAnimationFrame(fitApron);
 
       const standsLayer = L.layerGroup().addTo(map);
       const staffLayer = L.layerGroup().addTo(map);
@@ -584,7 +594,10 @@ export default function DispatcherPage() {
         if (!layersRef.current[name]) map.removeLayer(layer);
       }
 
-      const onResize = () => map.invalidateSize();
+      const onResize = () => {
+        map.invalidateSize();
+        if (!apronFitted) fitApron();
+      };
       window.addEventListener("resize", onResize);
       bag.cleanupResize = () => window.removeEventListener("resize", onResize);
 
