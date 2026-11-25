@@ -610,9 +610,8 @@ function drawParking(svg, defs, paths, obj, tileW, tileH) {
 
 function zoneCaption(zone) {
   const label = String(zone.label || "").trim();
-  if (/^зона\s+\d+$/i.test(label)) return label;
-  if (zone.id != null && String(zone.id).length <= 3) return `Зона ${zone.id}`;
-  return label.slice(0, 12);
+  if (label) return label.slice(0, 16);
+  return String(zone.id || "").trim().slice(0, 16);
 }
 
 function drawZones(svg, zones, tileW, tileH, metres) {
