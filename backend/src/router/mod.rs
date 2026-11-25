@@ -1266,25 +1266,7 @@ pub async fn assign_engineer(
     let route_json = serde_json::to_string(&chosen.route).expect("route serializes");
     // ТЗ п.17: the numbers behind the pick travel with the task, so the
     // engineer can be shown why they were chosen when they accept it.
-    let basis = SelectionBasis {
-        engineer_id: chosen.engineer_id.to_string(),
-        score: chosen.score,
-        eta_seconds: travel,
-        distance: chosen.route.len() as u64,
-        uses_vehicle: chosen.uses_vehicle,
-        factors: chosen
-            .factors
-            .iter()
-            .map(|factor| ScoreFactor {
-                name: factor.name.clone(),
-                seconds: factor.seconds,
-            })
-            .collect(),
-        reason: chosen.reason.clone(),
-        manual: payload.engineer_id.is_some(),
-        chosen_at: Utc::now().to_rfc3339(),
-    };
-    let basis_json = serde_json::to_string(&basis).map_err(|e| {
+    let basis_json = selection_basis_json(chosen, payload.engineer_id.is_some()).map_err(|e| {
         tracing::error!(error = %e, "failed to serialize the selection basis");
         internal_error()
     })?;
@@ -1439,6 +1421,33 @@ pub(crate) fn assignment_candidate(row: &crate::rank::CandidateScore) -> Assignm
             .collect(),
         score: row.score,
     }
+}
+
+/// ТЗ п.17: the numbers behind a pick, serialized for `tasks.selection_basis`.
+/// Both handlers that put an engineer on a request write it through here, so
+/// the stored justification always describes the engineer actually assigned.
+pub(crate) fn selection_basis_json(
+    row: &crate::rank::CandidateScore,
+    manual: bool,
+) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&SelectionBasis {
+        engineer_id: row.engineer_id.to_string(),
+        score: row.score,
+        eta_seconds: row.eta_seconds,
+        distance: row.route.len() as u64,
+        uses_vehicle: row.uses_vehicle,
+        factors: row
+            .factors
+            .iter()
+            .map(|factor| ScoreFactor {
+                name: factor.name.clone(),
+                seconds: factor.seconds,
+            })
+            .collect(),
+        reason: row.reason.clone(),
+        manual,
+        chosen_at: Utc::now().to_rfc3339(),
+    })
 }
 
 /// Loads the request the dispatcher is looking at. Assignment needs it in the

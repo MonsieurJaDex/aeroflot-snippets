@@ -404,6 +404,12 @@ pub async fn reassign_request(
     }
     let travel = row.eta_seconds;
     let route_json = serde_json::to_string(&row.route).expect("route serializes");
+    // ТЗ п.17: the basis stored with the task must describe the engineer who
+    // now holds it, never the one it was moved away from.
+    let basis_json = super::selection_basis_json(row, true).map_err(|e| {
+        tracing::error!(error = %e, "failed to serialize the selection basis");
+        internal_error()
+    })?;
     diesel::update(tasks::table.find(id))
         .set((
             tasks::assigned_engineer.eq(Some(engineer_id)),
@@ -415,6 +421,7 @@ pub async fn reassign_request(
             tasks::is_active.eq(true),
             tasks::waiting_part.eq(false),
             tasks::arrived_at.eq(None::<chrono::DateTime<Utc>>),
+            tasks::selection_basis.eq(Some(basis_json)),
         ))
         .execute(&mut pg_conn)
         .map_err(|_| internal_error())?;
@@ -491,6 +498,9 @@ pub async fn unassign_request(
             tasks::tools_picked.eq(false),
             tasks::arrived_at.eq(None::<chrono::DateTime<Utc>>),
             tasks::is_active.eq(true),
+            // No engineer, no justification: a stale basis would be handed to
+            // whoever accepts the request next.
+            tasks::selection_basis.eq(None::<String>),
         ))
         .execute(&mut pg_conn)
         .map_err(|_| internal_error())?;
