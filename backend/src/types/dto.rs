@@ -378,13 +378,54 @@ pub struct AssignmentCandidate {
 }
 
 /// One addend of [`AssignmentCandidate::score`].
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ScoreFactor {
     /// Stable machine name, for example `eta`, `late`, `load` or `aog_bonus`.
     pub name: String,
     /// Contribution to the score in seconds: positive is a penalty, negative a
     /// bonus.
     pub seconds: f64,
+}
+
+/// Numeric justification of the engineer a request was assigned to, stored with
+/// the task and handed to that engineer when the assignment is read or accepted.
+///
+/// The sum of [`Self::factors`] equals [`Self::score`], so the engineer sees the
+/// same numbers the dispatcher's comparison showed.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SelectionBasis {
+    /// UUID of the engineer the request was assigned to.
+    pub engineer_id: String,
+    /// Final ranking score that won; lower is better.
+    pub score: f64,
+    /// Estimated travel time in seconds at the moment of assignment.
+    #[schema(minimum = 0)]
+    pub eta_seconds: u64,
+    /// Route length in map cells.
+    #[schema(minimum = 0)]
+    pub distance: u64,
+    /// Whether the route requires a special vehicle.
+    pub uses_vehicle: bool,
+    /// Signed addends of [`Self::score`], in score order.
+    pub factors: Vec<ScoreFactor>,
+    /// Human-readable summary of the same facts.
+    pub reason: String,
+    /// True when a dispatcher named the engineer instead of taking the best row.
+    pub manual: bool,
+    /// When the assignment was made, ISO 8601 in UTC.
+    pub chosen_at: String,
+}
+
+/// Answer of `POST /api/tasks/current/accept`: the new status and the numeric
+/// justification of why this engineer was chosen for the request.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AcceptCurrentTaskResponse {
+    /// Task status after accepting, always `in_progress`.
+    pub status: String,
+    /// Why this engineer was chosen. Absent only for tasks assigned before the
+    /// field existed.
+    #[schema(nullable)]
+    pub selection: Option<SelectionBasis>,
 }
 
 /// Response payload describing the engineer's current task.
