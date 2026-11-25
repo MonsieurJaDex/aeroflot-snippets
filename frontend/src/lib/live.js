@@ -458,8 +458,6 @@ export async function trainClassifier() {
   return apiRequest("/api/classify/train", { method: "POST" });
 }
 
-import { scenarioEngineerName } from "./scenario.js";
-
 export function assignErrorMessage(err) {
   const raw = String(err?.message || err || "");
   if (/no suitable engineer available/i.test(raw)) return "На данную исправность отсутствует подходящий специалист";
