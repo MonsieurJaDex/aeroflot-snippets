@@ -182,8 +182,14 @@ pub fn save(
 }
 
 /// Removes a simulation; the object keeps its last published position.
-pub fn clear(redis_conn: &mut redis::Connection, map_id: &str, obj: &str) -> redis::RedisResult<()> {
-    redis_conn.del(simulation_key(map_id, obj)).map(|_: usize| ())
+pub fn clear(
+    redis_conn: &mut redis::Connection,
+    map_id: &str,
+    obj: &str,
+) -> redis::RedisResult<()> {
+    redis_conn
+        .del(simulation_key(map_id, obj))
+        .map(|_: usize| ())
 }
 
 /// What one [`step`] did.
@@ -224,8 +230,8 @@ pub fn step(
     let advance = (elapsed_ms.max(0) as f64 * simulation.speed_scale.max(0.01)).round() as i64;
     // `clock_ms` is route time: the ceiling is the route's own length, never a
     // scaled one, or a faster demo would arrive half-way along its journey.
-    simulation.clock_ms = (simulation.clock_ms + advance)
-        .min((simulation.route.seconds * 1000.0).round() as i64);
+    simulation.clock_ms =
+        (simulation.clock_ms + advance).min((simulation.route.seconds * 1000.0).round() as i64);
     let sample = simulation.sample();
     publish(active, redis_conn, pg_conn, &simulation, sample);
     if sample.done {
@@ -265,6 +271,7 @@ fn publish(
         lon,
         Utc::now(),
         speed,
+        Some((sample.x, sample.y)),
     );
 }
 

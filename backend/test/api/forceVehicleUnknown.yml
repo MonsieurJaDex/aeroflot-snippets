@@ -1,0 +1,46 @@
+info:
+  name: forceVehicleUnknown
+  type: http
+  seq: 72
+
+http:
+  method: POST
+  url: "{{HOST}}/geo/forceVehicle"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "engineer_id": "00000000-0000-4000-8000-{{run_id}}",
+        "forced": true
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Флаг ставится только существующему инженеру: неизвестный UUID → 404,
+    и никакого ключа в Redis не появляется.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "404"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("an unknown engineer is not found", function () {
+          expect(res.body.code).to.be.a("string");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

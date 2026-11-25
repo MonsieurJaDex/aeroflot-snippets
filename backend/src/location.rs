@@ -8,7 +8,7 @@ use std::{collections::HashSet, fs, path::Path};
 use serde::Deserialize;
 
 use crate::{
-    graph::{graph_from_grid_with_overlays, RoadGraph, SpeedClass},
+    graph::{RoadGraph, SpeedClass, graph_from_grid_with_overlays},
     types::map::MapDocument,
 };
 

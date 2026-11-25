@@ -1,0 +1,45 @@
+info:
+  name: pauseAgentReject
+  type: http
+  seq: 70
+
+http:
+  method: POST
+  url: "{{HOST}}/geo/pauseAgent"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "obj": "   ",
+        "paused": true
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Пробельный `obj` — не объект: 400, а не запись ключа с пустым именем.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "400"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("a blank obj is refused", function () {
+          expect(res.body.code).to.equal("BAD_REQUEST");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

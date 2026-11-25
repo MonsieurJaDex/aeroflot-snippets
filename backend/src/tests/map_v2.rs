@@ -22,14 +22,28 @@ async fn serves_the_palette_map_without_handcoded_gids() {
 
     let width = map["width"].as_u64().expect("width") as usize;
     let height = map["height"].as_u64().expect("height") as usize;
-    assert!(width > 64 && height > 64, "real map must be larger than the placeholder");
+    assert!(
+        width > 64 && height > 64,
+        "real map must be larger than the placeholder"
+    );
     let matrix = map["matrix"].as_array().expect("matrix");
     assert_eq!(matrix.len(), height);
-    assert!(matrix.iter().all(|row| row.as_array().unwrap().len() == width));
+    assert!(
+        matrix
+            .iter()
+            .all(|row| row.as_array().unwrap().len() == width)
+    );
 
     let palette = map["palette"].as_array().expect("palette");
-    assert!(palette.len() >= 8, "palette must carry the classes, got {}", palette.len());
-    let ids: Vec<i64> = palette.iter().map(|entry| entry["id"].as_i64().unwrap()).collect();
+    assert!(
+        palette.len() >= 8,
+        "palette must carry the classes, got {}",
+        palette.len()
+    );
+    let ids: Vec<i64> = palette
+        .iter()
+        .map(|entry| entry["id"].as_i64().unwrap())
+        .collect();
     let road: Vec<i64> = map["layers"]["road"]
         .as_array()
         .unwrap()
@@ -43,7 +57,10 @@ async fn serves_the_palette_map_without_handcoded_gids() {
         .map(|id| id.as_i64().unwrap())
         .collect();
     assert!(road.iter().all(|id| ids.contains(id)));
-    assert!(road.iter().all(|id| walk.contains(id)), "drivable cells must be walkable");
+    assert!(
+        road.iter().all(|id| walk.contains(id)),
+        "drivable cells must be walkable"
+    );
 
     // Speed sections are visible to a client without knowing TileD gids.
     let service_speeds: Vec<i64> = palette
@@ -51,11 +68,12 @@ async fn serves_the_palette_map_without_handcoded_gids() {
         .filter(|entry| entry["type"] == "service")
         .map(|entry| entry["spd_kmh"].as_i64().unwrap())
         .collect();
-    assert!(service_speeds.len() >= 4, "service speed sections: {service_speeds:?}");
     assert!(
-        palette
-            .iter()
-            .any(|entry| entry["speed_class"] == "Runway"),
+        service_speeds.len() >= 4,
+        "service speed sections: {service_speeds:?}"
+    );
+    assert!(
+        palette.iter().any(|entry| entry["speed_class"] == "Runway"),
         "the runway section must reach the client"
     );
 
@@ -205,19 +223,18 @@ async fn overlapped_cells_cost_the_slower_colocated_speed_in_the_real_graph() {
         lat,
         lon,
     );
-    let plain = crate::graph::graph_from_grid(
-        &document.map,
-        &road_of,
-        &walk_of,
-        &closed,
-        cell,
-        lat,
-        lon,
-    );
+    let plain =
+        crate::graph::graph_from_grid(&document.map, &road_of, &walk_of, &closed, cell, lat, lon);
     let mut compared = false;
     for pair in [
-        [crate::types::map::Point::new(x - 1, y), crate::types::map::Point::new(x + 1, y)],
-        [crate::types::map::Point::new(x, y - 1), crate::types::map::Point::new(x, y + 1)],
+        [
+            crate::types::map::Point::new(x - 1, y),
+            crate::types::map::Point::new(x + 1, y),
+        ],
+        [
+            crate::types::map::Point::new(x, y - 1),
+            crate::types::map::Point::new(x, y + 1),
+        ],
     ] {
         if document.map.0.get(pair[0].1 as usize).is_none() {
             continue;
@@ -263,8 +280,12 @@ async fn map_catalog_lists_the_real_map_next_to_the_legacy_ones() {
 
     // Switching to the legacy map and back keeps both loadable.
     let active = expect_status(
-        ctx.put("/api/maps/active", &dispatcher.token, json!({ "id": "map2" }))
-            .await,
+        ctx.put(
+            "/api/maps/active",
+            &dispatcher.token,
+            json!({ "id": "map2" }),
+        )
+        .await,
         StatusCode::OK,
     );
     assert_eq!(active["width"], 64);
@@ -297,27 +318,33 @@ async fn speed_classes_are_per_section_not_flat_apron() {
         "palette classes: {classes:?}"
     );
     assert!(
-        classes.iter().any(|class| *class != SpeedClass::VehicleApron),
+        classes
+            .iter()
+            .any(|class| *class != SpeedClass::VehicleApron),
         "not every cell may be apron speed: {classes:?}"
     );
 
     // A vehicle keeps the airfield cap on a runway section (300 km/h is the
     // aircraft's), while the posted speed stays in the palette.
-    let runway = crate::graph::vehicle_speed_mps(
-        crate::types::map::Point::new(0, 0),
-        SpeedClass::Runway,
-    );
+    let runway =
+        crate::graph::vehicle_speed_mps(crate::types::map::Point::new(0, 0), SpeedClass::Runway);
     let airfield = crate::graph::vehicle_speed_mps(
         crate::types::map::Point::new(0, 0),
         SpeedClass::VehicleAirfield,
     );
-    assert!((runway - airfield).abs() < 1e-9, "a vehicle on the runway is capped");
+    assert!(
+        (runway - airfield).abs() < 1e-9,
+        "a vehicle on the runway is capped"
+    );
     // A 300 km/h section still lets a vehicle skip apron cells that are slower.
     let apron = crate::graph::vehicle_speed_mps(
         crate::types::map::Point::new(0, 0),
         SpeedClass::VehicleApron,
     );
-    assert!(runway > apron, "runway cap {runway} m/s must beat apron {apron} m/s");
+    assert!(
+        runway > apron,
+        "runway cap {runway} m/s must beat apron {apron} m/s"
+    );
     // And travel time follows the section: a runway edge is cheap for a vehicle.
     assert!(
         runway / apron >= 1.9,
@@ -401,7 +428,10 @@ async fn equal_length_routes_cost_by_section_speed_and_report_eta() {
             .filter(|entry| entry.allows_road() && entry.spd_kmh == kmh)
             .map(|entry| entry.id)
             .collect();
-        assert!(!ids.is_empty(), "the map must post a {kmh} km/h road section");
+        assert!(
+            !ids.is_empty(),
+            "the map must post a {kmh} km/h road section"
+        );
         let matrix = &active.map.0;
         let height = matrix.len();
         let width = matrix[0].len();
@@ -436,8 +466,8 @@ async fn equal_length_routes_cost_by_section_speed_and_report_eta() {
     // Equal length is what makes the comparison about speed only.
     let steps = slow.2.min(fast.2).min(12);
     assert!(steps >= 3, "both sections must have a comparable run");
-    let slow_leg = (slow.0, (slow.0 .0 + steps - 1, slow.0 .1));
-    let fast_leg = (fast.0, (fast.0 .0 + steps - 1, fast.0 .1));
+    let slow_leg = (slow.0, (slow.0.0 + steps - 1, slow.0.1));
+    let fast_leg = (fast.0, (fast.0.0 + steps - 1, fast.0.1));
 
     let route = |leg: ((i64, i64), (i64, i64)), agent: &str| {
         json!({
@@ -448,13 +478,21 @@ async fn equal_length_routes_cost_by_section_speed_and_report_eta() {
     };
 
     let slow_body = expect_status(
-        ctx.post("/api/getRoute", &dispatcher.token, route(slow_leg, "vehicle"))
-            .await,
+        ctx.post(
+            "/api/getRoute",
+            &dispatcher.token,
+            route(slow_leg, "vehicle"),
+        )
+        .await,
         StatusCode::OK,
     );
     let fast_body = expect_status(
-        ctx.post("/api/getRoute", &dispatcher.token, route(fast_leg, "vehicle"))
-            .await,
+        ctx.post(
+            "/api/getRoute",
+            &dispatcher.token,
+            route(fast_leg, "vehicle"),
+        )
+        .await,
         StatusCode::OK,
     );
 
@@ -465,8 +503,12 @@ async fn equal_length_routes_cost_by_section_speed_and_report_eta() {
         "the two legs must have the same length for the comparison to mean anything"
     );
 
-    let slow_eta = slow_body["eta_seconds"].as_u64().expect("eta_seconds on a route");
-    let fast_eta = fast_body["eta_seconds"].as_u64().expect("eta_seconds on a route");
+    let slow_eta = slow_body["eta_seconds"]
+        .as_u64()
+        .expect("eta_seconds on a route");
+    let fast_eta = fast_body["eta_seconds"]
+        .as_u64()
+        .expect("eta_seconds on a route");
     assert!(slow_eta > 0 && fast_eta > 0);
     assert_eq!(slow_body["agent"], "vehicle");
     assert_eq!(fast_body["agent"], "vehicle");
@@ -478,13 +520,21 @@ async fn equal_length_routes_cost_by_section_speed_and_report_eta() {
 
     // The same cells on foot are one pace: a pedestrian ignores road speeds.
     let walk_slow = expect_status(
-        ctx.post("/api/getRoute", &dispatcher.token, route(slow_leg, "engineer"))
-            .await,
+        ctx.post(
+            "/api/getRoute",
+            &dispatcher.token,
+            route(slow_leg, "engineer"),
+        )
+        .await,
         StatusCode::OK,
     );
     let walk_fast = expect_status(
-        ctx.post("/api/getRoute", &dispatcher.token, route(fast_leg, "engineer"))
-            .await,
+        ctx.post(
+            "/api/getRoute",
+            &dispatcher.token,
+            route(fast_leg, "engineer"),
+        )
+        .await,
         StatusCode::OK,
     );
     assert_eq!(walk_slow["eta_seconds"], walk_fast["eta_seconds"]);

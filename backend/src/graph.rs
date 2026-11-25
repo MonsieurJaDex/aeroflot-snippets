@@ -859,7 +859,11 @@ pub fn graph_from_legacy_grid(
     origin_lat: f64,
     origin_lon: f64,
 ) -> RoadGraph {
-    let road_of = |value: i64| road_values.contains(&value).then_some(SpeedClass::VehicleApron);
+    let road_of = |value: i64| {
+        road_values
+            .contains(&value)
+            .then_some(SpeedClass::VehicleApron)
+    };
     graph_from_grid(
         matrix,
         &road_of,
@@ -942,7 +946,9 @@ mod tests {
             37.63,
         );
         let stops = [Point::new(0, 2), Point::new(4, 2)];
-        let flat_route = flat.route_stops(AgentKind::Vehicle, &stops).expect("flat route");
+        let flat_route = flat
+            .route_stops(AgentKind::Vehicle, &stops)
+            .expect("flat route");
         let palette_route = palette
             .route_stops(AgentKind::Vehicle, &stops)
             .expect("palette route");
@@ -968,32 +974,19 @@ mod tests {
             3 => Some(SpeedClass::VehicleStand),
             _ => None,
         };
-        let plain = graph_from_grid(
-            &matrix,
-            &speed_of,
-            &speed_of,
-            &closed,
-            5.0,
-            55.83,
-            37.63,
-        );
+        let plain = graph_from_grid(&matrix, &speed_of, &speed_of, &closed, 5.0, 55.83, 37.63);
         let overlays = |x: i64, y: i64| {
             ((x, y) == (1, 0) || (x, y) == (2, 0))
                 .then(|| vec![2, 3])
                 .filter(|_| y == 0)
         };
         let overlaid = graph_from_grid_with_overlays(
-            &matrix,
-            &speed_of,
-            &speed_of,
-            &overlays,
-            &closed,
-            5.0,
-            55.83,
-            37.63,
+            &matrix, &speed_of, &speed_of, &overlays, &closed, 5.0, 55.83, 37.63,
         );
         let stops = [Point::new(0, 0), Point::new(3, 0)];
-        let fast = plain.route_stops(AgentKind::Vehicle, &stops).expect("plain route");
+        let fast = plain
+            .route_stops(AgentKind::Vehicle, &stops)
+            .expect("plain route");
         let slow = overlaid
             .route_stops(AgentKind::Vehicle, &stops)
             .expect("overlaid route");
@@ -1016,11 +1009,7 @@ mod tests {
     fn walk_only_cells_are_open_to_an_engineer_and_shut_to_a_vehicle() {
         // Column 0 is a pedestrian path, column 2 is apron, column 1 is empty;
         // the two are joined at the bottom row.
-        let matrix = MapMatrix(vec![
-            vec![5, 0, 2],
-            vec![5, 0, 2],
-            vec![5, 5, 2],
-        ]);
+        let matrix = MapMatrix(vec![vec![5, 0, 2], vec![5, 0, 2], vec![5, 5, 2]]);
         let graph = graph_from_grid(
             &matrix,
             &|value| (value == 2).then_some(SpeedClass::VehicleApron),
@@ -1058,7 +1047,10 @@ mod tests {
         ] {
             assert_eq!(SpeedClass::from_name(class.name()), class);
         }
-        assert_eq!(SpeedClass::from_name("no-such-class"), SpeedClass::VehicleApron);
+        assert_eq!(
+            SpeedClass::from_name("no-such-class"),
+            SpeedClass::VehicleApron
+        );
     }
 
     #[test]
@@ -1077,6 +1069,9 @@ mod tests {
         assert!(lat_row0 > lat_row1, "row 0 must be north of row 1");
         assert!((lon0 - lon1).abs() < 1e-9);
         let (x, y) = graph.unproject(lat_row1, lon1);
-        assert!(x.abs() < 1e-6 && (y - 1.0).abs() < 1e-6, "unproject inverts project");
+        assert!(
+            x.abs() < 1e-6 && (y - 1.0).abs() < 1e-6,
+            "unproject inverts project"
+        );
     }
 }

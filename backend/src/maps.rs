@@ -21,7 +21,6 @@ use crate::{
     types::{enums::VehicleType, map::MapMatrix},
 };
 
-
 const ACTIVE_KEY: &str = "map:active";
 const LEGACY_MOVED_KEY: &str = "map:legacy_keys_moved";
 
