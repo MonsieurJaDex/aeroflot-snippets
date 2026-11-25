@@ -62,6 +62,7 @@ import {
   prepareMapFrame,
   applyPhoneApron,
   renderCanvas,
+  apronPictureUrl,
   roadHint,
 } from "../lib/apronMap.js";
 import { apronOverlayUrl } from "../lib/apronSvg.js";
@@ -516,7 +517,7 @@ export default function DispatcherPage() {
         attributionControl: false,
       });
       bag.map = map;
-      const overlay = L.imageOverlay(apronOverlayUrl(tmj) || renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
+      const overlay = L.imageOverlay(apronPictureUrl(tmj), bounds).addTo(map);
       addPlaceLabels(map, tmj);
       // zoomSnap 0: полигон вписывается в прямоугольник контейнера целиком.
       const apronPad = { padding: [16, 16], animate: false };
@@ -524,7 +525,7 @@ export default function DispatcherPage() {
       const latSpan = Math.abs(bounds[1][0] - bounds[0][0]);
       let settled = false;
       let userMoved = false;
-      let holdPhone = window.matchMedia("(max-width: 860px)").matches;
+      let holdPhone = false;
       let fittedW = 0;
       let fittedH = 0;
       let lastFit = { target: bounds, options: apronPad };

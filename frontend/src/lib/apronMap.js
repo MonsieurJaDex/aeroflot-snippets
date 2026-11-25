@@ -305,6 +305,41 @@ export function renderCanvas(tmj, grid, tilesets) {
   return canvas;
 }
 
+const PICTURE_FILL = {
+  runway: "#162033",
+  terminal: "#00529b",
+  hangar: "#143864",
+  warehouse: "#5d7fa0",
+  parking: "#ffffff",
+};
+
+export function apronPictureUrl(tmj) {
+  const tile = tmj.tilewidth || 4;
+  const w = Math.max(1, tmj.width || 1) * tile;
+  const h = Math.max(1, tmj.height || 1) * tile;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#d5e2d4";
+  ctx.fillRect(0, 0, w, h);
+  for (const obj of tmj.objects || []) {
+    const x = Number(obj.x) * tile;
+    const y = Number(obj.y) * tile;
+    const ow = Math.max(tile * 2, Number(obj.w || 1) * tile);
+    const oh = Math.max(tile * 2, Number(obj.h || 1) * tile);
+    ctx.fillStyle = PICTURE_FILL[obj.kind] || "#3e5168";
+    ctx.fillRect(x, y, ow, oh);
+  }
+  ctx.fillStyle = "#c5161c";
+  for (const zone of tmj.zones || []) {
+    ctx.beginPath();
+    ctx.arc((Number(zone.x) + 0.5) * tile, (Number(zone.y) + 0.5) * tile, tile * 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  return canvas.toDataURL("image/png");
+}
+
 export function cellToLatLng(tmj, col, row) {
   const tileW = tmj.tilewidth;
   const tileH = tmj.tileheight;
