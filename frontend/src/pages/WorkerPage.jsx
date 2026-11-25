@@ -1021,6 +1021,8 @@ export default function WorkerPage() {
       const latSpan = Math.abs(bounds[1][0] - bounds[0][0]);
       let settled = false;
       let userMoved = false;
+      let fittedW = 0;
+      let fittedH = 0;
       let lastFit = { target: bounds, options: apronPad };
 
       function stampOverlay() {
@@ -1048,6 +1050,7 @@ export default function WorkerPage() {
         if (lng < 1 || lat < 1) return false;
         const cap = typeof options.maxZoom === "number" ? options.maxZoom : map.getMaxZoom();
         const zoom = Math.max(map.getMinZoom(), Math.min(cap, Math.log2(Math.min(w / lng, h / lat))));
+        map._sizeChanged = true;
         if (map._loaded) map.invalidateSize(false);
         map.setView(box.getCenter(), zoom, { animate: false });
         stampOverlay();
@@ -1064,17 +1067,35 @@ export default function WorkerPage() {
         const opts = options || {};
         const next = isApronTarget(target) && !opts.padding ? { ...opts, padding: [16, 16] } : opts;
         lastFit = { target, options: next };
-        if (applyFit(target, next)) settled = true;
+        if (applyFit(target, next)) {
+          settled = true;
+          const node = map.getContainer();
+          fittedW = node.clientWidth;
+          fittedH = node.clientHeight;
+        }
         return map;
       };
       map.on("dragstart", () => { userMoved = true; });
       map.on("zoomstart", (event) => { if (event.originalEvent) userMoved = true; });
       map.on("zoomend", stampOverlay);
-      overlay.on("add load", stampOverlay);
+      overlay.on("add", () => {
+        map.off("viewreset", stampOverlay);
+        map.on("viewreset", stampOverlay);
+        stampOverlay();
+      });
+      overlay.on("load", stampOverlay);
 
       function ensureFitted() {
-        if (userMoved || settled) return;
-        if (applyFit(lastFit.target, lastFit.options)) settled = true;
+        if (userMoved) return;
+        if (settled && !isApronTarget(lastFit.target)) return;
+        const node = map.getContainer();
+        const shifted = Math.abs(node.clientWidth - fittedW) > 24 || Math.abs(node.clientHeight - fittedH) > 24;
+        if (settled && !shifted) return;
+        if (applyFit(lastFit.target, lastFit.options)) {
+          settled = true;
+          fittedW = node.clientWidth;
+          fittedH = node.clientHeight;
+        }
       }
 
       function apronUnderfilled() {
@@ -1088,8 +1109,10 @@ export default function WorkerPage() {
       map.fitBounds(bounds, apronPad);
       bag.fitFrame = requestAnimationFrame(() => {
         if (cancelled || userMoved) return;
-        if (settled && !isApronTarget(lastFit.target)) return;
-        if (!settled || apronUnderfilled()) {
+        ensureFitted();
+        if (settled && isApronTarget(lastFit.target) && apronUnderfilled()) {
+          fittedW = 0;
+          fittedH = 0;
           settled = false;
           ensureFitted();
         }
