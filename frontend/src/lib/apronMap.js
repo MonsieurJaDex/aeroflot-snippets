@@ -333,6 +333,24 @@ export function routeSpansMap(tmj, bounds) {
   return spanX >= tmj.width * 0.2 || spanY >= tmj.height * 0.2;
 }
 
+export function prepareMapFrame(node, tmj) {
+  if (!node || !tmj?.width || !tmj?.height) return;
+  const mobile = window.matchMedia("(max-width: 860px)").matches;
+  if (!mobile) {
+    node.style.height = "";
+    node.style.flex = "";
+    node.style.maxHeight = "";
+    return;
+  }
+  const width = node.clientWidth || node.parentElement?.clientWidth || window.innerWidth;
+  const height = Math.max(200, Math.min(window.innerHeight * 0.62, Math.round(width * tmj.height / tmj.width)));
+  const next = `${height}px`;
+  node.style.width = "100%";
+  if (node.style.height !== next) node.style.height = next;
+  node.style.flex = "0 0 auto";
+  node.style.maxHeight = "62dvh";
+}
+
 export function roadHint(cells) {
   return cells.some((cell) => activeRoadIds.has(cell.gid)) ? " (дорога)" : "";
 }

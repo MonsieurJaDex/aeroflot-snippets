@@ -59,6 +59,7 @@ import {
   routeSpansMap,
   loadApronMap,
   loadTilesetImages,
+  prepareMapFrame,
   renderCanvas,
   roadHint,
 } from "../lib/apronMap.js";
@@ -505,6 +506,7 @@ export default function DispatcherPage() {
       if (cancelled || !mapNode.current) return;
 
       const bounds = [[0, 0], [tmj.height * tmj.tileheight, tmj.width * tmj.tilewidth]];
+      prepareMapFrame(mapNode.current, tmj);
       const map = L.map(mapNode.current, {
         crs: L.CRS.Simple,
         minZoom: -4,
@@ -628,11 +630,15 @@ export default function DispatcherPage() {
       }
 
       const onResize = () => {
+        prepareMapFrame(map.getContainer(), tmj);
         map.invalidateSize(false);
         ensureFitted();
       };
       window.addEventListener("resize", onResize);
-      const boxObserver = new ResizeObserver(() => ensureFitted());
+      const boxObserver = new ResizeObserver(() => {
+        prepareMapFrame(map.getContainer(), tmj);
+        ensureFitted();
+      });
       boxObserver.observe(map.getContainer());
       bag.cleanupResize = () => {
         cancelAnimationFrame(bag.fitFrame);

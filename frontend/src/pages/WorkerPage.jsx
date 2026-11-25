@@ -24,6 +24,7 @@ import {
   gpsToCell,
   loadApronMap,
   loadTilesetImages,
+  prepareMapFrame,
   renderCanvas,
 } from "../lib/apronMap.js";
 
@@ -1002,6 +1003,7 @@ export default function WorkerPage() {
       const grid = buildTileGrid(tmj);
       const tilesets = await loadTilesetImages();
       if (cancelled || !mapNode.current) return;
+      prepareMapFrame(mapNode.current, tmj);
       const map = L.map(mapNode.current, {
         crs: L.CRS.Simple,
         zoomControl: false,
@@ -1119,11 +1121,15 @@ export default function WorkerPage() {
       });
       // Клики по карте не имитируют GPS — полевой трек отдельно через GPS Logger.
       const onResize = () => {
+        prepareMapFrame(map.getContainer(), tmj);
         map.invalidateSize(false);
         ensureFitted();
       };
       window.addEventListener("resize", onResize);
-      const boxObserver = new ResizeObserver(() => ensureFitted());
+      const boxObserver = new ResizeObserver(() => {
+        prepareMapFrame(map.getContainer(), tmj);
+        ensureFitted();
+      });
       boxObserver.observe(map.getContainer());
       bag.cleanupResize = () => {
         cancelAnimationFrame(bag.fitFrame);
