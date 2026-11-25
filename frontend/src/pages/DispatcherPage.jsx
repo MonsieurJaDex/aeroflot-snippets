@@ -11,6 +11,7 @@ import {
 } from "../lib/catalog.js";
 import {
   assignErrorMessage,
+  assignLiveRequest,
   engineerName,
   findTransportOnRoute,
   loadAircraft,
@@ -49,7 +50,7 @@ import NetBanner from "../components/NetBanner.jsx";
 import { listMcc, markMccAssigned, markMccQueued, MCC_QUEUE_KEY } from "../lib/mccQueue.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { whenVisible } from "../lib/visibility.js";
-import { expandRouteOnRoads, pointAt, WALK_MPS } from "../lib/walk.js";
+import { expandRouteOnRoads, pointAt, totalMeters, VEHICLE_MPS, WALK_MPS } from "../lib/walk.js";
 import {
   buildTileGrid,
   buildWalkMask,
@@ -544,6 +545,7 @@ export default function DispatcherPage() {
     if (!allowed) return undefined;
     let cancelled = false;
     const walks = new Map();
+    const rides = new Map();
     const bag = { map: null, frame: 0, timer: 0, cleanupResize: null };
     let fleet = [];
     let aircraftNow = [];
@@ -605,6 +607,10 @@ export default function DispatcherPage() {
         walks.delete(id);
       }
 
+      function cellCenters(route) {
+        return route.map(([x, y]) => [x + 0.5, y + 0.5]);
+      }
+
       function startWalk(id, name, gridRoute) {
         const key = String(id);
         stopWalk(key);
@@ -620,6 +626,32 @@ export default function DispatcherPage() {
         if (showRoute) line.addTo(map);
         const marker = staffMarker(centerToLatLng(tmj, centers[0]), true, `${name} · идёт к ВС`);
         walks.set(key, { centers, startedAt: performance.now(), line, marker, name });
+      }
+
+      function rideCell(ride) {
+        const sample = pointAt(ride.centers, ((performance.now() - ride.startedAt) / 1000) * ride.mps);
+        if (!sample) return ride.target;
+        return [Math.floor(sample.point[0]), Math.floor(sample.point[1])];
+      }
+
+      function beginGlide(vehicle, from, to, marker) {
+        const road = expandRouteOnRoads([from, to], walkMask);
+        const path = road.length >= 2 ? road : [from, to];
+        const centers = cellCenters(path);
+        const meters = totalMeters(centers);
+        const natural = meters / VEHICLE_MPS;
+        const duration = Math.min(Math.max(natural, 0.35), 4);
+        rides.set(String(vehicle.id), {
+          centers,
+          target: to,
+          mps: duration > 0 ? meters / duration : VEHICLE_MPS,
+          startedAt: performance.now(),
+          marker,
+          label: vehicle.label,
+          done: false,
+        });
+        marker.setTooltipContent(`${vehicle.label} · едет`);
+        marker.addTo(transportLayer);
       }
 
       function tick(now) {
@@ -641,6 +673,15 @@ export default function DispatcherPage() {
           }
           const rest = walk.centers.slice(sample.nextIndex).map((center) => centerToLatLng(tmj, center));
           walk.line.setLatLngs([centerToLatLng(tmj, sample.point), ...rest]);
+        }
+        for (const ride of rides.values()) {
+          if (ride.done) continue;
+          const sample = pointAt(ride.centers, ((now - ride.startedAt) / 1000) * ride.mps);
+          if (!sample) continue;
+          ride.marker.setLatLng(centerToLatLng(tmj, sample.point));
+          if (!sample.done) continue;
+          ride.done = true;
+          ride.marker.setTooltipContent(ride.label);
         }
         bag.frame = requestAnimationFrame(tick);
       }
@@ -689,22 +730,47 @@ export default function DispatcherPage() {
         }
       }
 
+      const transportMarkers = new Map();
+
       function renderTransportMarkers() {
-        transportLayer.clearLayers();
+        const seen = new Set();
         for (const vehicle of fleet) {
-          L.marker(cellToLatLng(tmj, vehicle.point[0], vehicle.point[1]), {
-            icon: L.divIcon({
-              className: "transport-marker",
-              html: "",
-              iconSize: [18, 18],
-              iconAnchor: [9, 9],
-            }),
-          }).bindTooltip(vehicle.label, {
-            permanent: true,
-            direction: "top",
-            className: "map-label",
-            offset: [0, -8],
-          }).addTo(transportLayer);
+          const id = String(vehicle.id);
+          seen.add(id);
+          const cell = [Math.floor(vehicle.point[0]), Math.floor(vehicle.point[1])];
+          const held = transportMarkers.get(id);
+          if (!held) {
+            const marker = L.marker(cellToLatLng(tmj, cell[0], cell[1]), {
+              icon: L.divIcon({
+                className: "transport-marker",
+                html: "",
+                iconSize: [18, 18],
+                iconAnchor: [9, 9],
+              }),
+            }).bindTooltip(vehicle.label, {
+              permanent: true,
+              direction: "top",
+              className: "map-label",
+              offset: [0, -8],
+            }).addTo(transportLayer);
+            transportMarkers.set(id, { marker, cell });
+            continue;
+          }
+          const moved = held.cell[0] !== cell[0] || held.cell[1] !== cell[1];
+          if (moved) {
+            const ride = rides.get(id);
+            const from = ride && !ride.done ? rideCell(ride) : held.cell;
+            beginGlide(vehicle, from, cell, held.marker);
+            held.cell = cell;
+            continue;
+          }
+          held.marker.addTo(transportLayer);
+        }
+        for (const [id, held] of transportMarkers) {
+          if (seen.has(id)) continue;
+          transportLayer.removeLayer(held.marker);
+          transportMarkers.delete(id);
+          rides.delete(id);
         }
       }
 
@@ -848,7 +914,6 @@ export default function DispatcherPage() {
         async assign(engineerId) {
           const form = formRef.current;
           const standsNow = readDemoStands();
-          // plane_point — клетка выбранной стоянки из oto-demo-stands.
           const stand = standsNow.find((item) => item.id === form.planeId)
             || (!aircraftNow.length ? standsNow[0] : null);
           const plane = stand?.point
@@ -872,55 +937,24 @@ export default function DispatcherPage() {
             const mccItem = form.activeMcc
               ? listMcc().find((item) => item.id === form.activeMcc)
               : null;
-            let requestId = mccItem?.status === "unassigned" && mccItem.serverId
+            const requestId = mccItem?.serverId && mccItem.status !== "assigned"
               ? String(mccItem.serverId)
               : "";
-            if (mccItem?.serverId && mccItem.status !== "unassigned" && mccItem.status !== "assigned") {
-              // Перед назначением замечание ЦПУ переводим в очередь.
-              try {
-                await queueRequest(mccItem.serverId);
-                markMccQueued(mccItem.id);
-                requestId = String(mccItem.serverId);
-              } catch (error) {
-                if (Number(error?.status) !== 404) {
-                  setResult({ type: "error", text: `Ошибка: ${assignErrorMessage(error)}` });
-                  return;
-                }
-              }
-            }
             const planeUuid = [plane.id, mccItem?.planeUuid]
               .map((value) => String(value || "").trim())
               .find((value) => UUID_RE.test(value)) || "";
-            const planePoint = [Number(plane.point[0]), Number(plane.point[1])];
-            const oldBody = { issue: issueValue, plane_point: planePoint, description: text };
             const manualId = typeof engineerId === "string" && UUID_RE.test(engineerId.trim())
               ? engineerId.trim()
               : "";
-            let response;
-            if (requestId && planeUuid) {
-              const nextBody = {
-                request_id: requestId,
-                classifier_text: text,
-                description: text,
-                issue: issueValue,
-                plane_uuid: planeUuid,
-              };
-              if (manualId) nextBody.engineer_id = manualId;
-              try {
-                response = await apiRequest("/api/assign", { method: "POST", body: nextBody });
-              } catch (error) {
-                if (Number(error?.status) !== 422 || manualId) throw error;
-                response = await apiRequest("/api/assign", { method: "POST", body: oldBody });
-              }
-            } else {
-              try {
-                response = await apiRequest("/api/assign", { method: "POST", body: oldBody });
-              } catch (error) {
-                if (Number(error?.status) !== 422) throw error;
-                setResult({ type: "error", text: "новый сервер ждёт замечание ЦПУ (статус после очереди) и UUID борта." });
-                return;
-              }
-            }
+            const response = await assignLiveRequest({
+              text,
+              point: plane.point,
+              planeUuid,
+              issue: issueValue,
+              engineerId: manualId,
+              requestId,
+            });
+            if (mccItem && requestId) markMccQueued(mccItem.id);
             const gridRoute = normalizeRoute(response.route);
             const travelMin = marginMinutes(response.time ?? response.eta_seconds) ?? 0;
             // Статус «назначена» только после HTTP 200, не по клику и не по очереди.
@@ -931,9 +965,9 @@ export default function DispatcherPage() {
             }
             const assignedName = await engineerName(response.engineer_uuid);
             routeExtrasLayer.clearLayers();
+            const pickup = findTransportOnRoute(gridRoute, fleet);
             startWalk(response.engineer_uuid, assignedName, gridRoute);
             const routeLine = walks.get(String(response.engineer_uuid))?.line || null;
-            const pickup = findTransportOnRoute(gridRoute, fleet);
             if (pickup) {
               L.marker(cellToLatLng(tmj, pickup.point[0], pickup.point[1]), {
                 icon: L.divIcon({
