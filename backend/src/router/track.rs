@@ -18,6 +18,8 @@ use uuid::Uuid;
 
 use super::{active_map, bad_request};
 use crate::graph::AgentKind;
+use crate::location::ExternalAgent;
+use crate::types::map::Point;
 use crate::types::config::AppState;
 use crate::types::enums::VehicleType;
 
@@ -254,6 +256,7 @@ pub async fn ingest(
     State(app_state): State<Arc<AppState>>,
     TrackJson(body): TrackJson,
 ) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
+    dbg!(&body);
     // contract: one point answers with a single object, `{ "points": [...] }` with
     // an array in request order — even when the array holds a single point.
     let (samples, shape) = match body {
@@ -348,152 +351,160 @@ fn invalid_reason(sample: &TrackSample) -> Option<&'static str> {
 /// a half, at the usual GPSLogger minute it is most of a week.
 const TRACK_HISTORY_POINTS: i32 = 5000;
 
-fn apply_point(
-    active: &crate::maps::ActiveMap,
-    redis_conn: &mut redis::Connection,
-    pg_conn: &mut diesel::PgConnection,
-    sample: TrackSample,
-) -> Result<TrackAck, Response<axum::body::Body>> {
-    let TrackSample {
-        obj,
-        lat,
-        lon,
-        when,
-        acc,
-        spd,
-    } = sample;
-    let lat = lat.unwrap_or(0.0);
-    let lon = lon.unwrap_or(0.0);
-    let when = when.unwrap_or_else(Utc::now);
-    let stamp = when.to_rfc3339_opts(SecondsFormat::Millis, true);
-    let agent = active.location.agents.iter().find(|agent| agent.obj == obj);
-    let linked = agent
-        .and_then(|agent| agent.engineer_id.as_deref())
-        .and_then(|id| Uuid::parse_str(id).ok())
-        .or_else(|| Uuid::parse_str(&obj).ok());
-    let known = agent.is_some() || linked.is_some_and(|id| engineer_exists(pg_conn, id));
-    if !known {
-        return Ok(TrackAck {
-            accepted: true,
-            applied: false,
-            obj: obj.clone(),
-            t: stamp,
-        });
-    }
-    let key = format!("map:{}:track:{}", active.id, obj);
-    // The newest point of this object decides staleness and outliers; the rest of
-    // the list is history. Objects never share a key, so one moving aircraft does
-    // not displace an engineer's samples.
-    let previous: Option<String> = {
-        let mut conn = &mut *redis_conn;
-        redis::cmd("LINDEX")
-            .arg(&key)
-            .arg(0)
-            .query(&mut conn)
-            .unwrap_or(None)
-    };
-    if let Some(raw) = &previous {
-        if let Ok(old) = serde_json::from_str::<serde_json::Value>(raw) {
-            if let Some(old_t) = old.get("t").and_then(|value| value.as_str()) {
-                if let Ok(old_time) = DateTime::parse_from_rfc3339(old_t) {
-                    if old_time.with_timezone(&Utc) > when {
-                        return Ok(TrackAck {
-                            accepted: true,
-                            applied: false,
-                            obj: obj.clone(),
-                            t: stamp,
-                        });
-                    }
-                }
-            }
-            if outlier(active, &old, lat, lon, when, acc) {
-                crate::journal::record(
-                    pg_conn,
-                    "track_rejected",
-                    Some(&obj),
-                    None,
-                    serde_json::json!({ "lat": lat, "lon": lon, "acc": acc, "spd": spd }),
-                    None,
-                );
-                return Ok(TrackAck {
-                    accepted: true,
-                    applied: false,
-                    obj: obj.clone(),
-                    t: stamp,
-                });
-            }
+/// The object a point belongs to, resolved once per request.
+///
+/// A point may address a map agent, an engineer UUID or an aircraft registration;
+/// whichever it is, everything below needs the same three answers: what kind of
+/// thing moves, which UUID the position keys use, and whether the object exists at
+/// all.
+struct TrackedObject<'a> {
+    agent: Option<&'a ExternalAgent>,
+    /// UUID the position keys are written under, when the object resolves to one.
+    linked: Option<Uuid>,
+    kind: &'static str,
+}
+
+impl TrackedObject<'_> {
+    fn agent_kind(&self) -> AgentKind {
+        if self.kind == "vehicle" {
+            AgentKind::Vehicle
+        } else {
+            AgentKind::Engineer
         }
     }
-    let kind = agent
-        .map(|item| item.kind.as_str())
-        .unwrap_or(if obj.starts_with("v-") {
-            "vehicle"
-        } else if obj.starts_with("RA-") {
-            "aircraft"
-        } else {
-            "engineer"
+
+    /// UUID the shared position keys use: the linked engineer, else a stable v5
+    /// name derived from `obj`, so an object without a row still has one key.
+    fn position_id(&self, obj: &str) -> Uuid {
+        self.linked
+            .unwrap_or_else(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, obj.as_bytes()))
+    }
+}
+
+impl TrackSample {
+    /// Resolves the object this point belongs to, or `None` when it names nothing
+    /// the map, the database or a UUID in the payload knows.
+    fn resolve<'a>(
+        &self,
+        active: &'a crate::maps::ActiveMap,
+        pg_conn: &mut diesel::PgConnection,
+    ) -> Option<TrackedObject<'a>> {
+        let agent = active.location.agents.iter().find(|item| item.obj == self.obj);
+        let linked = agent
+            .and_then(|item| item.engineer_id.as_deref())
+            .and_then(|id| Uuid::parse_str(id).ok())
+            .or_else(|| Uuid::parse_str(&self.obj).ok());
+        let known = agent.is_some() || linked.is_some_and(|id| engineer_exists(pg_conn, id));
+        if !known {
+            return None;
+        }
+        // The map knows what an object is; a registration or a `v-` name says it
+        // itself when the map does not list it.
+        let kind = agent.map(|item| item.kind.as_str()).unwrap_or({
+            if self.obj.starts_with("v-") {
+                "vehicle"
+            } else if self.obj.starts_with("RA-") {
+                "aircraft"
+            } else {
+                "engineer"
+            }
         });
-    let agent_kind = if kind == "vehicle" {
-        AgentKind::Vehicle
-    } else {
-        AgentKind::Engineer
+        let kind = match kind {
+            "vehicle" => "vehicle",
+            "aircraft" => "aircraft",
+            _ => "engineer",
+        };
+        Some(TrackedObject {
+            agent,
+            linked,
+            kind,
+        })
+    }
+
+    /// The RFC 3339 stamp this point is stored and acknowledged with.
+    fn stamp(&self) -> String {
+        self.when
+            .unwrap_or_else(Utc::now)
+            .to_rfc3339_opts(SecondsFormat::Millis, true)
+    }
+}
+
+/// Key holding one object's track, newest point first.
+fn track_key(active: &crate::maps::ActiveMap, obj: &str) -> String {
+    format!("map:{}:track:{}", active.id, obj)
+}
+
+/// The newest stored point of an object, verbatim.
+fn previous_point(redis_conn: &mut redis::Connection, key: &str) -> Option<String> {
+    redis::cmd("LINDEX")
+        .arg(key)
+        .arg(0)
+        .query(&mut *redis_conn)
+        .unwrap_or(None)
+}
+
+/// Whether the stored point is newer than the one being reported now.
+///
+/// GPSLogger queues points while offline and repeats each logged line, so a sample
+/// that arrives out of order must not move the object backwards.
+fn stored_is_newer(previous: Option<&str>, when: DateTime<Utc>) -> bool {
+    let Some(stored) = previous.and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+    else {
+        return false;
     };
-    let Some((grid, _)) = active.location.graph.snap(lat, lon, agent_kind) else {
-        crate::journal::record(
-            pg_conn,
-            "track_rejected",
-            Some(&obj),
-            None,
-            serde_json::json!({ "reason": "snap failed", "lat": lat, "lon": lon }),
-            None,
-        );
-        return Ok(TrackAck {
-            accepted: true,
-            applied: false,
-            obj: obj.clone(),
-            t: stamp,
-        });
-    };
-    // A pin corrects where the object is on the map, not what the tracker
-    // reported: `lat`/`lon` below stay the raw values.
-    let grid = match crate::calibration::load(redis_conn, &active.id, &obj) {
-        Some(pin) if pin.kind.agrees_with(agent_kind) => pin.point,
-        _ => grid,
-    };
-    let stored = serde_json::json!({
-        "lat": lat,
-        "lon": lon,
-        "t": stamp,
-        "x": grid.0,
-        "y": grid.1,
-        "acc": acc,
-        "spd": spd,
-    });
-    // One round trip: append the point, cap the list and refresh the key's
-    // lifetime. The TTL is what makes a stale coordinate disappear instead of
-    // lingering: a tracker that goes silent for longer than `stale_after_secs`
-    // leaves no key behind, and `GET /api/geo/trackFreshness` says so.
+    stored
+        .get("t")
+        .and_then(|value| value.as_str())
+        .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
+        .is_some_and(|old| old.with_timezone(&Utc) > when)
+}
+
+/// Appends the point to the object's track, caps the history and renews the key's
+/// lifetime — all in one round trip, so a failed trim cannot leave the list
+/// unbounded.
+fn store_point(
+    active: &crate::maps::ActiveMap,
+    redis_conn: &mut redis::Connection,
+    key: &str,
+    point: &serde_json::Value,
+) -> Result<(), Response<axum::body::Body>> {
     let mut pipe = redis::pipe();
     pipe.atomic();
-    pipe.cmd("LPUSH")
-        .arg(&key)
-        .arg(stored.to_string())
-        .ignore();
+    pipe.cmd("LPUSH").arg(key).arg(point.to_string()).ignore();
     pipe.cmd("LTRIM")
-        .arg(&key)
+        .arg(key)
         .arg(0)
         .arg(TRACK_HISTORY_POINTS - 1)
         .ignore();
+    // The TTL is what makes a stale coordinate disappear instead of lingering: a
+    // tracker silent for longer than `stale_after_secs` leaves no key behind, and
+    // `GET /api/geo/trackFreshness` says so.
     pipe.cmd("EXPIRE")
-        .arg(&key)
+        .arg(key)
         .arg(active.location.stale_after_secs.max(1))
         .ignore();
     pipe.query::<()>(redis_conn)
-        .map_err(|_| super::internal_error())?;
-    let position_id = linked.unwrap_or_else(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, obj.as_bytes()));
-    match kind {
+        .map_err(|_| super::internal_error())
+}
+
+/// Publishes the snapped cell where the rest of the app reads positions from.
+///
+/// The track list is history; these keys are the current coordinate of an
+/// engineer, vehicle or aircraft.
+fn publish_position(
+    active: &crate::maps::ActiveMap,
+    redis_conn: &mut redis::Connection,
+    pg_conn: &mut diesel::PgConnection,
+    object: &TrackedObject<'_>,
+    obj: &str,
+    when: DateTime<Utc>,
+    grid: Point,
+) {
+    let position_id = object.position_id(obj);
+    match object.kind {
         "vehicle" => {
-            let vehicle = agent
+            let vehicle = object
+                .agent
                 .and_then(|item| item.vehicle_type.as_deref())
                 .and_then(|name| VehicleType::try_from(name).ok())
                 .unwrap_or(VehicleType::FuelTruck);
@@ -519,13 +530,92 @@ fn apply_point(
             refresh_forecast(active, redis_conn, pg_conn, position_id, grid);
         }
     }
+}
+
+/// Acknowledges a point without moving the object.
+fn ignored(sample: &TrackSample, stamp: String) -> TrackAck {
+    TrackAck {
+        accepted: true,
+        applied: false,
+        obj: sample.obj.clone(),
+        t: stamp,
+    }
+}
+
+fn apply_point(
+    active: &crate::maps::ActiveMap,
+    redis_conn: &mut redis::Connection,
+    pg_conn: &mut diesel::PgConnection,
+    sample: TrackSample,
+) -> Result<TrackAck, Response<axum::body::Body>> {
+    let lat = sample.lat.unwrap_or(0.0);
+    let lon = sample.lon.unwrap_or(0.0);
+    let when = sample.when.unwrap_or_else(Utc::now);
+    let stamp = sample.stamp();
+
+    let Some(object) = sample.resolve(active, pg_conn) else {
+        return Ok(ignored(&sample, stamp));
+    };
+    let key = track_key(active, &sample.obj);
+    // The newest point of this object decides staleness and outliers; the rest of
+    // the list is history. Objects never share a key, so one moving aircraft does
+    // not displace an engineer's samples.
+    let previous = previous_point(redis_conn, &key);
+    if stored_is_newer(previous.as_deref(), when) {
+        return Ok(ignored(&sample, stamp));
+    }
+    let previous_value = previous
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok());
+    if let Some(stored) = &previous_value {
+        if outlier(active, stored, lat, lon, when, sample.acc) {
+            crate::journal::record(
+                pg_conn,
+                "track_rejected",
+                Some(&sample.obj),
+                None,
+                serde_json::json!({ "lat": lat, "lon": lon, "acc": sample.acc, "spd": sample.spd }),
+                None,
+            );
+            return Ok(ignored(&sample, stamp));
+        }
+    }
+    let Some((grid, _)) = active.location.graph.snap(lat, lon, object.agent_kind()) else {
+        crate::journal::record(
+            pg_conn,
+            "track_rejected",
+            Some(&sample.obj),
+            None,
+            serde_json::json!({ "reason": "snap failed", "lat": lat, "lon": lon }),
+            None,
+        );
+        return Ok(ignored(&sample, stamp));
+    };
+    // A pin corrects where the object is on the map, not what the tracker
+    // reported: `lat`/`lon` below stay the raw values.
+    let grid = match crate::calibration::load(redis_conn, &active.id, &sample.obj) {
+        Some(pin) if pin.kind.agrees_with(object.agent_kind()) => pin.point,
+        _ => grid,
+    };
+    let stored = serde_json::json!({
+        "lat": lat,
+        "lon": lon,
+        "t": stamp,
+        "x": grid.0,
+        "y": grid.1,
+        "acc": sample.acc,
+        "spd": sample.spd,
+    });
+    store_point(active, redis_conn, &key, &stored)?;
+    publish_position(active, redis_conn, pg_conn, &object, &sample.obj, when, grid);
     Ok(TrackAck {
         accepted: true,
         applied: true,
-        obj,
+        obj: sample.obj,
         t: stamp,
     })
 }
+
 
 fn engineer_exists(conn: &mut diesel::PgConnection, id: Uuid) -> bool {
     use crate::database::schema::engineers;
