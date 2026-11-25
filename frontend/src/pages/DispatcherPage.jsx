@@ -188,6 +188,8 @@ export default function DispatcherPage() {
   const [description, setDescription] = useState(() => sessionStorage.getItem("oto-disp-draft") || "");
   const [hint, setHint] = useState("");
   const [live, setLive] = useState("Загрузка бортов, инженеров и техники…");
+  // #6: причина сбоя загрузки списка инженеров (пустая строка — сбоя нет).
+  const [staffError, setStaffError] = useState("");
   const [result, setResult] = useState({ type: "info", text: "Клик по карте ставит стоянку, инженера или технику. Затем назначьте." });
   const [inbox, setInbox] = useState(freshInbox);
   const [activeMcc, setActiveMcc] = useState(null);
@@ -636,6 +638,7 @@ export default function DispatcherPage() {
         const staff = await loadStaff();
         if (cancelled) return;
         agents = staff.plotted;
+        setStaffError(staff.error?.message || "");
         aircraftNow = await loadAircraft();
         const standsNow = readDemoStands();
         const shown = mergePlanes(aircraftNow, standsNow);
@@ -1774,6 +1777,7 @@ export default function DispatcherPage() {
             </button>
           {planeId && aogIds.has(planeId) ? <p className="fault-hint stale-live">Выбранный борт в AOG.</p> : null}
           {!aircraft.length ? <p className="fault-hint">Список бортов пуст. Стоянка с карты достаточна для назначения.</p> : null}
+          {staffError ? <p className="fault-hint stale-live">{staffError}</p> : null}
           <p className="fault-hint">{live}</p>
           <label>Тип неисправности
             <select value={issue} onChange={(event) => setIssue(event.target.value)}>

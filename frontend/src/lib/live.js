@@ -125,6 +125,19 @@ export async function engineerName(id) {
   }
 }
 
+// Причина сбоя загрузки списка инженеров в человекочитаемом виде.
+// 404 сюда не попадает: отсутствие ручки — обычный пустой список, не ошибка.
+function staffLoadFailure(error) {
+  const status = statusOf(error);
+  const why = status ? ("HTTP " + status) : "сервер не ответил";
+  const detail = error?.message ? (", " + String(error.message)) : "";
+  return {
+    status,
+    message: "Список инженеров не загружен (" + why + detail + ") — "
+      + "на карте ноль инженеров из-за сбоя запроса, а не потому что их нет.",
+  };
+}
+
 export async function loadStaff() {
   let engineers = [];
   try {
@@ -137,16 +150,28 @@ export async function loadStaff() {
   } catch (error) {
     if (statusOf(error) !== 404) {
       console.warn("[map] не удалось загрузить список сотрудников", error);
-      return { plotted: [], missing: [] };
+      return { plotted: [], missing: [], error: staffLoadFailure(error) };
     }
     try {
       engineers = asJson(await apiRequest("/api/simulate/get_engineers_positions"));
     } catch (fallbackError) {
-      console.warn("[map] не удалось загрузить список сотрудников", fallbackError);
-      return { plotted: [], missing: [] };
+      if (statusOf(fallbackError) !== 404) {
+        console.warn("[map] не удалось загрузить список сотрудников", fallbackError);
+        return { plotted: [], missing: [], error: staffLoadFailure(fallbackError) };
+      }
+      engineers = [];
     }
   }
-  if (!Array.isArray(engineers)) return { plotted: [], missing: [] };
+  if (!Array.isArray(engineers)) {
+    return {
+      plotted: [],
+      missing: [],
+      error: {
+        status: 0,
+        message: "Ответ со списком инженеров пришёл в неизвестном формате — на карте ноль инженеров, хотя API ответил.",
+      },
+    };
+  }
 
   const plotted = [];
   const missing = [];
