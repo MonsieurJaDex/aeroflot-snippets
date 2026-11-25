@@ -240,6 +240,7 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route("/defects", post(router::ops::create_defect))
         .route("/journal.csv", get(router::ops::export_journal))
         .route("/tasks/{id}/route", post(router::ops::refresh_route))
+        .route("/tasks/{id}/timer", post(router::ops::set_task_timer))
         .route("/tasks/current/accept", post(router::ops::accept_current))
         .route("/tasks/current/reject", post(router::ops::reject_current))
         .route("/tasks/current/tools", post(router::ops::pick_tools))
@@ -300,6 +301,14 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route(
             "/trackFreshness",
             get(router::geo::track_freshness),
+        )
+        .route(
+            "/pauseAgent",
+            post(router::geo::pause_agent_handler),
+        )
+        .route(
+            "/forceVehicle",
+            post(router::geo::force_vehicle_handler),
         )
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&app_state),

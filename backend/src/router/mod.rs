@@ -1591,6 +1591,7 @@ pub(crate) async fn build_candidates(
         transports.extend(load_transport_positions(redis_conn, &active, vehicle_type)?);
     }
 
+    let forced_vehicle = forced_vehicle_engineers(redis_conn, &roster);
     let outcome = crate::rank::rank(crate::rank::RankInput {
         map: &active,
         plane: plane_point,
@@ -1604,7 +1605,7 @@ pub(crate) async fn build_candidates(
         mel_category: task.mel_category.as_deref(),
         transports,
         needs_tools: !task.tools_picked && active.location.object_point("warehouse").is_some(),
-        forced_vehicle: forced_vehicle_engineers(redis_conn, &roster),
+        forced_vehicle,
     });
     Ok(AssignmentPlan {
         outcome,

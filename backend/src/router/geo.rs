@@ -562,7 +562,7 @@ pub async fn force_vehicle_handler(
     if auth_user.role != UserRole::Dispatcher {
         return Err(forbidden("only dispatchers can force a vehicle"));
     }
-    let mut conn = app_state.pool.get().map_err(|e| {
+    let mut conn = app_state.db_pool.get().map_err(|e| {
         tracing::error!(error = %e, "failed to acquire database connection");
         internal_error()
     })?;

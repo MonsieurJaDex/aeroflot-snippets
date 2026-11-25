@@ -1027,3 +1027,108 @@ async fn unassign_clears_the_selection_basis() {
         "no engineer means no justification to hand out"
     );
 }
+
+/// ТЗ п.3.2: a request's clock can be shortened or lengthened, so an SLA breach
+/// and a comfortable margin can both be staged on purpose.
+#[tokio::test]
+async fn shifts_the_deadline_of_an_open_request() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    let task = ctx.seed_task(
+        dispatcher.id,
+        Some(engineer.id),
+        "in_progress",
+        None,
+        Point::new(10, 10),
+    );
+    let before = ctx.task(task).ends_at;
+
+    // Shortening the timer moves the deadline back by exactly that much.
+    let shortened = expect_status(
+        ctx.post(
+            &format!("/api/tasks/{task}/timer"),
+            &dispatcher.token,
+            json!({ "delta_seconds": -600 }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(shortened["request_id"], task.to_string());
+    let after = ctx.task(task).ends_at;
+    assert_eq!(
+        (before - after).num_seconds(),
+        600,
+        "the deadline moved back by 600 s: before {before}, after {after}"
+    );
+    assert_eq!(shortened["ends_at"], after.to_rfc3339());
+    assert!(
+        shortened["seconds_left"].as_i64().is_some_and(|left| left < 400),
+        "the answer reports what is left: {shortened}"
+    );
+
+    // Lengthening puts it forward, so a breach can be staged and then undone.
+    expect_status(
+        ctx.post(
+            &format!("/api/tasks/{task}/timer"),
+            &dispatcher.token,
+            json!({ "delta_seconds": 1800 }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!((ctx.task(task).ends_at - after).num_seconds(), 1800);
+    let journal = ctx.journal_count();
+    assert!(journal > 0, "a timer change is journalled");
+
+    // A zero shift says nothing, a closed request has no clock to move, an
+    // unknown id is not found, and only a dispatcher runs this control.
+    expect_status(
+        ctx.post(
+            &format!("/api/tasks/{task}/timer"),
+            &dispatcher.token,
+            json!({ "delta_seconds": 0 }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+    expect_status(
+        ctx.post(
+            &format!("/api/tasks/{}/timer", Uuid::new_v4()),
+            &dispatcher.token,
+            json!({ "delta_seconds": 60 }),
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+    );
+    expect_status(
+        ctx.post(
+            &format!("/api/tasks/{task}/timer"),
+            &engineer.token,
+            json!({ "delta_seconds": 60 }),
+        )
+        .await,
+        StatusCode::FORBIDDEN,
+    );
+
+    let done = ctx.seed_task(
+        dispatcher.id,
+        Some(engineer.id),
+        "done",
+        None,
+        Point::new(10, 10),
+    );
+    diesel::update(tasks::table.find(done))
+        .set(tasks::is_active.eq(false))
+        .execute(&mut ctx.db())
+        .unwrap();
+    expect_status(
+        ctx.post(
+            &format!("/api/tasks/{done}/timer"),
+            &dispatcher.token,
+            json!({ "delta_seconds": 60 }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+}
