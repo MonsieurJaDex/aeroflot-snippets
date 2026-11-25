@@ -61,7 +61,7 @@ pub enum AgentKind {
     Vehicle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SpeedClass {
     Walk,
     VehicleStand,
@@ -228,10 +228,38 @@ pub struct RoadGraph {
     pub origin_lon: f64,
 }
 
-#[derive(Debug, Clone)]
+/// One leg of a planned route: a straight line between two cells together with
+/// the speed the agent may travel it at and the time it costs.
+///
+/// `route_leg` builds these from the very edges A* walked, so a caller that
+/// needs the speed profile of a route (a simulation, a per-segment ETA) does not
+/// have to look the edges up again and cannot disagree with the search that
+/// chose them.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct RouteSegment {
+    pub from: Point,
+    pub to: Point,
+    /// Length of the straight line between `from` and `to`, in metres.
+    pub length_m: f64,
+    /// Speed the agent travels this segment at, in metres per second.
+    pub speed_mps: f64,
+    /// `length_m / speed_mps`.
+    pub seconds: f64,
+    /// Seconds from the start of the leg to the end of this segment, so the last
+    /// segment carries the leg's total time.
+    pub cum_seconds: f64,
+    /// Road class of the segment. The off-graph approach and departure pieces are
+    /// apron pieces, exactly as they are costed.
+    pub class: SpeedClass,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PlannedRoute {
     pub points: Vec<Point>,
     pub seconds: f64,
+    /// The same route as timed, speed-classed segments. Empty when the route has
+    /// fewer than two points, i.e. when the object does not move.
+    pub segments: Vec<RouteSegment>,
 }
 
 impl RoadGraph {
@@ -239,10 +267,20 @@ impl RoadGraph {
     /// Cell -> WGS-84. `y` grows south, matching `map[y][x]` row order, so
     /// row 0 is the northern edge of the map.
     pub fn project(&self, x: i64, y: i64) -> (f64, f64) {
-        let south = (y as f64) * self.cell_size_m / 111_320.0;
+        self.project_f64(x as f64, y as f64)
+    }
+
+    /// Cell -> WGS-84 for a fractional cell.
+    ///
+    /// An object between two cells (a simulation sample, a smoothed track point)
+    /// has an `(x, y)` that is not an integer; this is what turns it into the
+    /// degrees the rest of the app publishes, without rounding it back onto a
+    /// cell and losing the movement.
+    pub fn project_f64(&self, x: f64, y: f64) -> (f64, f64) {
+        let south = y * self.cell_size_m / 111_320.0;
         let lat = self.origin_lat - south;
         let cos = (self.origin_lat.to_radians()).cos().max(0.2);
-        let east = (x as f64) * self.cell_size_m / (111_320.0 * cos);
+        let east = x * self.cell_size_m / (111_320.0 * cos);
         (lat, self.origin_lon + east)
     }
 
@@ -310,10 +348,11 @@ impl RoadGraph {
             return Ok(PlannedRoute {
                 points: stops.to_vec(),
                 seconds: 0.0,
+                segments: Vec::new(),
             });
         }
         let mut points = Vec::new();
-        let mut seconds = 0.0;
+        let mut segments: Vec<RouteSegment> = Vec::new();
         for pair in stops.windows(2) {
             let leg = self.route_leg(agent, pair[0], pair[1])?;
             if points.is_empty() {
@@ -321,9 +360,20 @@ impl RoadGraph {
             } else if leg.points.len() > 1 {
                 points.extend_from_slice(&leg.points[1..]);
             }
-            seconds += leg.seconds;
+            // A leg's cumulative times are relative to its own start, so the
+            // second and later legs are shifted onto the route's clock.
+            let offset = segments.last().map_or(0.0, |segment| segment.cum_seconds);
+            for mut segment in leg.segments {
+                segment.cum_seconds += offset;
+                segments.push(segment);
+            }
         }
-        Ok(PlannedRoute { points, seconds })
+        let seconds = segments.last().map_or(0.0, |segment| segment.cum_seconds);
+        Ok(PlannedRoute {
+            points,
+            seconds,
+            segments,
+        })
     }
 
     fn route_leg(
@@ -346,30 +396,115 @@ impl RoadGraph {
             self.cell_size_m * (((end.0 - end_node.x).abs() + (end.1 - end_node.y).abs()) as f64);
         let approach_speed = travel_speed_mps(agent, SpeedClass::VehicleApron, start);
         let departure_speed = travel_speed_mps(agent, SpeedClass::VehicleApron, end);
-        let mut seconds = approach / approach_speed + departure / departure_speed;
+        let start_point = Point::new(start_node.x, start_node.y);
+        let end_point = Point::new(end_node.x, end_node.y);
 
         if start_id == end_id {
-            let mut points = vec![start, Point::new(start_node.x, start_node.y)];
+            let mut points = vec![start, start_point];
             if end != points[points.len() - 1] {
                 points.push(end);
             }
-            return Ok(PlannedRoute { points, seconds });
+            let mut segments = Vec::new();
+            push_segment(
+                &mut segments,
+                start,
+                start_point,
+                approach,
+                approach_speed,
+                SpeedClass::VehicleApron,
+            );
+            push_segment(
+                &mut segments,
+                end_point,
+                end,
+                departure,
+                departure_speed,
+                SpeedClass::VehicleApron,
+            );
+            let seconds = segments.last().map_or(0.0, |segment| segment.cum_seconds);
+            return Ok(PlannedRoute {
+                points,
+                seconds,
+                segments,
+            });
         }
 
-        let (path, travel) = self.astar(agent, start_id, end_id)?;
-        seconds += travel;
+        let (path, _travel) = self.astar(agent, start_id, end_id)?;
         let mut points = Vec::with_capacity(path.len() + 2);
-        if start != Point::new(start_node.x, start_node.y) {
+        if start != start_point {
             points.push(start);
         }
-        for id in path {
-            let node = &self.nodes[id as usize];
+        for id in &path {
+            let node = &self.nodes[*id as usize];
             points.push(Point::new(node.x, node.y));
         }
         if end != *points.last().unwrap_or(&end) {
             points.push(end);
         }
-        Ok(PlannedRoute { points, seconds })
+
+        // The approach is a straight off-graph line, the middle is the edges A*
+        // actually took, and the departure closes the leg from the last node to
+        // the requested cell. Rebuilding the segment times from those same edges
+        // keeps the sum equal to the leg's total.
+        let mut segments = Vec::new();
+        push_segment(
+            &mut segments,
+            start,
+            start_point,
+            approach,
+            approach_speed,
+            SpeedClass::VehicleApron,
+        );
+        for pair in path.windows(2) {
+            let from = Point::new(
+                self.nodes[pair[0] as usize].x,
+                self.nodes[pair[0] as usize].y,
+            );
+            let to = Point::new(
+                self.nodes[pair[1] as usize].x,
+                self.nodes[pair[1] as usize].y,
+            );
+            let Some(edge) = self.edge_between(agent, pair[0], pair[1]) else {
+                continue;
+            };
+            let speed = travel_speed_mps(agent, edge.speed, from);
+            push_segment(&mut segments, from, to, edge.length_m, speed, edge.speed);
+        }
+        push_segment(
+            &mut segments,
+            end_point,
+            end,
+            departure,
+            departure_speed,
+            SpeedClass::VehicleApron,
+        );
+        let seconds = segments.last().map_or(0.0, |segment| segment.cum_seconds);
+        Ok(PlannedRoute {
+            points,
+            seconds,
+            segments,
+        })
+    }
+
+    /// The edge A* walked from `from` to `to`: the fastest of the parallel edges,
+    /// which is the one the search relaxed. `None` when the two nodes are not
+    /// joined by an edge this agent may use, so the segment is left out instead of
+    /// inventing a speed for it.
+    fn edge_between(&self, agent: AgentKind, from: u32, to: u32) -> Option<&GraphEdge> {
+        let at = {
+            let node = &self.nodes[from as usize];
+            Point::new(node.x, node.y)
+        };
+        self.adj[from as usize]
+            .iter()
+            .filter(|edge| edge.to == to && !edge.closed && edge.allows(agent))
+            .min_by(|left, right| {
+                let left_secs =
+                    left.length_m / travel_speed_mps(agent, left.speed, at).max(f64::MIN_POSITIVE);
+                let right_secs = right.length_m
+                    / travel_speed_mps(agent, right.speed, at).max(f64::MIN_POSITIVE);
+                left_secs.total_cmp(&right_secs)
+            })
     }
 
     /// Time-optimal path. The heuristic is straight-line distance at the
@@ -449,6 +584,32 @@ impl RoadGraph {
         path.reverse();
         Ok((path, best[end as usize]))
     }
+}
+
+/// Appends one timed segment, skipping the empty ones a route produces when a
+/// stop already sits on its graph node.
+fn push_segment(
+    segments: &mut Vec<RouteSegment>,
+    from: Point,
+    to: Point,
+    length_m: f64,
+    speed_mps: f64,
+    class: SpeedClass,
+) {
+    if from == to || length_m <= f64::EPSILON || speed_mps <= f64::MIN_POSITIVE {
+        return;
+    }
+    let seconds = length_m / speed_mps;
+    let cum_seconds = segments.last().map_or(0.0, |last| last.cum_seconds) + seconds;
+    segments.push(RouteSegment {
+        from,
+        to,
+        length_m,
+        speed_mps,
+        seconds,
+        cum_seconds,
+        class,
+    });
 }
 
 impl GraphEdge {

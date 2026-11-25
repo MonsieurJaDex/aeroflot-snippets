@@ -172,17 +172,17 @@ impl<'de> Deserialize<'de> for TrackQuery {
 }
 
 /// One resolved position report, whichever transport carried it.
-struct TrackSample {
-    obj: String,
-    lat: Option<f64>,
-    lon: Option<f64>,
-    when: Option<DateTime<Utc>>,
-    acc: Option<f64>,
-    spd: Option<f64>,
+pub(crate) struct TrackSample {
+    pub(crate) obj: String,
+    pub(crate) lat: Option<f64>,
+    pub(crate) lon: Option<f64>,
+    pub(crate) when: Option<DateTime<Utc>>,
+    pub(crate) acc: Option<f64>,
+    pub(crate) spd: Option<f64>,
 }
 
 impl TrackPoint {
-    fn into_sample(self) -> TrackSample {
+    pub(crate) fn into_sample(self) -> TrackSample {
         TrackSample {
             obj: self.obj,
             // contract: the JSON body requires both coordinates, so they are always
@@ -357,7 +357,7 @@ const TRACK_HISTORY_POINTS: i32 = 5000;
 /// whichever it is, everything below needs the same three answers: what kind of
 /// thing moves, which UUID the position keys use, and whether the object exists at
 /// all.
-struct TrackedObject<'a> {
+pub(crate) struct TrackedObject<'a> {
     agent: Option<&'a ExternalAgent>,
     /// UUID the position keys are written under, when the object resolves to one.
     linked: Option<Uuid>,
@@ -365,7 +365,7 @@ struct TrackedObject<'a> {
 }
 
 impl TrackedObject<'_> {
-    fn agent_kind(&self) -> AgentKind {
+    pub(crate) fn agent_kind(&self) -> AgentKind {
         if self.kind == "vehicle" {
             AgentKind::Vehicle
         } else {
@@ -375,7 +375,7 @@ impl TrackedObject<'_> {
 
     /// UUID the shared position keys use: the linked engineer, else a stable v5
     /// name derived from `obj`, so an object without a row still has one key.
-    fn position_id(&self, obj: &str) -> Uuid {
+    pub(crate) fn position_id(&self, obj: &str) -> Uuid {
         self.linked
             .unwrap_or_else(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, obj.as_bytes()))
     }
@@ -384,7 +384,7 @@ impl TrackedObject<'_> {
 impl TrackSample {
     /// Resolves the object this point belongs to, or `None` when it names nothing
     /// the map, the database or a UUID in the payload knows.
-    fn resolve<'a>(
+    pub(crate) fn resolve<'a>(
         &self,
         active: &'a crate::maps::ActiveMap,
         pg_conn: &mut diesel::PgConnection,
@@ -469,7 +469,7 @@ pub fn is_paused(redis_conn: &mut redis::Connection, map_id: &str, obj: &str) ->
 }
 
 /// Key holding one object's track, newest point first.
-fn track_key(active: &crate::maps::ActiveMap, obj: &str) -> String {
+pub(crate) fn track_key(active: &crate::maps::ActiveMap, obj: &str) -> String {
     format!("map:{}:track:{}", active.id, obj)
 }
 
@@ -501,7 +501,7 @@ fn stored_is_newer(previous: Option<&str>, when: DateTime<Utc>) -> bool {
 /// Appends the point to the object's track, caps the history and renews the key's
 /// lifetime — all in one round trip, so a failed trim cannot leave the list
 /// unbounded.
-fn store_point(
+pub(crate) fn store_point(
     active: &crate::maps::ActiveMap,
     redis_conn: &mut redis::Connection,
     key: &str,
@@ -530,7 +530,7 @@ fn store_point(
 ///
 /// The track list is history; these keys are the current coordinate of an
 /// engineer, vehicle or aircraft.
-fn publish_position(
+pub(crate) fn publish_position(
     active: &crate::maps::ActiveMap,
     redis_conn: &mut redis::Connection,
     pg_conn: &mut diesel::PgConnection,
@@ -569,6 +569,67 @@ fn publish_position(
             refresh_forecast(active, redis_conn, pg_conn, position_id, grid);
         }
     }
+}
+
+/// Publishes a position the simulator computed, through the same keys a tracker
+/// report would write.
+///
+/// The ingest path refuses a simulator twice: `stored_is_newer` compares wall
+/// clocks an already-latest point wins, and `outlier` caps the implied speed at
+/// the airfield limit while forcing `dt` to at least one second — a half-second
+/// tick then looks like 36 km/h and is thrown away. A simulation knows its own
+/// speed and its own schedule, so it skips those two gates and keeps everything
+/// else: the object is resolved the same way, the point lands in the same track
+/// history, and `publish_position` writes the same coordinate keys, timestamp and
+/// SLA forecast.
+pub(crate) fn publish_simulated_point(
+    active: &crate::maps::ActiveMap,
+    redis_conn: &mut redis::Connection,
+    pg_conn: &mut diesel::PgConnection,
+    obj: &str,
+    lat: f64,
+    lon: f64,
+    when: DateTime<Utc>,
+    speed_mps: Option<f64>,
+) {
+    let sample = TrackSample {
+        obj: obj.to_owned(),
+        lat: Some(lat),
+        lon: Some(lon),
+        when: Some(when),
+        acc: None,
+        spd: speed_mps,
+    };
+    let Some(object) = sample.resolve(active, pg_conn) else {
+        return;
+    };
+    let key = track_key(active, obj);
+    // The cell a simulated fix lands on, from the same projection ingest uses.
+    // The fractional coordinate that makes the movement smooth lives under the
+    // simulation's own `smooth` key; this integer cell is what the track history
+    // and the coordinate keys carry, exactly as for a tracker report.
+    let grid = match active.location.graph.snap(lat, lon, object.agent_kind()) {
+        Some((snapped, _)) => snapped,
+        // A point the graph cannot snap (a leg's off-graph approach) still has a
+        // cell: the one its degrees fall on.
+        None => {
+            let (cell_x, cell_y) = active.location.graph.unproject(lat, lon);
+            Point::new(cell_x.round() as i64, cell_y.round() as i64)
+        }
+    };
+    let stored = serde_json::json!({
+        "lat": lat,
+        "lon": lon,
+        "t": sample.stamp(),
+        "x": grid.0,
+        "y": grid.1,
+        "acc": serde_json::Value::Null,
+        "spd": speed_mps,
+    });
+    if store_point(active, redis_conn, &key, &stored).is_err() {
+        return;
+    }
+    publish_position(active, redis_conn, pg_conn, &object, obj, when, grid);
 }
 
 /// Acknowledges a point without moving the object.

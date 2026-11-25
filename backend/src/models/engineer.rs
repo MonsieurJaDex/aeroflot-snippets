@@ -17,4 +17,8 @@ pub struct Engineer {
     pub name: String,
     pub password_hash: String,
     pub engineer_type: EngineerType,
+
+    /// Organiser roster id (`AT-0001` …) whose licence this account holds.
+    /// Absent means the account is gated by `engineer_type` alone.
+    pub tabel_id: Option<String>,
 }

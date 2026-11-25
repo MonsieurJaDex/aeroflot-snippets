@@ -90,6 +90,10 @@ pub struct RankInput<'a> {
     /// Arrival time from `aircraft_movements` and the AOG flag from Redis.
     pub aircraft: AircraftContext,
     pub engineers: Vec<(Uuid, EngineerType)>,
+    /// Licences per engineer, from the organiser geodata keyed by the
+    /// account's `tabel_id`. An account without one is absent here and falls
+    /// back to its `engineer_type`.
+    pub licences: HashMap<Uuid, crate::location::Qualification>,
     pub positions: HashMap<Uuid, Point>,
     pub in_progress: HashMap<Uuid, bool>,
     pub load: HashMap<Uuid, u32>,
@@ -145,8 +149,20 @@ fn score_one(input: &RankInput<'_>, id: Uuid, kind: EngineerType) -> CandidateSc
         score: f64::MAX,
     };
     if let Some(chapter) = input.chapter {
-        if !admits(&input.map.location, chapter, kind) {
-            return reject("допуск не соответствует главе ATA");
+        let licence = input.licences.get(&id);
+        if !admits(
+            &input.map.location,
+            chapter,
+            kind,
+            licence.map(|item| item.skill.as_str()),
+        ) {
+            return match licence {
+                Some(item) => reject(&format!(
+                    "допуск не соответствует главе ATA: скилл {} ({}, {}, {}) не допущен",
+                    item.skill, item.grade, item.scope, item.scope_desc
+                )),
+                None => reject("допуск не соответствует главе ATA"),
+            };
         }
     }
     if input.in_progress.get(&id).copied().unwrap_or(false) {
@@ -363,14 +379,30 @@ fn arrival_bonus(input: &RankInput<'_>) -> f64 {
     input.map.location.arrival_bonus_secs * (1.0 - age / window)
 }
 
-fn admits(location: &Location, chapter: &str, kind: EngineerType) -> bool {
+/// Whether this engineer may take a chapter.
+///
+/// The organiser geodata states a licence per engineer (`skill`: `B1,A`, `B2`,
+/// `CAB`, `AM`) and the chapter states the skills it admits. When both are
+/// known the licence decides — a trainee (`AM`) is refused a mechanical chapter
+/// the way a `B1` holder is admitted to it. Without a licence the earlier rule
+/// stands: the specialization the account declared at registration.
+fn admits(location: &Location, chapter: &str, kind: EngineerType, licence: Option<&str>) -> bool {
+    let Some(item) = location.ata.iter().find(|item| item.chapter == chapter) else {
+        return true;
+    };
+    if let Some(licence) = licence.filter(|value| !value.trim().is_empty()) {
+        if !item.skills.is_empty() {
+            return licence
+                .split(',')
+                .map(str::trim)
+                .filter(|token| !token.is_empty())
+                .any(|token| item.skills.iter().any(|skill| skill == token));
+        }
+    }
     let needle = engineer_type_name(kind);
-    location
-        .ata
+    item.admissions
         .iter()
-        .find(|item| item.chapter == chapter)
-        .map(|item| item.admissions.iter().any(|admission| admission == &needle))
-        .unwrap_or(true)
+        .any(|admission| admission == &needle)
 }
 
 pub fn engineer_type_name(kind: EngineerType) -> &'static str {

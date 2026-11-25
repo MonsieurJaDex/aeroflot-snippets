@@ -1,0 +1,42 @@
+info:
+  name: startSimulation
+  type: http
+  seq: 60
+
+http:
+  method: POST
+  url: "{{HOST}}/geo/startSimulation"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "obj": "AT-0001",
+        "stops": [[294, 232], [306, 232]],
+        "tick_ms": 500,
+        "speed_scale": 4.0
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.seconds
+      operator: gt
+      value: "0"
+    - expression: res.body.points.length
+      operator: gt
+      value: "1"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
