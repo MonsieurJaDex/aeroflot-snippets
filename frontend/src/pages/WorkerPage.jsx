@@ -25,6 +25,7 @@ import {
   loadApronMap,
   loadTilesetImages,
   prepareMapFrame,
+  applyPhoneApron,
   renderCanvas,
 } from "../lib/apronMap.js";
 
@@ -1023,6 +1024,7 @@ export default function WorkerPage() {
       const latSpan = Math.abs(bounds[1][0] - bounds[0][0]);
       let settled = false;
       let userMoved = false;
+      let holdPhone = window.matchMedia("(max-width: 860px)").matches;
       let fittedW = 0;
       let fittedH = 0;
       let lastFit = { target: bounds, options: apronPad };
@@ -1077,8 +1079,8 @@ export default function WorkerPage() {
         }
         return map;
       };
-      map.on("dragstart", () => { userMoved = true; });
-      map.on("zoomstart", (event) => { if (event.originalEvent) userMoved = true; });
+      map.on("dragstart", () => { userMoved = true; holdPhone = false; });
+      map.on("zoomstart", (event) => { if (event.originalEvent) { userMoved = true; holdPhone = false; } });
       map.on("zoomend", stampOverlay);
       overlay.on("add", () => {
         map.off("viewreset", stampOverlay);
@@ -1108,27 +1110,44 @@ export default function WorkerPage() {
         return Math.pow(2, zoom) < limit * 0.92;
       }
 
-      map.fitBounds(bounds, apronPad);
+      function openView() {
+        if (holdPhone && applyPhoneApron(map, tmj)) {
+          stampOverlay();
+          settled = true;
+          const node = map.getContainer();
+          fittedW = node.clientWidth;
+          fittedH = node.clientHeight;
+          return;
+        }
+        map.fitBounds(bounds, apronPad);
+      }
+
+      openView();
       bag.fitFrame = requestAnimationFrame(() => {
         if (cancelled || userMoved) return;
-        ensureFitted();
-        if (settled && isApronTarget(lastFit.target) && apronUnderfilled()) {
-          fittedW = 0;
-          fittedH = 0;
-          settled = false;
+        if (holdPhone) openView();
+        else {
           ensureFitted();
+          if (settled && isApronTarget(lastFit.target) && apronUnderfilled()) {
+            fittedW = 0;
+            fittedH = 0;
+            settled = false;
+            ensureFitted();
+          }
         }
       });
       // Клики по карте не имитируют GPS — полевой трек отдельно через GPS Logger.
       const onResize = () => {
         prepareMapFrame(map.getContainer(), tmj);
         map.invalidateSize(false);
-        ensureFitted();
+        if (holdPhone) openView();
+        else ensureFitted();
       };
       window.addEventListener("resize", onResize);
       const boxObserver = new ResizeObserver(() => {
         prepareMapFrame(map.getContainer(), tmj);
-        ensureFitted();
+        if (holdPhone) openView();
+        else ensureFitted();
       });
       boxObserver.observe(map.getContainer());
       bag.cleanupResize = () => {

@@ -342,13 +342,49 @@ export function prepareMapFrame(node, tmj) {
     node.style.maxHeight = "";
     return;
   }
-  const width = node.clientWidth || node.parentElement?.clientWidth || window.innerWidth;
-  const height = Math.max(200, Math.min(window.innerHeight * 0.62, Math.round(width * tmj.height / tmj.width)));
+  const height = Math.max(320, Math.round(window.innerHeight * 0.58));
   const next = `${height}px`;
   node.style.width = "100%";
   if (node.style.height !== next) node.style.height = next;
   node.style.flex = "0 0 auto";
   node.style.maxHeight = "62dvh";
+}
+
+export function apronFocusCell(tmj) {
+  const runway = (tmj?.objects || []).find((obj) => obj.kind === "runway");
+  if (runway) {
+    return {
+      col: Number(runway.x) + Number(runway.w || 1) / 2,
+      row: Number(runway.y) + Number(runway.h || 1) / 2 + 12,
+    };
+  }
+  const pts = [];
+  for (const zone of tmj?.zones || []) {
+    const x = Number(zone.x);
+    const y = Number(zone.y);
+    if (Number.isFinite(x) && Number.isFinite(y)) pts.push([x, y]);
+  }
+  if (!pts.length) {
+    for (const obj of tmj?.objects || []) {
+      pts.push([Number(obj.x) + Number(obj.w || 1) / 2, Number(obj.y) + Number(obj.h || 1) / 2]);
+    }
+  }
+  if (!pts.length) return { col: (tmj?.width || 2) / 2, row: (tmj?.height || 2) / 2 };
+  const col = pts.reduce((sum, point) => sum + point[0], 0) / pts.length;
+  const row = pts.reduce((sum, point) => sum + point[1], 0) / pts.length;
+  return { col, row };
+}
+
+export function applyPhoneApron(map, tmj) {
+  if (!window.matchMedia("(max-width: 860px)").matches) return false;
+  const tile = tmj.tilewidth || 4;
+  const focus = apronFocusCell(tmj);
+  const zoom = Math.log2(7 / tile);
+  const z = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), zoom));
+  map._sizeChanged = true;
+  if (map._loaded) map.invalidateSize(false);
+  map.setView(cellToLatLng(tmj, focus.col, focus.row), z, { animate: false });
+  return true;
 }
 
 export function roadHint(cells) {

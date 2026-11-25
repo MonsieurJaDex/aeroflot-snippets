@@ -501,7 +501,7 @@ function drawTerminal(svg, defs, paths, cells, obj, tileW, tileH) {
   }
   if (windows) el("path", { class: "apron-window", d: windows }, g);
   const [cx, cy] = centroid(own, [box.minX, box.minY]);
-  placeLabel(svg, (cx + 0.5) * tileW, (box.minY + (box.maxY - box.minY) * 0.72 + 0.5) * tileH, obj.name || "Терминал", 30);
+  placeLabel(svg, (cx + 0.5) * tileW, (box.minY + (box.maxY - box.minY) * 0.72 + 0.5) * tileH, obj.name || "Терминал", 22);
 }
 
 function drawHangar(svg, defs, paths, cells, obj, tileW, tileH) {
@@ -552,7 +552,7 @@ function drawHangar(svg, defs, paths, cells, obj, tileW, tileH) {
     }, g);
   }
   const [cx, cy] = centroid(own, [Number(obj.x), Number(obj.y)]);
-  placeLabel(svg, (cx + 6.5) * tileW, (cy + 0.5) * tileH, obj.name || "Ангар", 36);
+  placeLabel(svg, (cx + 6.5) * tileW, (cy + 0.5) * tileH, obj.name || "Ангар", 22);
 }
 
 function drawWarehouse(svg, defs, paths, cells, obj, tileW, tileH, index) {
@@ -601,16 +601,21 @@ function drawParking(svg, defs, paths, obj, tileW, tileH) {
     svg,
     (x0 + 0.4) * tileW,
     (y0 + h / 2) * tileH,
-    obj.name || "Стоянка",
-    15,
+    shortPlace(obj.name, "Стоянка"),
+    12,
     { "text-anchor": "start" },
   );
 }
 
+function shortPlace(name, fallback) {
+  const text = String(name || fallback || "").trim();
+  return text.replace(/^стоянка\s+/i, "") || fallback;
+}
+
 function zoneCaption(zone) {
-  const label = String(zone.label || "").trim();
-  if (label) return label.slice(0, 16);
-  return String(zone.id || "").trim().slice(0, 16);
+  const label = shortPlace(zone.label, "");
+  if (label) return label.slice(0, 12);
+  return shortPlace(zone.id, "").slice(0, 12);
 }
 
 function drawZones(svg, zones, tileW, tileH, metres, objects) {
