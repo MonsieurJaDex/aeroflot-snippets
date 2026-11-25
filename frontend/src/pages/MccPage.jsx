@@ -175,9 +175,7 @@ export default function MccPage() {
       sessionStorage.removeItem("oto-mcc-draft");
       setDraftText("");
       setHint("");
-      setStatus(created?.scenario
-        ? "Замечание в локальном сценарии. На сервере этой ручки нет. Инженера не назначали."
-        : "Замечание записано на сервере. Инженера не назначали.");
+      setStatus("Замечание записано на сервере. Инженера не назначали.");
       setItems(freshList());
     } catch (error) {
       if (Number(error?.status) !== 404) {

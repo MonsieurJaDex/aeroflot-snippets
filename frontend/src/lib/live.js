@@ -1,6 +1,5 @@
 import { apiRequest } from "./session.js";
 import { vehicleLabel } from "./catalog.js";
-import { scenarioEngineerName } from "./scenario.js";
 
 const names = new Map();
 
@@ -89,11 +88,6 @@ export function normalizeRoute(route) {
 export async function engineerName(id) {
   const key = String(id);
   if (names.has(key)) return names.get(key);
-  const scripted = scenarioEngineerName(key);
-  if (scripted) {
-    names.set(key, scripted);
-    return scripted;
-  }
   const label = `Инженер ${key.slice(0, 8)}`;
   const readName = (data) => {
     const parsed = asJson(data);
