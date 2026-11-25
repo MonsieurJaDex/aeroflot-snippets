@@ -26,6 +26,7 @@ import {
   loadTilesetImages,
   prepareMapFrame,
   applyPhoneApron,
+  apronPictureUrl,
   renderCanvas,
 } from "../lib/apronMap.js";
 
@@ -1016,7 +1017,9 @@ export default function WorkerPage() {
       bag.map = map;
       L.control.zoom({ position: "bottomright" }).addTo(map);
       const bounds = [[0, 0], [tmj.height * tmj.tileheight, tmj.width * tmj.tilewidth]];
-      const overlay = L.imageOverlay(apronOverlayUrl(tmj) || renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
+      const picture = apronPictureUrl(tmj);
+      map.getContainer().style.background = `#c5d4b4 url("${picture}") center / contain no-repeat`;
+      const overlay = L.imageOverlay(picture, bounds).addTo(map);
       addPlaceLabels(map, tmj);
       // zoomSnap 0: полигон вписывается в прямоугольник контейнера целиком.
       const apronPad = { padding: [16, 16], animate: false };

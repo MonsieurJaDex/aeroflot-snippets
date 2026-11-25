@@ -321,21 +321,35 @@ export function apronPictureUrl(tmj) {
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#d5e2d4";
+  ctx.fillStyle = "#c5d4b4";
   ctx.fillRect(0, 0, w, h);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `700 ${Math.max(18, tile * 5)}px sans-serif`;
   for (const obj of tmj.objects || []) {
     const x = Number(obj.x) * tile;
     const y = Number(obj.y) * tile;
-    const ow = Math.max(tile * 2, Number(obj.w || 1) * tile);
-    const oh = Math.max(tile * 2, Number(obj.h || 1) * tile);
+    const ow = Math.max(tile * 3, Number(obj.w || 1) * tile);
+    const oh = Math.max(obj.kind === "runway" ? tile * 8 : tile * 3, Number(obj.h || 1) * tile);
     ctx.fillStyle = PICTURE_FILL[obj.kind] || "#3e5168";
     ctx.fillRect(x, y, ow, oh);
+    const title = String(obj.name || "").replace(/^стоянка\s+/i, "").trim();
+    if (!title) continue;
+    ctx.fillStyle = obj.kind === "parking" ? "#142033" : "#ffffff";
+    ctx.fillText(title.slice(0, 16), x + ow / 2, y + oh / 2);
   }
-  ctx.fillStyle = "#c5161c";
+  ctx.font = `700 ${Math.max(14, tile * 3.5)}px sans-serif`;
   for (const zone of tmj.zones || []) {
+    const cx = (Number(zone.x) + 0.5) * tile;
+    const cy = (Number(zone.y) + 0.5) * tile;
     ctx.beginPath();
-    ctx.arc((Number(zone.x) + 0.5) * tile, (Number(zone.y) + 0.5) * tile, tile * 2.4, 0, Math.PI * 2);
+    ctx.fillStyle = "#c5161c";
+    ctx.arc(cx, cy, tile * 2.6, 0, Math.PI * 2);
     ctx.fill();
+    const title = String(zone.label || zone.id || "").trim();
+    if (!title) continue;
+    ctx.fillStyle = "#142033";
+    ctx.fillText(title.slice(0, 12), cx, cy - tile * 5);
   }
   return canvas.toDataURL("image/png");
 }
