@@ -311,14 +311,15 @@ body::before {
 
 #sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 20px 0 8px; }
 #sidebar section:first-of-type h2 { margin-top: 0; }
-#map { flex: 1; height: 100%; max-width: 100%; overflow: hidden; background: #d5e2d4; }
+#map { flex: 1; height: 100%; max-width: 100%; overflow: hidden; background: #b7cba4 url("/apron.svg") center / 100% 100% no-repeat; }
 .leaflet-image-layer { max-width: none !important; max-height: none !important; }
 .layer-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
 .layer-row input { cursor: pointer; accent-color: var(--accent); }
 #tile-info { font-size: 12px; line-height: 1.5; white-space: pre-wrap; background: var(--field); border: 1px solid var(--border); border-radius: 5px; padding: 8px; min-height: 60px; color: var(--muted); }
 .legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 0; color: var(--muted); }
 .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(20,32,51,.12); flex: none; }
-.leaflet-container { max-width: 100%; background: #d5e2d4; }
+.leaflet-container { max-width: 100%; background: #b7cba4 url("/apron.svg") center / 100% 100% no-repeat !important; }
+.leaflet-image-layer { opacity: 0 !important; }
 .leaflet-control-zoom { border: 1px solid var(--border) !important; }
 .leaflet-control-zoom a { background: var(--panel) !important; border-color: var(--border) !important; color: var(--text) !important; }
 .map-label { background: #ffffff; border: 1px solid #b7c6d6; border-radius: 3px; padding: 3px 6px; color: var(--text); font-size: 12px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 8px rgba(20,50,90,.16); }
@@ -512,7 +513,7 @@ button.mcc-item.selected::after { content: none; }
   to { transform: translateY(0); opacity: 1; }
 }
 .worker-map-card { margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; border-top: 3px solid var(--blue); }
-#worker-map { height: 480px; max-width: 100%; overflow: hidden; background: #d5e2d4; }
+#worker-map { height: 480px; max-width: 100%; overflow: hidden; background: #b7cba4 url("/apron.svg") center / 100% 100% no-repeat; }
 .worker-map-engineer, .worker-map-stand, .worker-map-self { width: 18px; height: 18px; border: 3px solid #ffffff; border-radius: 50%; box-shadow: 0 2px 8px rgba(20,50,90,.25); }
 .worker-map-engineer { background: var(--green); }
 .worker-map-stand { background: var(--blue); }
