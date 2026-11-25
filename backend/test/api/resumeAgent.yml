@@ -1,0 +1,49 @@
+info:
+  name: resumeAgent
+  type: http
+  seq: 69
+
+http:
+  method: POST
+  url: "{{HOST}}/geo/pauseAgent"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "obj": "{{engineer_id}}",
+        "paused": false
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Снятие паузы удаляет ключ, а не пишет `0` — иначе следующий агент прочитал бы
+    остаточный флаг. Парный к seq 68: после него агент снова двигается.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.paused
+      operator: eq
+      value: "false"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("resuming clears the flag", function () {
+          expect(res.body.paused).to.equal(false);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

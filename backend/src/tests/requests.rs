@@ -6,7 +6,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::database::schema::tasks;
-use crate::tests::support::{expect_status, TestContext};
+use crate::tests::support::{TestContext, expect_status};
 use crate::types::dto::SelectionBasis;
 use crate::types::enums::EngineerType;
 use crate::types::map::Point;
@@ -526,9 +526,11 @@ async fn alerts_flag_sla_risk_and_breach_in_database() {
     );
     let alerts = body["alerts"].as_array().unwrap();
     assert_eq!(alerts.len(), 2);
-    assert!(alerts
-        .iter()
-        .any(|alert| alert["request_id"] == risky.to_string()));
+    assert!(
+        alerts
+            .iter()
+            .any(|alert| alert["request_id"] == risky.to_string())
+    );
 
     assert!(ctx.task(risky).sla_alerted);
     assert!(ctx.task(breached).sla_alerted);
@@ -921,18 +923,22 @@ async fn reassign_rewrites_the_selection_basis_for_the_new_engineer() {
     );
     // The basis of the engineer who holds the request before it is moved.
     diesel::update(tasks::table.find(request_id))
-        .set(tasks::selection_basis.eq(Some(serde_json::json!({
-            "engineer_id": first.id.to_string(),
-            "score": 1.0,
-            "eta_seconds": 1,
-            "distance": 1,
-            "uses_vehicle": false,
-            "factors": [],
-            "reason": "stale pick",
-            "manual": false,
-            "chosen_at": "2026-01-01T00:00:00+00:00"
-        })
-        .to_string())))
+        .set(
+            tasks::selection_basis.eq(Some(
+                serde_json::json!({
+                    "engineer_id": first.id.to_string(),
+                    "score": 1.0,
+                    "eta_seconds": 1,
+                    "distance": 1,
+                    "uses_vehicle": false,
+                    "factors": [],
+                    "reason": "stale pick",
+                    "manual": false,
+                    "chosen_at": "2026-01-01T00:00:00+00:00"
+                })
+                .to_string(),
+            )),
+        )
         .execute(&mut ctx.db())
         .unwrap();
 
@@ -990,7 +996,8 @@ async fn unassign_clears_the_selection_basis() {
         "5,5",
     );
     let plane_id = Uuid::new_v4();
-    let request_id = create_queued_request(&ctx, &dispatcher.token, plane_id, Point::new(10, 10)).await;
+    let request_id =
+        create_queued_request(&ctx, &dispatcher.token, plane_id, Point::new(10, 10)).await;
     expect_status(
         ctx.post(
             "/api/assign",
@@ -1063,7 +1070,9 @@ async fn shifts_the_deadline_of_an_open_request() {
     );
     assert_eq!(shortened["ends_at"], after.to_rfc3339());
     assert!(
-        shortened["seconds_left"].as_i64().is_some_and(|left| left < 400),
+        shortened["seconds_left"]
+            .as_i64()
+            .is_some_and(|left| left < 400),
         "the answer reports what is left: {shortened}"
     );
 

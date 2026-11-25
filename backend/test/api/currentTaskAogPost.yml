@@ -1,0 +1,46 @@
+info:
+  name: currentTaskAogPost
+  type: http
+  seq: 80
+
+http:
+  method: POST
+  url: "{{HOST}}/tasks/current/aog"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "aog": false
+      }
+  auth:
+    type: bearer
+    token: "{{engineer_token}}"
+
+docs:
+  content: |-
+    Тот же обработчик, что у `PUT` (seq 32), но по `POST`: обе формы зарегистрированы
+    в `main.rs`, и обе должны отвечать одинаково. Здесь AOG снимается с борта
+    активной задачи инженера.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("POST and PUT reach the same handler", function () {
+          expect(res.status).to.equal(200);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

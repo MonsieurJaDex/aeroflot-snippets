@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::tests::support::{expect_status, TestContext};
+use crate::tests::support::{TestContext, expect_status};
 use crate::types::dto::SelectionBasis;
 use crate::types::enums::EngineerType;
 use crate::types::map::Point;
@@ -753,7 +753,10 @@ async fn rejected_candidate_publishes_no_factors() {
         "a refused row explains itself"
     );
     assert!(
-        refused["factors"].as_array().expect("factors array").is_empty(),
+        refused["factors"]
+            .as_array()
+            .expect("factors array")
+            .is_empty(),
         "a refused row carries no factors: {refused:?}"
     );
     assert_eq!(refused["score"].as_f64().unwrap(), f64::MAX);
@@ -1676,7 +1679,8 @@ async fn geodata_licence_decides_admission() {
     };
 
     assert_eq!(
-        find(licence_holder.id)["eligible"], true,
+        find(licence_holder.id)["eligible"],
+        true,
         "AT-0001 holds B1,A and chapter 72 admits it: {preview}"
     );
 

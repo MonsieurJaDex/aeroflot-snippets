@@ -8,14 +8,14 @@ use serde_json::json;
 
 use crate::graph::{AgentKind, PlannedRoute, RouteSegment, SpeedClass};
 use crate::simulation::{sample_at, simulation_key, smooth_key};
-use crate::tests::support::{expect_status, TestContext};
+use crate::tests::support::{TestContext, expect_status};
 use crate::types::enums::EngineerType;
 use crate::types::map::Point;
 
-const REAL_MAP: &str = "assets/it2026_aero.json";
+pub(super) const REAL_MAP: &str = "assets/it2026_aero.json";
 
 /// Two drivable cells joined by a real route on `map`.
-fn connected_cells(ctx: &TestContext, agent: AgentKind) -> (Point, Point) {
+pub(super) fn connected_cells(ctx: &TestContext, agent: AgentKind) -> (Point, Point) {
     let active = ctx.state.active.read().expect("active map").clone();
     let road = active.document.road_ids();
     let mut cells = Vec::new();
@@ -30,7 +30,11 @@ fn connected_cells(ctx: &TestContext, agent: AgentKind) -> (Point, Point) {
     let start = cells[0];
     // A route long enough to be sampled part-way, not a single cell hop.
     for candidate in cells.iter().rev() {
-        if let Ok(route) = active.location.graph.route_stops(agent, &[start, *candidate]) {
+        if let Ok(route) = active
+            .location
+            .graph
+            .route_stops(agent, &[start, *candidate])
+        {
             if route.seconds > 20.0 {
                 return (start, *candidate);
             }
@@ -167,7 +171,10 @@ fn a_route_that_does_not_end_on_a_whole_millisecond_still_finishes() {
     // millisecond it is stored as.
     let at_the_cap = (route.seconds * 1000.0).round() / 1000.0;
     let arrived = sample_at(&route, at_the_cap);
-    assert!(arrived.done, "the rounded end is the end, not a hair short of it");
+    assert!(
+        arrived.done,
+        "the rounded end is the end, not a hair short of it"
+    );
     assert!((arrived.x - 10.0).abs() < 1e-9);
     assert!(arrived.remaining_seconds.abs() < 1e-9);
 
@@ -212,7 +219,11 @@ async fn starting_a_movement_publishes_smooth_positions_and_journals_the_start()
         .select(crate::database::schema::journal::params)
         .load(&mut conn)
         .expect("journal query");
-    assert_eq!(start_params.len(), 1, "the movement start must be journalled once");
+    assert_eq!(
+        start_params.len(),
+        1,
+        "the movement start must be journalled once"
+    );
     let params: serde_json::Value = serde_json::from_str(&start_params[0]).expect("params json");
     assert_eq!(params["obj"], obj);
     assert_eq!(params["points"].as_u64().unwrap() > 2, true);
@@ -220,8 +231,11 @@ async fn starting_a_movement_publishes_smooth_positions_and_journals_the_start()
     // The object is on the map at its start cell before it has travelled: the
     // driver publishes the plan's first point as soon as it runs.
     let status = expect_status(
-        ctx.get(&format!("/api/geo/simulationStatus?obj={obj}"), &dispatcher.token)
-            .await,
+        ctx.get(
+            &format!("/api/geo/simulationStatus?obj={obj}"),
+            &dispatcher.token,
+        )
+        .await,
         StatusCode::OK,
     );
     assert_eq!(status["active"], true);
@@ -245,8 +259,11 @@ async fn starting_a_movement_publishes_smooth_positions_and_journals_the_start()
         "30 s of travel must consume 30 s of route: {total} - {left}"
     );
     let moved = expect_status(
-        ctx.get(&format!("/api/geo/simulationStatus?obj={obj}"), &dispatcher.token)
-            .await,
+        ctx.get(
+            &format!("/api/geo/simulationStatus?obj={obj}"),
+            &dispatcher.token,
+        )
+        .await,
         StatusCode::OK,
     );
     assert!((moved["remaining_seconds"].as_f64().unwrap() - left).abs() < 1e-6);
@@ -328,7 +345,9 @@ async fn successive_ticks_move_the_object_by_a_fraction_of_a_cell() {
 
     // The smooth coordinate the app reads is the same fraction, stored as text,
     // and it is also what the status endpoint reports.
-    let smooth = ctx.redis_get(&smooth_key(&map_id, obj)).expect("smooth key");
+    let smooth = ctx
+        .redis_get(&smooth_key(&map_id, obj))
+        .expect("smooth key");
     let (stored_x, stored_y) = smooth.split_once(',').expect("x,y");
     let stored_x: f64 = stored_x.parse().expect("x");
     let stored_y: f64 = stored_y.parse().expect("y");
@@ -336,8 +355,11 @@ async fn successive_ticks_move_the_object_by_a_fraction_of_a_cell() {
     assert!((stored_x - last_x).abs() < 1e-3 && (stored_y - last_y).abs() < 1e-3);
 
     let status = expect_status(
-        ctx.get(&format!("/api/geo/simulationStatus?obj={obj}"), &dispatcher.token)
-            .await,
+        ctx.get(
+            &format!("/api/geo/simulationStatus?obj={obj}"),
+            &dispatcher.token,
+        )
+        .await,
         StatusCode::OK,
     );
     assert!((status["x"].as_f64().unwrap() - last_x).abs() < 1e-3);
@@ -406,7 +428,11 @@ async fn a_speed_multiplier_shortens_the_demo_not_the_route() {
     assert!((last.sample.x - destination[0].as_f64().unwrap()).abs() < 1e-6);
     assert!((last.sample.y - destination[1].as_f64().unwrap()).abs() < 1e-6);
 
-    assert_eq!(ctx.redis_get(&simulation_key(&map_id, obj)), None, "a finished journey is dropped");
+    assert_eq!(
+        ctx.redis_get(&simulation_key(&map_id, obj)),
+        None,
+        "a finished journey is dropped"
+    );
 }
 
 /// ТЗ п.3.1: a paused agent is not moved and does not lose its route; resuming
@@ -452,11 +478,17 @@ async fn a_paused_object_keeps_its_route_and_resumes_where_it_stopped() {
     assert!(!before.finished);
     let stored = crate::simulation::load(&mut redis_conn, &map_id, obj).expect("still stored");
     assert_eq!(stored.clock_ms, 0, "a paused object must not advance");
-    assert!(stored.route.seconds > 0.0, "a paused object keeps its route");
+    assert!(
+        stored.route.seconds > 0.0,
+        "a paused object keeps its route"
+    );
 
     let status = expect_status(
-        ctx.get(&format!("/api/geo/simulationStatus?obj={obj}"), &dispatcher.token)
-            .await,
+        ctx.get(
+            &format!("/api/geo/simulationStatus?obj={obj}"),
+            &dispatcher.token,
+        )
+        .await,
         StatusCode::OK,
     );
     assert_eq!(status["paused"], true);
@@ -499,8 +531,11 @@ async fn stopping_a_movement_keeps_the_position_and_clears_the_route() {
         StatusCode::OK,
     );
     let moving = expect_status(
-        ctx.get(&format!("/api/geo/simulationStatus?obj={obj}"), &dispatcher.token)
-            .await,
+        ctx.get(
+            &format!("/api/geo/simulationStatus?obj={obj}"),
+            &dispatcher.token,
+        )
+        .await,
         StatusCode::OK,
     );
     assert_eq!(moving["active"], true);
@@ -515,11 +550,17 @@ async fn stopping_a_movement_keeps_the_position_and_clears_the_route() {
         StatusCode::OK,
     );
     assert_eq!(stopped["stopped"], true);
-    assert!(stopped["point"]["x"].is_number(), "last cell kept: {stopped}");
+    assert!(
+        stopped["point"]["x"].is_number(),
+        "last cell kept: {stopped}"
+    );
 
     let after = expect_status(
-        ctx.get(&format!("/api/geo/simulationStatus?obj={obj}"), &dispatcher.token)
-            .await,
+        ctx.get(
+            &format!("/api/geo/simulationStatus?obj={obj}"),
+            &dispatcher.token,
+        )
+        .await,
         StatusCode::OK,
     );
     assert_eq!(after["active"], false);
@@ -600,7 +641,10 @@ async fn refuses_movement_it_cannot_plan() {
     );
 
     // Nothing was left behind by the refusals.
-    assert_eq!(ctx.redis_get(&simulation_key(&ctx.active_id(), "AT-0003")), None);
+    assert_eq!(
+        ctx.redis_get(&simulation_key(&ctx.active_id(), "AT-0003")),
+        None
+    );
     let mut conn = ctx.db();
     let started: i64 = crate::database::schema::journal::table
         .filter(crate::database::schema::journal::kind.eq("simulation_started"))

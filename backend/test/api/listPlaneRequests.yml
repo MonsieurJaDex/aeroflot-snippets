@@ -1,0 +1,39 @@
+info:
+  name: listPlaneRequests
+  type: http
+  seq: 74
+
+http:
+  method: GET
+  url: "{{HOST}}/requests/{{aircraft_id}}"
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Заявки одного борта: `{ plane_id, request_ids }`. Сужение `requests/all`
+    до одной машины. Неизвестный борт → 404, не диспетчер → 403.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.request_ids
+      operator: isArray
+
+  scripts:
+    - type: tests
+      code: |-
+        test("lists the ids of one aircraft", function () {
+          expect(res.body.plane_id).to.equal(bru.getVar("aircraft_id"));
+          expect(res.body.request_ids).to.include(bru.getVar("request_id"));
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

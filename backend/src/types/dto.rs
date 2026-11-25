@@ -12,8 +12,8 @@ use crate::types::{
     map::{Point, Route},
 };
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use utoipa::{IntoParams, ToSchema};
+use uuid::Uuid;
 use validator::Validate;
 
 // ---------------------------------------------------------------------------

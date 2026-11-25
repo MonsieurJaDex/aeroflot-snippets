@@ -10,4 +10,5 @@ mod map_v2;
 mod maps;
 mod requests;
 mod simulation;
+mod simulation_restart;
 mod support;

@@ -1,0 +1,53 @@
+info:
+  name: forceVehicle
+  type: http
+  seq: 71
+
+http:
+  method: POST
+  url: "{{HOST}}/geo/forceVehicle"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "engineer_id": "{{engineer_id}}",
+        "forced": true
+      }
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Заставляет инженера считаться по машине в ранжировании (`rank:force_vehicle:{id}`),
+    даже когда пешком ближе. Ответ повторяет флаг. Неизвестный инженер → 404.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.engineer_id
+      operator: eq
+      value: "{{engineer_id}}"
+    - expression: res.body.forced
+      operator: eq
+      value: "true"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("forces the vehicle branch for a known engineer", function () {
+          expect(res.body.engineer_id).to.equal(bru.getVar("engineer_id"));
+          expect(res.body.forced).to.equal(true);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

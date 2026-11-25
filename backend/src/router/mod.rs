@@ -9,11 +9,11 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use axum::extract::rejection::JsonRejection;
 use axum::{
+    Extension, Json,
     body::Body,
     extract::{FromRequest, FromRequestParts, Request, State},
-    http::{request::Parts, Response, StatusCode},
+    http::{Response, StatusCode, request::Parts},
     response::IntoResponse,
-    Extension, Json,
 };
 
 use chrono::{DateTime, Utc};
@@ -32,11 +32,11 @@ use crate::{
             ActiveMapResponse, AircraftEntry, AircraftListResponse, AircraftMovementListResponse,
             AircraftMovementResponse, AogListResponse, ArriveAircraftRequest,
             AssignCandidatesRequest, AssignEngineerRequest, AssignEngineerResponse,
-            AssignmentCandidate,
-            AssignmentCandidatesResponse, ClassifyRequest, ClassifyResponse, CurrentTaskAogRequest,
-            CurrentTaskAogResponse, CurrentTaskResponse, DepartAircraftRequest, ErrorResponse,
-            GetRouteRequest, GetRouteResponse, MapListResponse, MapResponse, MapSummary, PageQuery,
-            ScoreFactor, SelectMapRequest, SelectionBasis, TrainClassifierResponse,
+            AssignmentCandidate, AssignmentCandidatesResponse, ClassifyRequest, ClassifyResponse,
+            CurrentTaskAogRequest, CurrentTaskAogResponse, CurrentTaskResponse,
+            DepartAircraftRequest, ErrorResponse, GetRouteRequest, GetRouteResponse,
+            MapListResponse, MapResponse, MapSummary, PageQuery, ScoreFactor, SelectMapRequest,
+            SelectionBasis, TrainClassifierResponse,
         },
         enums::{UserRole, VehicleType},
         map::{Point, Route},

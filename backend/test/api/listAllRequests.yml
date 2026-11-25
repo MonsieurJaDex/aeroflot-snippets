@@ -1,0 +1,47 @@
+info:
+  name: listAllRequests
+  type: http
+  seq: 73
+
+http:
+  method: GET
+  url: "{{HOST}}/requests/all"
+  auth:
+    type: bearer
+    token: "{{dispatcher_token}}"
+
+docs:
+  content: |-
+    Все заявки текущей карты, сгруппированные по борту: `{ "<plane_uuid>": ["<request_id>", ...] }`.
+    Заявки без борта не попадают. Только диспетчер.
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+  scripts:
+    - type: tests
+      code: |-
+        test("groups request ids by aircraft", function () {
+          const groups = res.body;
+          expect(groups).to.be.an("object");
+          const plane = bru.getVar("aircraft_id");
+          // arriveAircraft (seq 14) and createRequest (seq 23) made one for this plane.
+          expect(groups).to.have.property(plane);
+          expect(groups[plane]).to.be.an("array");
+          expect(groups[plane]).to.include(bru.getVar("request_id"));
+          // Every group is a flat array of ids, nothing else.
+          Object.values(groups).forEach((ids) => {
+            expect(ids).to.be.an("array");
+            ids.forEach((id) => expect(id).to.be.a("string"));
+          });
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
