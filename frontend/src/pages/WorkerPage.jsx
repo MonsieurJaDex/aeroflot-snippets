@@ -8,7 +8,8 @@ import { formatEta, relativeRu } from "../lib/format.js";
 import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { enqueueAction, flushActions, pendingActionCount } from "../lib/actionOutbox.js";
-import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
+import { enqueueEngineerPoint, enqueueGpsFix, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
+import { cellAfterAck } from "../lib/gpsSync.js";
 import { getRoute, loadStaff, normalizeRoute, postTrackPoint, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { apronOverlayUrl } from "../lib/apronSvg.js";
@@ -187,6 +188,8 @@ export default function WorkerPage() {
   const statusNoteAt = useRef(0);
   const lastSpokenHint = useRef("");
   const lastGeoAt = useRef(0);
+  const lastRouteCellRef = useRef(null);
+  const gpsAckSeq = useRef(0);
   const [gpsManual, setGpsManual] = useState(() => localStorage.getItem("oto-gps-manual") === "1");
   const [gpsWatching, setGpsWatching] = useState(false);
   const [gpsAcc, setGpsAcc] = useState(null);
@@ -269,10 +272,10 @@ export default function WorkerPage() {
         const staff = await loadStaff();
         if (cancelled) return;
         const mine = (staff?.plotted || []).find((entry) => String(entry.id) === String(current.userId));
-        if (!mine?.point || gpsCellRef.current || gpsFixRef.current?.good) return;
+        if (!mine?.point) return;
         lastSelfRef.current = mine.point;
         setSelfCell((prev) => (prev && prev[0] === mine.point[0] && prev[1] === mine.point[1] ? prev : mine.point));
-        mapApi.current.showSelfPoint?.(mine.point, { fromServer: true });
+        mapApi.current.showSelfPoint?.(mine.point, { live: true });
       } catch (error) {
         console.warn("[worker] своя позиция", error);
       }
@@ -284,6 +287,17 @@ export default function WorkerPage() {
       try {
         const sent = await flushEngineerOutbox(async (row) => {
           if (String(row.id) !== String(current.userId)) throw new Error("чужой инженер");
+          if (row.kind === "gps") {
+            await postTrackPoint({
+              obj: row.id,
+              lat: row.lat,
+              lon: row.lon,
+              t: row.t,
+              acc: row.acc,
+              spd: row.spd,
+            });
+            return;
+          }
           await updateEngineerPosition(current.userId, [[row.point, row.t]]);
         });
         const sentActions = await flushActions((row) => apiRequest(row.path, {
@@ -322,8 +336,28 @@ export default function WorkerPage() {
     refreshSelf();
     async function pushLiveGeo() {
       const current = getSession();
+      if (!current?.userId) return;
+      // Живой спутник: клетку не шлём, маршрут — только если клетка сменилась.
+      if (gpsFixRef.current?.good) {
+        await refreshSelf();
+        const point = lastSelfRef.current;
+        const prev = lastRouteCellRef.current;
+        const changed = Array.isArray(point) && (!Array.isArray(prev) || prev[0] !== point[0] || prev[1] !== point[1]);
+        const taskId = taskRef.current?.id;
+        if (changed && taskId && Date.now() - lastRouteRefresh.current > 15000) {
+          lastRouteRefresh.current = Date.now();
+          const snapshot = [point[0], point[1]];
+          try {
+            await applyRouteRefresh(taskId);
+            lastRouteCellRef.current = snapshot;
+          } catch (error) {
+            console.warn("[worker] route refresh", error);
+          }
+        }
+        return;
+      }
       const point = lastSelfRef.current;
-      if (!current?.userId || !Array.isArray(point)) return;
+      if (!Array.isArray(point)) return;
       const t = Math.floor(Date.now() / 1000);
       try {
         await updateEngineerPosition(current.userId, [[point, t]]);
@@ -420,7 +454,9 @@ export default function WorkerPage() {
       setGpsNet(null);
       setGpsAcc(accuracy);
       setGpsLink("live");
-      const fix = { lat, lon, good: true };
+      const speed = Number(pos.coords.speed);
+      const spd = Number.isFinite(speed) && speed >= 0 ? speed : null;
+      const fix = { lat, lon, good: true, acc: accuracy, spd };
       gpsFixRef.current = fix;
       setGpsFix(fix);
       setGpsWatching(true);
@@ -431,16 +467,9 @@ export default function WorkerPage() {
         if (cell) {
           gpsOutsideNoted.current = false;
           gpsCellRef.current = cell;
-          mapApi.current.showSelfPoint?.(cell, { follow: true });
-          if (!gpsAppliedNoted.current) {
-            gpsAppliedNoted.current = true;
-            statusNoteAt.current = Date.now();
-            setNotice(`На карте: ${cell[0]}, ${cell[1]}`);
-          }
         } else {
           gpsCellRef.current = null;
           gpsAppliedNoted.current = false;
-          mapApi.current.clearSelf?.();
           if (!gpsOutsideNoted.current) {
             gpsOutsideNoted.current = true;
             statusNoteAt.current = Date.now();
@@ -453,54 +482,85 @@ export default function WorkerPage() {
       lastTrackAt.current = now;
       const userId = getSession()?.userId;
       if (!userId) return;
-      const cell = gpsCellRef.current;
+      const localCell = Array.isArray(gpsCellRef.current)
+        ? [gpsCellRef.current[0], gpsCellRef.current[1]]
+        : null;
+      const previousCell = Array.isArray(lastSelfRef.current)
+        ? [lastSelfRef.current[0], lastSelfRef.current[1]]
+        : null;
       const t = Math.floor(pos.timestamp / 1000);
-      const speed = Number(pos.coords.speed);
+      const iso = new Date(pos.timestamp).toISOString();
+      const seq = ++gpsAckSeq.current;
+      const applyTrackDecision = (decision) => {
+        if (decision?.writeLegacy && localCell) {
+          updateEngineerPosition(userId, [[localCell, t]]).then(() => {
+            lastGeoAt.current = Date.now();
+            setGpsLink("legacy");
+            setOutboxCount(queueDepth());
+          }).catch((fallbackError) => {
+            enqueueEngineerPoint(userId, localCell, t);
+            setOutboxCount(queueDepth());
+            console.warn("[worker] позиция", fallbackError);
+          });
+        }
+        if (!Array.isArray(decision?.cell)) return;
+        const next = [Number(decision.cell[0]), Number(decision.cell[1])];
+        if (!Number.isFinite(next[0]) || !Number.isFinite(next[1])) return;
+        lastSelfRef.current = next;
+        mapApi.current.showSelfPoint?.(next, { live: true, follow: true });
+        if (!gpsAppliedNoted.current) {
+          gpsAppliedNoted.current = true;
+          statusNoteAt.current = Date.now();
+          setNotice(`На карте: ${next[0]}, ${next[1]}`);
+        }
+      };
       postTrackPoint({
         obj: userId,
         lat,
         lon,
-        t: new Date(pos.timestamp).toISOString(),
+        t: iso,
         acc: accuracy,
-        spd: Number.isFinite(speed) && speed >= 0 ? speed : null,
-      }).then((ack) => {
+        spd,
+      }).then(async (ack) => {
+        if (seq !== gpsAckSeq.current) return;
         lastGeoAt.current = Date.now();
         setOutboxCount(queueDepth());
-        if (ack?.applied === false && cell) {
-          updateEngineerPosition(userId, [[cell, t]]).then(() => {
-            lastGeoAt.current = Date.now();
-            setGpsLink("legacy");
-            setOutboxCount(queueDepth());
-          }).catch((fallbackError) => {
-            enqueueEngineerPoint(userId, cell, t);
-            setGpsLink("queue");
-            setOutboxCount(queueDepth());
-            console.warn("[worker] позиция", fallbackError);
-          });
-          if (!gpsTrackNoted.current) {
-            gpsTrackNoted.current = true;
-            statusNoteAt.current = Date.now();
-            setNotice("Трек точку не применил, позиция уходит напрямую.");
+        let serverCell = null;
+        if (ack?.applied) {
+          try {
+            const staff = await loadStaff();
+            if (seq !== gpsAckSeq.current) return;
+            const mine = (staff?.plotted || []).find((entry) => String(entry.id) === String(userId));
+            if (mine?.point) serverCell = [mine.point[0], mine.point[1]];
+          } catch (error) {
+            console.warn("[worker] своя клетка", error);
           }
-          return;
         }
-        // Точку сервер принял, но применить не смог (вне полигона): не выдаём
-        // «На сервере» за сдвинутую позицию.
-        setGpsLink(ack?.applied === false ? "held" : "live");
+        if (seq !== gpsAckSeq.current) return;
+        const decision = cellAfterAck({
+          applied: ack?.applied,
+          httpStatus: 200,
+          serverCell,
+          localCell,
+          previousCell,
+        });
+        applyTrackDecision(decision);
+        if (!decision?.writeLegacy) setGpsLink(ack?.applied === false ? "held" : "live");
       }).catch((error) => {
-        if (Number(error?.status) === 404 && cell) {
-          updateEngineerPosition(userId, [[cell, t]]).then(() => {
-            lastGeoAt.current = Date.now();
-            setGpsLink("legacy");
-            setOutboxCount(queueDepth());
-          }).catch((fallbackError) => {
-            enqueueEngineerPoint(userId, cell, t);
-            setOutboxCount(queueDepth());
-            console.warn("[worker] позиция", fallbackError);
+        if (seq !== gpsAckSeq.current) return;
+        const status = Number(error?.status) || 0;
+        if (status === 404) {
+          const decision = cellAfterAck({
+            applied: false,
+            httpStatus: 404,
+            serverCell: null,
+            localCell,
+            previousCell,
           });
+          applyTrackDecision(decision);
           return;
         }
-        if (cell) enqueueEngineerPoint(userId, cell, t);
+        enqueueGpsFix(userId, { lat, lon, t: iso, acc: accuracy, spd });
         setGpsLink("queue");
         setOutboxCount(queueDepth());
         console.warn("[worker] трек", error);
@@ -817,8 +877,8 @@ export default function WorkerPage() {
     function showSelfPoint(point, opts = {}) {
       const next = [Number(point[0]), Number(point[1])];
       if (!Number.isFinite(next[0]) || !Number.isFinite(next[1])) return;
-      // Ход 5 км/ч ведёт «где я» по линии; серверная точка её не перебивает.
-      if (opts.fromServer && walk && !walk.done) return;
+      // Живой GPS ставит точку даже во время хода.
+      if (!opts.live && opts.fromServer && walk && !walk.done) return;
       const same = selfPoint && selfPoint[0] === next[0] && selfPoint[1] === next[1];
       selfPoint = next;
       lastSelfRef.current = next;
@@ -969,15 +1029,13 @@ export default function WorkerPage() {
       const pending = gpsFixRef.current;
       if (pending?.good) {
         const cell = gpsToCell(tmj, pending.lat, pending.lon);
-        if (cell) {
-          gpsCellRef.current = cell;
-          showSelfPoint(cell, { follow: true });
-        } else {
-          gpsCellRef.current = null;
-          clearSelf();
-        }
+        gpsCellRef.current = cell || null;
       }
       renderRoute(taskRef.current);
+      // Маркер — клетка сервера, не локальный floor(gps).
+      if (gpsFixRef.current?.good && Array.isArray(lastSelfRef.current)) {
+        showSelfPoint(lastSelfRef.current, { live: true });
+      }
       requestAnimationFrame(() => map.invalidateSize());
     })().catch((error) => console.warn("[worker] фон карты не загружен", error));
 
@@ -1262,6 +1320,56 @@ export default function WorkerPage() {
 
   async function pushSelfPosition() {
     const current = getSession();
+    const fix = gpsFixRef.current;
+    if (fix?.good) {
+      if (!current?.userId) {
+        setNotice("Нет своей точки для отправки.");
+        flash("Нет точки", "err");
+        return;
+      }
+      setBusyAction("geo");
+      const t = new Date().toISOString();
+      const acc = Number.isFinite(fix.acc) ? fix.acc : null;
+      const spd = Number.isFinite(fix.spd) && fix.spd >= 0 ? fix.spd : null;
+      try {
+        try {
+          await postTrackPoint({ obj: current.userId, lat: fix.lat, lon: fix.lon, t, acc, spd });
+        } catch (error) {
+          if (Number(error?.status) === 404 && Array.isArray(lastSelfRef.current)) {
+            const unix = Math.floor(Date.now() / 1000);
+            await updateEngineerPosition(current.userId, [[lastSelfRef.current, unix]]);
+          } else {
+            enqueueGpsFix(current.userId, { lat: fix.lat, lon: fix.lon, t, acc, spd });
+            setOutboxCount(queueDepth());
+            setNotice(`Сеть недоступна, точка в очереди (${pendingCount()}). ${error.message}`);
+            flash("Гео в очередь", "err");
+            return;
+          }
+        }
+        setOutboxCount(queueDepth());
+        flash("Позиция отправлена");
+        softBeep(500, 90);
+        if (task?.id) {
+          lastRouteRefresh.current = Date.now();
+          try {
+            await applyRouteRefresh(task.id);
+            flash("Маршрут обновлён после гео");
+          } catch (error) {
+            console.warn("[worker] route after geo", error);
+          }
+        }
+      } catch (error) {
+        const point = lastSelfRef.current;
+        const unix = Math.floor(Date.now() / 1000);
+        if (Array.isArray(point)) enqueueEngineerPoint(current.userId, point, unix);
+        setOutboxCount(queueDepth());
+        setNotice(`Сеть недоступна, точка в очереди (${pendingCount()}). ${error.message}`);
+        flash("Гео в очередь", "err");
+      } finally {
+        setBusyAction("");
+      }
+      return;
+    }
     const point = lastSelfRef.current;
     if (!current?.userId || !Array.isArray(point)) {
       setNotice("Нет своей точки для отправки.");
