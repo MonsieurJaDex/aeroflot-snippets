@@ -62,7 +62,6 @@ import {
   prepareMapFrame,
   applyPhoneApron,
   renderCanvas,
-  apronPictureUrl,
   roadHint,
 } from "../lib/apronMap.js";
 import { apronOverlayUrl } from "../lib/apronSvg.js";
@@ -517,7 +516,7 @@ export default function DispatcherPage() {
         attributionControl: false,
       });
       bag.map = map;
-      const overlay = L.imageOverlay(apronPictureUrl(tmj), bounds).addTo(map);
+      const overlay = L.imageOverlay(renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
       addPlaceLabels(map, tmj);
       // zoomSnap 0: полигон вписывается в прямоугольник контейнера целиком.
       const apronPad = { padding: [16, 16], animate: false };
@@ -530,16 +529,7 @@ export default function DispatcherPage() {
       let fittedH = 0;
       let lastFit = { target: bounds, options: apronPad };
 
-      function stampOverlay() {
-        const img = overlay.getElement();
-        const zoom = map.getZoom();
-        if (!img || !Number.isFinite(zoom)) return;
-        img.style.setProperty("width", `${lngSpan * Math.pow(2, zoom)}px`, "important");
-        img.style.setProperty("height", `${latSpan * Math.pow(2, zoom)}px`, "important");
-        img.style.setProperty("max-width", "none", "important");
-        img.style.setProperty("max-height", "none", "important");
-        img.style.objectFit = "fill";
-      }
+      function stampOverlay() {}
 
       function applyFit(target, options = {}) {
         const node = map.getContainer();
