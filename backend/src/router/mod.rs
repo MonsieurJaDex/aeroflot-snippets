@@ -1604,6 +1604,7 @@ pub(crate) async fn build_candidates(
         mel_category: task.mel_category.as_deref(),
         transports,
         needs_tools: !task.tools_picked && active.location.object_point("warehouse").is_some(),
+        forced_vehicle: forced_vehicle_engineers(redis_conn, &roster),
     });
     Ok(AssignmentPlan {
         outcome,
@@ -1799,6 +1800,26 @@ fn load_engineer_positions(
     }
 
     Ok(positions)
+}
+
+/// Engineers the dispatcher has switched onto a vehicle by hand.
+///
+/// The flag is a test switch from the organiser checklist: it makes the vehicle
+/// branch of a candidate demonstrable even where walking would be faster.
+fn forced_vehicle_engineers(
+    redis_conn: &mut redis::Connection,
+    roster: &[(Uuid, crate::types::enums::EngineerType)],
+) -> std::collections::HashSet<Uuid> {
+    roster
+        .iter()
+        .map(|(id, _)| *id)
+        .filter(|id| {
+            redis_conn
+                .get(crate::rank::forced_vehicle_key(*id))
+                .unwrap_or(None)
+                .is_some_and(|raw| raw == "1")
+        })
+        .collect()
 }
 
 /// Loads special-vehicle positions of the given type into a `Point -> Uuid` map.

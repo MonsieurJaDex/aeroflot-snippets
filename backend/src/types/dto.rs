@@ -12,6 +12,7 @@ use crate::types::{
     map::{Point, Route},
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
@@ -131,6 +132,47 @@ pub struct PageQuery {
     /// Number of items to skip.
     #[param(minimum = 0, default = 0)]
     pub offset: Option<i64>,
+}
+
+/// Body of `POST /api/geo/pauseAgent`.
+///
+/// The organiser checklist asks for a way to stop an agent without ending its
+/// route, so the test can reproduce a halted engineer.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PauseAgentRequest {
+    /// Object a tracker reports.
+    pub obj: String,
+    /// `true` stops the agent where it stands, `false` lets it move again.
+    pub paused: bool,
+}
+
+/// Answer of `POST /api/geo/pauseAgent`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PauseAgentResponse {
+    pub obj: String,
+    pub paused: bool,
+}
+
+/// Body of `POST /api/geo/forceVehicle`.
+///
+/// The organiser checklist asks for a way to make an engineer use a vehicle even
+/// when walking would be faster, so the vehicle branch of a candidate can be
+/// demonstrated.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ForceVehicleRequest {
+    pub engineer_id: Uuid,
+    /// `true` always sends the engineer by vehicle, `false` restores the normal
+    /// comparison with walking.
+    pub forced: bool,
+}
+
+/// Answer of `POST /api/geo/forceVehicle`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ForceVehicleResponse {
+    pub engineer_id: Uuid,
+    pub forced: bool,
 }
 
 /// Query of `GET /api/geo/trackFreshness`.

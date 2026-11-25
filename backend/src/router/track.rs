@@ -394,21 +394,22 @@ impl TrackSample {
             .and_then(|item| item.engineer_id.as_deref())
             .and_then(|id| Uuid::parse_str(id).ok())
             .or_else(|| Uuid::parse_str(&self.obj).ok());
-        let known = agent.is_some() || linked.is_some_and(|id| engineer_exists(pg_conn, id));
+        let known = agent.is_some()
+            || linked.is_some_and(|id| engineer_exists(pg_conn, id))
+            // The organiser simulator addresses its agents by the ids from
+            // `geodata_for_final`: `AT-0001` for an engineer, `vehicle-03` for a
+            // vehicle, `RA-73101` for an aircraft. Not every one of them is listed
+            // in a map file, so the id itself is what makes the object known.
+            || organiser_kind(&self.obj).is_some();
         if !known {
             return None;
         }
-        // The map knows what an object is; a registration or a `v-` name says it
-        // itself when the map does not list it.
-        let kind = agent.map(|item| item.kind.as_str()).unwrap_or({
-            if self.obj.starts_with("v-") {
-                "vehicle"
-            } else if self.obj.starts_with("RA-") {
-                "aircraft"
-            } else {
-                "engineer"
-            }
-        });
+        // The map knows what an object is; the id shape says it instead when the
+        // map does not list the object.
+        let kind = agent
+            .map(|item| item.kind.as_str())
+            .or_else(|| organiser_kind(&self.obj))
+            .unwrap_or("engineer");
         let kind = match kind {
             "vehicle" => "vehicle",
             "aircraft" => "aircraft",
@@ -427,6 +428,44 @@ impl TrackSample {
             .unwrap_or_else(Utc::now)
             .to_rfc3339_opts(SecondsFormat::Millis, true)
     }
+}
+
+/// What an object is, judged by the id the organiser simulator sends.
+///
+/// The ids come from `assets/geodata_for_final`: `AT-0001`…`AT-0007` are
+/// engineers, `vehicle-01`…`vehicle-03` service vehicles, `RA-73101`…`RA-73110`
+/// aircraft. `v-01` is the shorter vehicle name the map files use. `None` means
+/// the id says nothing, so the map decides.
+fn organiser_kind(obj: &str) -> Option<&'static str> {
+    if obj.starts_with("AT-") {
+        Some("engineer")
+    } else if obj.starts_with("vehicle-") || obj.starts_with("v-") {
+        Some("vehicle")
+    } else if obj.starts_with("RA-") {
+        Some("aircraft")
+    } else {
+        None
+    }
+}
+
+/// Key marking an agent as paused: `map:{id}:paused:{obj}`.
+///
+/// The organiser checklist asks for a way to stop an agent without ending its
+/// route, so a paused object keeps its history and its place on the map while
+/// new points are accepted but not applied.
+#[must_use]
+pub fn paused_key(map_id: &str, obj: &str) -> String {
+    format!("map:{map_id}:paused:{obj}")
+}
+
+/// Whether the agent is paused. A broken value counts as running, so a failed flag
+/// never freezes an object by accident.
+#[must_use]
+pub fn is_paused(redis_conn: &mut redis::Connection, map_id: &str, obj: &str) -> bool {
+    redis_conn
+        .get(paused_key(map_id, obj))
+        .unwrap_or(None)
+        .is_some_and(|raw| raw == "1")
 }
 
 /// Key holding one object's track, newest point first.
@@ -556,6 +595,9 @@ fn apply_point(
     let Some(object) = sample.resolve(active, pg_conn) else {
         return Ok(ignored(&sample, stamp));
     };
+    if is_paused(redis_conn, &active.id, &sample.obj) {
+        return Ok(ignored(&sample, stamp));
+    }
     let key = track_key(active, &sample.obj);
     // The newest point of this object decides staleness and outliers; the rest of
     // the list is history. Objects never share a key, so one moving aircraft does
@@ -617,7 +659,7 @@ fn apply_point(
 }
 
 
-fn engineer_exists(conn: &mut diesel::PgConnection, id: Uuid) -> bool {
+pub(super) fn engineer_exists(conn: &mut diesel::PgConnection, id: Uuid) -> bool {
     use crate::database::schema::engineers;
     use diesel::prelude::*;
     engineers::table
