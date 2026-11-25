@@ -142,19 +142,9 @@ export async function loadStaff() {
       position: asPoint(entry?.position),
     }));
   } catch (error) {
-    if (statusOf(error) !== 404) {
-      console.warn("[map] не удалось загрузить список сотрудников", error);
-      return { plotted: [], missing: [], error: staffLoadFailure(error) };
-    }
-    try {
-      engineers = asJson(await apiRequest("/api/simulate/get_engineers_positions"));
-    } catch (fallbackError) {
-      if (statusOf(fallbackError) !== 404) {
-        console.warn("[map] не удалось загрузить список сотрудников", fallbackError);
-        return { plotted: [], missing: [], error: staffLoadFailure(fallbackError) };
-      }
-      engineers = [];
-    }
+    // /api/simulate удалён из бэкенда: живого адреса-запасного больше нет.
+    console.warn("[map] не удалось загрузить список сотрудников", error);
+    return { plotted: [], missing: [], error: staffLoadFailure(error) };
   }
   if (!Array.isArray(engineers)) {
     return {
@@ -268,20 +258,8 @@ export async function loadBusyEngineerIds() {
     const data = asJson(await apiRequest("/api/geo/activeEngineers"));
     return idSet(data?.active_engineers);
   } catch (error) {
-    if (statusOf(error) !== 404) {
-      console.warn("[map] не удалось загрузить занятых инженеров", error);
-      return new Set();
-    }
-    try {
-      const data = asJson(await apiRequest("/api/simulate/active_engineers"));
-      const ids = Array.isArray(data)
-        ? data
-        : (data?.active_engineers || data?.engineers || data?.ids || []);
-      return idSet(ids);
-    } catch (fallbackError) {
-      console.warn("[map] не удалось загрузить занятых инженеров", fallbackError);
-      return new Set();
-    }
+    console.warn("[map] не удалось загрузить занятых инженеров", error);
+    return new Set();
   }
 }
 
@@ -303,17 +281,8 @@ export async function loadTransport() {
     const data = asJson(await apiRequest("/api/geo/getTransportPositions?limit=1000"));
     return mapTransport(data?.transport);
   } catch (error) {
-    if (statusOf(error) !== 404) {
-      console.warn("[map] не удалось загрузить спецтранспорт", error);
-      return [];
-    }
-    try {
-      const list = asJson(await apiRequest("/api/simulate/get_transport_positions"));
-      return mapTransport(list);
-    } catch (fallbackError) {
-      console.warn("[map] не удалось загрузить спецтранспорт", fallbackError);
-      return [];
-    }
+    console.warn("[map] не удалось загрузить спецтранспорт", error);
+    return [];
   }
 }
 
@@ -402,13 +371,8 @@ export async function updateEngineerPosition(id, batch) {
       body: { id, batch: samples },
     });
   } catch (error) {
-    if (statusOf(error) !== 404) throw error;
-    const newPoint = pointFromUpdate(samples);
-    if (!newPoint) throw new Error("Нет точки для позиции инженера.");
-    return apiRequest("/api/simulate/update_engineer_position", {
-      method: "POST",
-      body: { id, new_point: newPoint },
-    });
+    // /api/simulate удалён: 404 на живом адресе теперь ошибка, а не повод искать запасной.
+    throw error;
   }
 }
 
@@ -420,11 +384,8 @@ export async function updateTransportPosition(id, vehicleType, newPoint) {
       body,
     });
   } catch (error) {
-    if (statusOf(error) !== 404) throw error;
-    return apiRequest("/api/simulate/update_transport_position", {
-      method: "POST",
-      body,
-    });
+    // /api/simulate удалён: 404 на живом адресе теперь ошибка.
+    throw error;
   }
 }
 
@@ -496,6 +457,8 @@ export async function getRouteVia(points, agent) {
 export async function trainClassifier() {
   return apiRequest("/api/classify/train", { method: "POST" });
 }
+
+import { scenarioEngineerName } from "./scenario.js";
 
 export function assignErrorMessage(err) {
   const raw = String(err?.message || err || "");
