@@ -257,6 +257,10 @@ export async function refreshTaskRoute(id) {
   return apiRequest(`/api/tasks/${encodeURIComponent(id)}/route`, { method: "POST" });
 }
 
+// Telemetry/journal channel of the GPS tracker (/api/v1/track). It is NOT a writer
+// of the engineer position: that one is written only by updateEngineerPosition
+// (authorized, batch [point, unix seconds], newest stamp wins). A second writer of
+// the same point on a different time model (ISO) overwrote it and moved the stamp.
 export async function postTrackPoint({ obj, lat, lon, t = new Date().toISOString(), acc = null, spd = null }) {
   return apiRequest("/api/v1/track", {
     method: "POST",

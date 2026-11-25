@@ -8,7 +8,7 @@ import { formatEta, relativeRu } from "../lib/format.js";
 import { softBeep } from "../lib/beep.js";
 import { copyText } from "../lib/copyText.js";
 import { enqueueEngineerPoint, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
-import { getRoute, loadStaff, normalizeRoute, postTrackPoint, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
+import { getRoute, loadStaff, normalizeRoute, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getApiBase, getSession, hydrateProfile } from "../lib/session.js";
 import { apronOverlayUrl } from "../lib/apronSvg.js";
 import { whenVisible } from "../lib/visibility.js";
@@ -370,7 +370,7 @@ export default function WorkerPage() {
     }
 
     const onFix = (pos) => {
-      const { latitude: lat, longitude: lon, accuracy: acc, speed: spd } = pos.coords;
+      const { latitude: lat, longitude: lon, accuracy: acc } = pos.coords;
       const accuracy = Number.isFinite(acc) ? acc : null;
       const age = Number.isFinite(pos.timestamp) ? Date.now() - pos.timestamp : 0;
       // Кэш и сеть (часто Шереметьево ±км). На карту только свежий спутник.
@@ -415,44 +415,30 @@ export default function WorkerPage() {
           }
         }
       }
+      // ПОЗИЦИЯ ИНЖЕНЕРА: единственный писатель — /api/geo/updateEngineerPosition
+      // (авторизация, батч [точка, unix-секунды], выигрывает самый поздний штамп).
+      // /api/v1/track — канал журнала/телеметрии трекера и позицию инженера
+      // больше не пишет: одна точка места — одна модель времени, иначе метка уезжает.
       const now = Date.now();
       if (now - lastTrackAt.current < 2000) return;
       lastTrackAt.current = now;
       const userId = getSession()?.userId;
       if (!userId) return;
-      const t = new Date(pos.timestamp).toISOString();
-      postTrackPoint({
-        obj: userId,
-        lat,
-        lon,
-        t,
-        acc: Number.isFinite(acc) ? acc : null,
-        spd: spd != null && Number.isFinite(spd) ? spd : null,
-      }).then((ack) => {
-        // Сценарий не шлёт точку; applied:false — вне полигона, watch не стоп.
-        if (ack?.scenario) {
-          statusNoteAt.current = Date.now();
-          setNotice("Точка не отправлена на сервер (локальный сценарий).");
-          return;
-        }
-        if (ack?.applied === false) {
-          statusNoteAt.current = Date.now();
-          setNotice("Точка принята, на карту не легла (вне полигона).");
-          return;
-        }
-        if (ack?.applied === true && !gpsAppliedNoted.current) {
-          gpsAppliedNoted.current = true;
-          statusNoteAt.current = Date.now();
-          setNotice("GPS лёг на карту");
-        }
+      const cell = gpsCellRef.current;
+      if (!cell) return;
+      const t = Math.floor(pos.timestamp / 1000);
+      updateEngineerPosition(userId, [[cell, t]]).then(() => {
+        lastGeoAt.current = Date.now();
+        setOutboxCount(pendingCount());
       }).catch((error) => {
-        console.warn("[worker] track", error);
+        // Сеть пропала — точка ждёт в очереди гео и уйдёт тем же единственным путём.
+        enqueueEngineerPoint(userId, cell, t);
+        setOutboxCount(pendingCount());
+        console.warn("[worker] позиция", error);
         if (gpsCellRef.current || gpsTrackNoted.current) return;
         gpsTrackNoted.current = true;
-        if (!gpsFixRef.current) {
-          statusNoteAt.current = Date.now();
-          setNotice("GPS-трек недоступен.");
-        }
+        statusNoteAt.current = Date.now();
+        setNotice("GPS-точка не ушла на сервер, лежит в очереди.");
       });
     };
 
@@ -1258,7 +1244,7 @@ export default function WorkerPage() {
           {gpsWatching ? (
             <span
               className="worker-task-badge gps"
-              title="Реальный GPS-трек на /api/v1/track"
+              title="Реальный GPS · позиция на /api/geo/updateEngineerPosition"
             >
               {gpsFix
                 ? `GPS ${gpsFix.lat.toFixed(5)}, ${gpsFix.lon.toFixed(5)}${gpsAcc != null ? ` ±${Math.round(gpsAcc)} м` : ""}`
@@ -1444,7 +1430,7 @@ export default function WorkerPage() {
           className={gpsManual || gpsWatching ? "worker-action worker-action-primary" : "worker-action worker-action-secondary"}
           type="button"
           onClick={toggleGpsManual}
-          title={`Полевой GPS-трек · трек → ${getApiBase()}/api/v1/track`}
+          title={`Полевой GPS · позиция → ${getApiBase()}/api/geo/updateEngineerPosition`}
         >
           {gpsManual || gpsWatching ? "GPS · вкл" : "GPS"}
         </button>
