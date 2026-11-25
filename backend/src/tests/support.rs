@@ -237,7 +237,38 @@ impl TestContext {
         self.seed_user(UserRole::Engineer, Some(engineer_type))
     }
 
+    /// Creates an engineer whose `name` is the organiser roster id (`AT-0001` …)
+    /// and whose `tabel_id` is absent, the way the current form registers.
+    pub fn named_engineer(&self, engineer_type: EngineerType, name: &str) -> TestUser {
+        self.seed_user_named(UserRole::Engineer, Some(engineer_type), None, Some(name))
+    }
+
+    /// Creates an engineer carrying the organiser roster id (`AT-0001` …), so
+    /// the ranking can find that engineer's licence in the map's geodata.
+    pub fn engineer_with_tabel(&self, engineer_type: EngineerType, tabel_id: &str) -> TestUser {
+        self.seed_user_with(UserRole::Engineer, Some(engineer_type), Some(tabel_id))
+    }
+
     fn seed_user(&self, role: UserRole, engineer_type: Option<EngineerType>) -> TestUser {
+        self.seed_user_with(role, engineer_type, None)
+    }
+
+    fn seed_user_with(
+        &self,
+        role: UserRole,
+        engineer_type: Option<EngineerType>,
+        tabel_id: Option<&str>,
+    ) -> TestUser {
+        self.seed_user_named(role, engineer_type, tabel_id, None)
+    }
+
+    fn seed_user_named(
+        &self,
+        role: UserRole,
+        engineer_type: Option<EngineerType>,
+        tabel_id: Option<&str>,
+        name: Option<&str>,
+    ) -> TestUser {
         let id = Uuid::new_v4();
         let email = format!("{}-{id}@test.example", role.to_string());
         let password_hash = hash_password(PASSWORD.to_owned()).expect("password should hash");
@@ -260,9 +291,10 @@ impl TestContext {
                     .values(&Engineer {
                         id,
                         email: email.clone(),
-                        name: "Test Engineer".to_owned(),
+                        name: name.unwrap_or("Test Engineer").to_owned(),
                         password_hash,
                         engineer_type: engineer_type.expect("engineer needs a specialization"),
+                        tabel_id: tabel_id.map(str::to_owned),
                     })
                     .execute(&mut conn)
                     .expect("engineer should be inserted");

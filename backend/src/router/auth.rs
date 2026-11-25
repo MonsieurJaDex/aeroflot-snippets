@@ -101,6 +101,12 @@ pub async fn register_handler(
                 name: payload.name.clone(),
                 password_hash: hashed_password,
                 engineer_type,
+                tabel_id: payload
+                    .tabel_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned),
             };
             insert_engineer(&mut pg_conn, &new_engineer)?;
         }

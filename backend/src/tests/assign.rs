@@ -1610,3 +1610,146 @@ async fn forcing_a_vehicle_switches_the_published_candidate_to_the_vehicle_branc
     );
     assert_eq!(row(&released)["uses_vehicle"], false);
 }
+
+/// The organiser geodata states a licence per engineer, and the ranking gates
+/// on it: on chapter 72 a `B1,A` holder is admitted where a trainee (`AM`) is
+/// refused for the licence itself, not for the specialization it typed.
+#[tokio::test]
+async fn geodata_licence_decides_admission() {
+    let ctx = TestContext::with_map(Some("assets/geodata_for_final.json")).await;
+    let dispatcher = ctx.dispatcher();
+    // AT-0001: Инженер/ME/`B1,A`; AT-0004: Стажёр/ME/`AM`; AT-0006: Инженер/AV/`B2`.
+    let licence_holder = ctx.engineer_with_tabel(EngineerType::EngineTechnician, "AT-0001");
+    let trainee = ctx.engineer_with_tabel(EngineerType::EngineTechnician, "AT-0004");
+    let avionics = ctx.engineer_with_tabel(EngineerType::AvionicsEngineer, "AT-0006");
+    // Distinct cells: the loader keeps one engineer per point.
+    for (engineer, point) in [
+        (&licence_holder, "5,5"),
+        (&trainee, "5,6"),
+        (&avionics, "6,5"),
+    ] {
+        ctx.redis_set(
+            &format!("map:{}:position:{}", ctx.active_id(), engineer.id),
+            point,
+        );
+    }
+    let plane = Uuid::new_v4();
+    let created = expect_status(
+        ctx.post(
+            "/api/requests",
+            &dispatcher.token,
+            json!({
+                "text": "двигатель: падение давления масла",
+                "plane_uuid": plane,
+                "point": [10, 10],
+                "ata_chapter": "72"
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let request: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request}/queue"),
+            &dispatcher.token,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    let preview = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({ "request_id": request }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let rows = preview["candidates"].as_array().expect("candidates array");
+    let find = |id: Uuid| {
+        rows.iter()
+            .find(|row| row["engineer_id"] == id.to_string())
+            .unwrap_or_else(|| panic!("engineer {id} is ranked"))
+    };
+
+    assert_eq!(
+        find(licence_holder.id)["eligible"], true,
+        "AT-0001 holds B1,A and chapter 72 admits it: {preview}"
+    );
+
+    let refused = find(trainee.id);
+    assert_eq!(refused["eligible"], false, "AT-0004 holds AM only");
+    let reason = refused["reason"].as_str().expect("a refused row explains");
+    assert!(
+        reason.contains("AM"),
+        "the refusal names the licence, not the registration type: {reason}"
+    );
+
+    let avionics_row = find(avionics.id);
+    assert_eq!(avionics_row["eligible"], false, "AT-0006 holds B2 only");
+}
+
+/// An account that names itself with the organiser roster id reaches its
+/// licence even without the `tabel_id` column, so the data counts before the
+/// registration form is changed on the other side.
+#[tokio::test]
+async fn geodata_licence_is_found_by_the_roster_name() {
+    let ctx = TestContext::with_map(Some("assets/geodata_for_final.json")).await;
+    let dispatcher = ctx.dispatcher();
+    // AT-0002 is a Техник with `B1`: named after the roster, no tabel_id column.
+    let named = ctx.named_engineer(EngineerType::IntegrityInspector, "AT-0002");
+    ctx.redis_set(
+        &format!("map:{}:position:{}", ctx.active_id(), named.id),
+        "5,5",
+    );
+    let plane = Uuid::new_v4();
+    let created = expect_status(
+        ctx.post(
+            "/api/requests",
+            &dispatcher.token,
+            json!({
+                "text": "двигатель: падение давления масла",
+                "plane_uuid": plane,
+                "point": [10, 10],
+                "ata_chapter": "72"
+            }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let request: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    expect_status(
+        ctx.post(
+            &format!("/api/requests/{request}/queue"),
+            &dispatcher.token,
+            json!(null),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let preview = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({ "request_id": request }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let row = preview["candidates"]
+        .as_array()
+        .expect("candidates array")
+        .iter()
+        .find(|row| row["engineer_id"] == named.id.to_string())
+        .expect("the named engineer is ranked")
+        .clone();
+    // `integrity_inspector` is refused chapter 72 by `engineer_type` alone, so
+    // eligibility here can only come from the `B1` licence the name resolves to.
+    assert_eq!(
+        row["eligible"], true,
+        "the roster name supplies the B1 licence: {row}"
+    );
+}

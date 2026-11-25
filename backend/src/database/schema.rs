@@ -43,6 +43,7 @@ diesel::table! {
         name -> Varchar,
         engineer_type -> EngineerType,
         password_hash -> Varchar,
+        tabel_id -> Nullable<Varchar>,
     }
 }
 
