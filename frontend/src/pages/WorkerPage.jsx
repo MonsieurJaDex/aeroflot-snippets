@@ -27,7 +27,6 @@ import {
   loadTilesetImages,
   prepareMapFrame,
   applyPhoneApron,
-  apronPictureUrl,
   renderCanvas,
 } from "../lib/apronMap.js";
 
@@ -1019,7 +1018,7 @@ export default function WorkerPage() {
       bag.map = map;
       L.control.zoom({ position: "bottomright" }).addTo(map);
       const bounds = [[0, 0], [tmj.height * tmj.tileheight, tmj.width * tmj.tilewidth]];
-      const picture = apronPictureUrl(tmj);
+      const picture = renderCanvas(tmj, grid, tilesets).toDataURL("image/png");
       map.getContainer().style.background = "#c5d4b4";
       const overlay = L.imageOverlay(picture, bounds).addTo(map);
       addPlaceLabels(map, tmj);

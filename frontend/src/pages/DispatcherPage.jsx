@@ -61,7 +61,6 @@ import {
   loadTilesetImages,
   prepareMapFrame,
   applyPhoneApron,
-  apronPictureUrl,
   renderCanvas,
   roadHint,
 } from "../lib/apronMap.js";
@@ -525,7 +524,7 @@ export default function DispatcherPage() {
         attributionControl: false,
       });
       bag.map = map;
-      const picture = apronPictureUrl(tmj);
+      const picture = renderCanvas(tmj, grid, tilesets).toDataURL("image/png");
       map.getContainer().style.background = "#c5d4b4";
       const overlay = L.imageOverlay(picture, bounds).addTo(map);
       addPlaceLabels(map, tmj);
