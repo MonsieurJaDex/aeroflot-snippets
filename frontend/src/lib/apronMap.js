@@ -376,7 +376,7 @@ export function addPlaceLabels(map, tmj) {
       keyboard: false,
       icon: L.divIcon({ className: "map-pin-hidden", html: "", iconSize: [1, 1] }),
     }).bindTooltip(place.name, {
-      permanent: true,
+      permanent: false,
       direction: "center",
       className: "map-label",
     }).addTo(layer);

@@ -613,8 +613,9 @@ function zoneCaption(zone) {
   return String(zone.id || "").trim().slice(0, 16);
 }
 
-function drawZones(svg, zones, tileW, tileH, metres) {
+function drawZones(svg, zones, tileW, tileH, metres, objects) {
   const group = el("g", { class: "apron-zones" }, svg);
+  const named = new Set((objects || []).map((obj) => String(obj.name || "").trim().toLowerCase()).filter(Boolean));
   const placed = [];
   for (const zone of zones || []) {
     const radiusM = Number(zone.radius_m);
@@ -630,31 +631,33 @@ function drawZones(svg, zones, tileW, tileH, metres) {
       "stroke-width": 2.4,
       "stroke-dasharray": "6 4",
     }, group);
+    const caption = zoneCaption(zone);
+    if (!caption || named.has(caption.toLowerCase())) continue;
     let x = cx;
     let y = cy - r - 11;
     const limit = labelFrame?.h || y + 18;
-    for (let n = 0; n < 8; n += 1) {
-      const hit = placed.some((item) => Math.abs(item.x - x) < 96 && Math.abs(item.y - y) < 18);
+    let crowded = false;
+    for (let n = 0; n < 6; n += 1) {
+      const hit = placed.some((item) => Math.abs(item.x - x) < 110 && Math.abs(item.y - y) < 20);
       if (!hit) break;
-      y = y + 18 < limit - 8 ? y + 18 : y - 18;
+      if (n === 5 || y + 18 > limit - 8) {
+        crowded = true;
+        break;
+      }
+      y += 18;
     }
-    let font = 16;
-    const caption = zoneCaption(zone);
-    if (caption) {
-      const fitted = clampLabel(x, y, caption, 16, "middle", labelFrame);
-      x = fitted[0];
-      y = fitted[1];
-      font = fitted[2];
-    }
+    if (crowded) continue;
+    const fitted = clampLabel(x, y, caption, 16, "middle", labelFrame);
+    x = fitted[0];
+    y = fitted[1];
     placed.push({ x, y });
-    if (!caption) continue;
     text(group, {
       class: "apron-zone-label",
       x: x.toFixed(1),
       y: y.toFixed(1),
       "text-anchor": "middle",
       "dominant-baseline": "middle",
-      "font-size": Number(font).toFixed(1),
+      "font-size": Number(fitted[2]).toFixed(1),
       "stroke-width": 3,
     }, caption);
   }
@@ -864,7 +867,7 @@ function buildApronSvg(tmj, data) {
       warehouseIndex += 1;
     } else if (obj.kind === "parking") drawParking(svg, defs, paths, obj, tileW, tileH);
   }
-  drawZones(svg, tmj.zones, tileW, tileH, tmj.cell_size_m || 5);
+  drawZones(svg, tmj.zones, tileW, tileH, tmj.cell_size_m || 5, tmj.objects);
   labelFrame = null;
   return svg;
 }
