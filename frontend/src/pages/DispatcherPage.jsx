@@ -85,6 +85,12 @@ function freshInbox() {
     });
 }
 
+function etaNote(data) {
+  const seconds = Number(data?.eta_seconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  return " · ETA " + Math.max(0, Math.round(seconds / 60)) + " мин";
+}
+
 function marginMinutes(seconds) {
   if (seconds == null || Number.isNaN(Number(seconds))) return null;
   return Math.round(Number(seconds) / 60);
@@ -1311,6 +1317,7 @@ export default function DispatcherPage() {
       let cells = 0;
       let label = `${startAgent.name || "инженер"} → стоянка`;
       let note = "";
+      let etaPart = "";
       if (withVia) {
         const needType = ISSUE_REQUIRED_VEHICLE[issue];
         const pool = (fleetNow || []).filter((v) => Array.isArray(v.point));
@@ -1321,20 +1328,23 @@ export default function DispatcherPage() {
           setRouteNote("Нет спецтранспорта на карте для пробы через промежуточную точку.");
           return;
         }
-        const data = await getRouteVia([startAgent.point, pick.point, stand.point]);
+        // Инженер идёт пешком до спецтехники, дальше едет машина: agent по плечам (ТЗ 4.1).
+        const data = await getRouteVia([startAgent.point, pick.point, stand.point], ["engineer", "vehicle"]);
         route = normalizeRoute(data?.route);
         cells = Number(data?.distance);
+        etaPart = etaNote(data);
         label = `${startAgent.name || "инженер"} → ${pick.label} → стоянка`;
         note = `Проба via: ${label} · ${Number.isFinite(cells) ? cells : Math.max(0, route.length - 1)} клеток · ${data?.legs || 2} плеча · OpenAPI getRoute`;
       } else {
-        const data = await getRoute(startAgent.point, stand.point);
+        const data = await getRoute(startAgent.point, stand.point, "engineer");
         route = normalizeRoute(data?.route);
         cells = Number(data?.distance);
+        etaPart = etaNote(data);
         note = `Проба: ${label} · ${Number.isFinite(cells) ? cells : Math.max(0, route.length - 1)} клеток · OpenAPI getRoute`;
       }
       actions.current.previewRoute?.(route, label);
       softBeep(560, 100);
-      setRouteNote(note);
+      setRouteNote(note + etaPart);
     } catch (error) {
       setRouteNote(assignErrorMessage(error));
       softBeep(320, 200);
