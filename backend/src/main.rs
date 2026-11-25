@@ -333,7 +333,11 @@ fn build_app(app_state: Arc<AppState>) -> Router {
         .nest("/api", build_api_router(Arc::clone(&app_state)))
         .merge(SwaggerUi::new("/swagger").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
+        // `permissive` opens origin, methods and headers to any caller. The
+        // private-network answer is what Chrome additionally demands before a page
+        // on a public https origin (the organiser simulator) may call a LAN
+        // address directly instead of through its CORS proxy.
+        .layer(CorsLayer::permissive().allow_private_network(true))
         .layer(CompressionLayer::new())
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
