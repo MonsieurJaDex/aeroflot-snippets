@@ -1513,3 +1513,100 @@ async fn accept_returns_the_selection_basis_of_the_chosen_engineer() {
     );
     assert_eq!(ctx.task(request_id).status, "in_progress");
 }
+
+/// ТЗ п.3.3 end to end: forcing a vehicle changes the published ranking, not
+/// just a Redis key. Walking is the cheaper branch until the engineer is forced,
+/// then the vehicle branch is what the dispatcher sees.
+#[tokio::test]
+async fn forcing_a_vehicle_switches_the_published_candidate_to_the_vehicle_branch() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AvionicsEngineer);
+    let map_id = ctx.active_id();
+    ctx.redis_set(&format!("map:{map_id}:position:{}", engineer.id), "5,5");
+    // One service vehicle parked far away: boarding it can only be slower than
+    // walking the short hop to the aircraft.
+    ctx.redis_set(
+        &format!("map:{map_id}:position:fuel_truck:{}", Uuid::new_v4()),
+        "5,40",
+    );
+    let plane = Uuid::new_v4();
+    let request = create_request_at(&ctx, &dispatcher.token, plane, (10, 10)).await;
+
+    let row = |body: &serde_json::Value| {
+        body["candidates"]
+            .as_array()
+            .expect("candidates array")
+            .iter()
+            .find(|row| row["engineer_id"] == engineer.id.to_string())
+            .cloned()
+            .unwrap_or_else(|| panic!("the engineer is ranked: {body}"))
+    };
+
+    let before = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({ "request_id": request }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let walking = row(&before);
+    assert_eq!(
+        walking["uses_vehicle"], false,
+        "walking is the cheaper branch: {walking}"
+    );
+    let walk_eta = walking["eta_seconds"].as_f64().expect("eta");
+
+    expect_status(
+        ctx.post(
+            "/api/geo/forceVehicle",
+            &dispatcher.token,
+            json!({ "engineer_id": engineer.id, "forced": true }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+
+    let forced = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({ "request_id": request }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let riding = row(&forced);
+    assert_eq!(
+        riding["uses_vehicle"], true,
+        "the forced engineer rides: {riding}"
+    );
+    let ride_eta = riding["eta_seconds"].as_f64().expect("eta");
+    assert!(
+        ride_eta > walk_eta,
+        "the vehicle branch is the slower one here: walking {walk_eta}, riding {ride_eta}"
+    );
+
+    // Releasing the flag puts the ranking back where it was.
+    expect_status(
+        ctx.post(
+            "/api/geo/forceVehicle",
+            &dispatcher.token,
+            json!({ "engineer_id": engineer.id, "forced": false }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    let released = expect_status(
+        ctx.post(
+            "/api/assign/candidates",
+            &dispatcher.token,
+            json!({ "request_id": request }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(row(&released)["uses_vehicle"], false);
+}

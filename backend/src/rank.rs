@@ -99,6 +99,18 @@ pub struct RankInput<'a> {
     pub mel_category: Option<&'a str>,
     pub transports: HashMap<Point, Uuid>,
     pub needs_tools: bool,
+    /// Engineers forced onto a vehicle regardless of the walking comparison.
+    pub forced_vehicle: std::collections::HashSet<Uuid>,
+}
+
+/// Key marking an engineer as forced onto a vehicle: `rank:force_vehicle:{id}`.
+///
+/// The organiser checklist asks for a switch that makes an engineer use transport
+/// even when walking would be faster, so the vehicle branch of a candidate can be
+/// demonstrated during the trial.
+#[must_use]
+pub fn forced_vehicle_key(engineer: Uuid) -> String {
+    format!("rank:force_vehicle:{engineer}")
 }
 
 pub fn rank(input: RankInput<'_>) -> RankOutcome {
@@ -146,23 +158,37 @@ fn score_one(input: &RankInput<'_>, id: Uuid, kind: EngineerType) -> CandidateSc
 
     let walk = walk_eta(input, position);
     let vehicle = vehicle_eta(input, position);
-    let (eta, route, uses_vehicle) = match (walk, vehicle) {
-        (Ok((walk_secs, _walk_route)), Ok((vehicle_secs, vehicle_route)))
-            if vehicle_secs + input.map.location.boarding_delay_secs < walk_secs =>
-        {
-            (
-                vehicle_secs + input.map.location.boarding_delay_secs,
-                vehicle_route,
-                true,
-            )
-        }
-        (Ok((walk_secs, walk_route)), _) => (walk_secs, walk_route, false),
-        (Err(_), Ok((vehicle_secs, vehicle_route))) => (
+    // A forced engineer takes the vehicle branch whether or not walking is
+    // shorter; without a vehicle route the normal comparison still applies.
+    let forced = if input.forced_vehicle.contains(&id) {
+        vehicle_eta(input, position).ok()
+    } else {
+        None
+    };
+    let (eta, route, uses_vehicle) = match forced {
+        Some((vehicle_secs, vehicle_route)) => (
             vehicle_secs + input.map.location.boarding_delay_secs,
             vehicle_route,
             true,
         ),
-        (Err(error), Err(_)) => return reject(&error),
+        None => match (walk, vehicle) {
+            (Ok((walk_secs, _walk_route)), Ok((vehicle_secs, vehicle_route)))
+                if vehicle_secs + input.map.location.boarding_delay_secs < walk_secs =>
+            {
+                (
+                    vehicle_secs + input.map.location.boarding_delay_secs,
+                    vehicle_route,
+                    true,
+                )
+            }
+            (Ok((walk_secs, walk_route)), _) => (walk_secs, walk_route, false),
+            (Err(_), Ok((vehicle_secs, vehicle_route))) => (
+                vehicle_secs + input.map.location.boarding_delay_secs,
+                vehicle_route,
+                true,
+            ),
+            (Err(error), Err(_)) => return reject(&error),
+        },
     };
     // The published row is rounded up, so the score must be built from that
     // same value: otherwise `score` never equals the sum of its components.

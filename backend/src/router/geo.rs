@@ -22,6 +22,7 @@ use crate::{
         config::AppState,
         dto::{
             CalibrateObjectRequest, CalibrationEntry, CalibrationListResponse,
+            ForceVehicleRequest, ForceVehicleResponse, PauseAgentRequest, PauseAgentResponse,
             TrackFreshnessQuery, TrackFreshnessResponse,
             ClearCalibrationRequest, Coordinate, ErrorResponse, PageQuery,
             UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
@@ -474,6 +475,117 @@ pub async fn track_freshness(
         obj: query.obj,
         fresh: ttl > 0,
         expires_in_secs: ttl.max(0),
+    })
+    .into_response())
+}
+
+/// Stop an agent without ending its route, or let it move again.
+///
+/// The flag lives in Redis next to the track (`map:{id}:paused:{obj}`), so a paused
+/// object keeps its history and its last cell while incoming points are accepted
+/// but not applied.
+#[utoipa::path(
+    post,
+    path = "/api/geo/pauseAgent",
+    tag = "Geo",
+    operation_id = "pauseAgent",
+    description = "Pause or resume an agent without ending its route",
+    security(("bearerAuth" = [])),
+    request_body = PauseAgentRequest,
+    responses(
+        (status = 200, description = "New state of the agent", body = PauseAgentResponse),
+        (status = 400, description = "Blank obj", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn pause_agent_handler(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<PauseAgentRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can pause agents"));
+    }
+    if payload.obj.trim().is_empty() {
+        return Err(bad_request("obj must not be blank"));
+    }
+    let active = active_map(&app_state)?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+    let key = super::track::paused_key(&active.id, &payload.obj);
+    // A running agent carries no flag at all, so resuming cannot leave a stale
+    // "1" behind for the next pause to misread.
+    let stored = if payload.paused {
+        redis_conn.set(&key, "1").map(|()| ())
+    } else {
+        redis_conn.del(&key).map(|_: usize| ())
+    };
+    stored.map_err(|e| {
+        tracing::error!(error = %e, "failed to store agent pause");
+        internal_error()
+    })?;
+    Ok(Json(PauseAgentResponse {
+        obj: payload.obj,
+        paused: payload.paused,
+    })
+    .into_response())
+}
+
+/// Force an engineer to use a vehicle, or restore the normal walking comparison.
+#[utoipa::path(
+    post,
+    path = "/api/geo/forceVehicle",
+    tag = "Geo",
+    operation_id = "forceVehicle",
+    description = "Always send an engineer by vehicle when ranking candidates",
+    security(("bearerAuth" = [])),
+    request_body = ForceVehicleRequest,
+    responses(
+        (status = 200, description = "New state of the flag", body = ForceVehicleResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 404, description = "Engineer does not exist", body = ErrorResponse),
+        (status = 422, description = "Request body does not match the schema", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn force_vehicle_handler(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    ApiJson(payload): ApiJson<ForceVehicleRequest>,
+) -> Result<Response<Body>, Response<Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can force a vehicle"));
+    }
+    let mut conn = app_state.db_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire database connection");
+        internal_error()
+    })?;
+    if !super::track::engineer_exists(&mut conn, payload.engineer_id) {
+        return Err(not_found("engineer not found"));
+    }
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+    let key = crate::rank::forced_vehicle_key(payload.engineer_id);
+    let stored = if payload.forced {
+        redis_conn.set(&key, "1").map(|()| ())
+    } else {
+        redis_conn.del(&key).map(|_: usize| ())
+    };
+    stored.map_err(|e| {
+        tracing::error!(error = %e, "failed to store forced vehicle flag");
+        internal_error()
+    })?;
+    Ok(Json(ForceVehicleResponse {
+        engineer_id: payload.engineer_id,
+        forced: payload.forced,
     })
     .into_response())
 }

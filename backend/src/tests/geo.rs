@@ -1136,3 +1136,217 @@ async fn track_refresh_updates_the_task_forecast_only_when_the_cell_changes() {
         ctx.task(task).eta_seconds
     );
 }
+
+/// ТЗ п.3.1: an agent can be stopped without ending its route, so a halted
+/// engineer can be reproduced. While paused its points are accepted but not
+/// applied; resuming lets them through again.
+#[tokio::test]
+async fn pauses_and_resumes_an_agent_without_losing_its_route() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let paused_key = format!("map:{}:paused:e-01", ctx.active_id());
+    let track_key = format!("map:{}:track:e-01", ctx.active_id());
+
+    let paused = expect_status(
+        ctx.post(
+            "/api/geo/pauseAgent",
+            &dispatcher.token,
+            json!({ "obj": "e-01", "paused": true }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(paused["obj"], "e-01");
+    assert_eq!(paused["paused"], true);
+    assert_eq!(ctx.redis_get(&paused_key), Some("1".to_owned()));
+
+    let while_paused = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "obj": "e-01", "lat": 55.831, "lon": 37.636 })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(while_paused["accepted"], true, "ack: {while_paused}");
+    assert_eq!(while_paused["applied"], false, "ack: {while_paused}");
+    assert_eq!(
+        ctx.redis_lindex(&track_key, 0),
+        None,
+        "a paused agent must not move"
+    );
+
+    expect_status(
+        ctx.post(
+            "/api/geo/pauseAgent",
+            &dispatcher.token,
+            json!({ "obj": "e-01", "paused": false }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(
+        ctx.redis_get(&paused_key),
+        None,
+        "resuming removes the flag instead of leaving a stale value"
+    );
+
+    let after_resume = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "obj": "e-01", "lat": 55.832, "lon": 37.637 })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(after_resume["applied"], true, "ack: {after_resume}");
+    assert!(ctx.redis_lindex(&track_key, 0).is_some());
+
+    // Only a dispatcher drives the test controls, and a blank object is a
+    // malformed request rather than a silent pause of nothing.
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    expect_status(
+        ctx.post(
+            "/api/geo/pauseAgent",
+            &engineer.token,
+            json!({ "obj": "e-01", "paused": true }),
+        )
+        .await,
+        StatusCode::FORBIDDEN,
+    );
+    expect_status(
+        ctx.post(
+            "/api/geo/pauseAgent",
+            &dispatcher.token,
+            json!({ "obj": "  ", "paused": true }),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    );
+}
+
+/// ТЗ п.3.3: an engineer can be forced onto a vehicle so the vehicle branch of a
+/// candidate can be shown even when walking would be faster.
+#[tokio::test]
+async fn forces_and_releases_the_vehicle_choice_of_an_engineer() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    let key = format!("rank:force_vehicle:{}", engineer.id);
+
+    let forced = expect_status(
+        ctx.post(
+            "/api/geo/forceVehicle",
+            &dispatcher.token,
+            json!({ "engineer_id": engineer.id, "forced": true }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(forced["engineer_id"], engineer.id.to_string());
+    assert_eq!(forced["forced"], true);
+    assert_eq!(ctx.redis_get(&key), Some("1".to_owned()));
+
+    let released = expect_status(
+        ctx.post(
+            "/api/geo/forceVehicle",
+            &dispatcher.token,
+            json!({ "engineer_id": engineer.id, "forced": false }),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(released["forced"], false);
+    assert_eq!(ctx.redis_get(&key), None, "releasing clears the flag");
+
+    expect_status(
+        ctx.post(
+            "/api/geo/forceVehicle",
+            &dispatcher.token,
+            json!({ "engineer_id": Uuid::new_v4(), "forced": true }),
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+    );
+    expect_status(
+        ctx.post(
+            "/api/geo/forceVehicle",
+            &engineer.token,
+            json!({ "engineer_id": engineer.id, "forced": true }),
+        )
+        .await,
+        StatusCode::FORBIDDEN,
+    );
+}
+
+/// The organiser geodata names its objects `AT-*`, `vehicle-*` and `RA-*`, which
+/// the bundled map does not list; every such id must still be accepted, while a
+/// genuinely unknown id stays rejected.
+#[tokio::test]
+async fn accepts_organiser_object_ids_from_the_geodata() {
+    let ctx = TestContext::new().await;
+
+    // The kind of an id the map does not list is judged by the id shape, and the
+    // shared position key is what it lands under: an engineer gets the plain
+    // engineer key, a vehicle and an aircraft the typed vehicle key.
+    for (obj, expected_key) in [
+        ("AT-0001", format!("map:{}:position:{{id}}", ctx.active_id())),
+        ("AT-0007", format!("map:{}:position:{{id}}", ctx.active_id())),
+        (
+            "vehicle-01",
+            format!("map:{}:position:fuel_truck:{{id}}", ctx.active_id()),
+        ),
+        (
+            "vehicle-03",
+            format!("map:{}:position:fuel_truck:{{id}}", ctx.active_id()),
+        ),
+        (
+            "RA-73101",
+            format!("map:{}:position:aircraft:{{id}}", ctx.active_id()),
+        ),
+        (
+            "RA-73110",
+            format!("map:{}:position:aircraft:{{id}}", ctx.active_id()),
+        ),
+    ] {
+        let ack = expect_status(
+            ctx.request(
+                Method::POST,
+                "/api/v1/track",
+                None,
+                Some(json!({ "obj": obj, "lat": 55.831, "lon": 37.636 })),
+            )
+            .await,
+            StatusCode::OK,
+        );
+        assert_eq!(ack["applied"], true, "{obj} must be applied: {ack}");
+        assert!(
+            ctx.redis_lindex(&format!("map:{}:track:{obj}", ctx.active_id()), 0)
+                .is_some(),
+            "{obj} must be stored"
+        );
+        let id = Uuid::new_v5(&Uuid::NAMESPACE_OID, obj.as_bytes());
+        let position_key = expected_key.replace("{id}", &id.to_string());
+        assert!(
+            ctx.redis_get(&position_key).is_some(),
+            "{obj} must publish its position under {position_key}"
+        );
+    }
+
+    let unknown = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "obj": "X-9999", "lat": 55.831, "lon": 37.636 })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(unknown["accepted"], true);
+    assert_eq!(unknown["applied"], false, "ack: {unknown}");
+}

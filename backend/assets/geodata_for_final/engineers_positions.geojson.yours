@@ -1,0 +1,14 @@
+{
+"type": "FeatureCollection",
+"name": "engineers_positions",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{"type":"Feature","properties":{"fid":1,"tabel_id":"AT-0001","grade":"Инженер","scope":"ME","skill":"B1,A","scope_desc":"Двигатель;Планер"},"geometry":{"type":"Point","coordinates":[37.633028100761685,55.83514436604726]}},
+{"type":"Feature","properties":{"fid":2,"tabel_id":"AT-0002","grade":"Техник","scope":"ME","skill":"B1","scope_desc":"Двигатель;Планер"},"geometry":{"type":"Point","coordinates":[37.618028298681679,55.833689660770368]}},
+{"type":"Feature","properties":{"fid":3,"tabel_id":"AT-0003","grade":"Техник","scope":"ME","skill":"B1","scope_desc":"Двигатель;Планер"},"geometry":{"type":"Point","coordinates":[37.627475362911206,55.834359565601943]}},
+{"type":"Feature","properties":{"fid":4,"tabel_id":"AT-0004","grade":"Стажёр","scope":"ME","skill":"AM","scope_desc":"Двигатель;Планер"},"geometry":{"type":"Point","coordinates":[37.62702313808569,55.834644115183671]}},
+{"type":"Feature","properties":{"fid":5,"tabel_id":"AT-0005","grade":"Техник","scope":"ME","skill":"B1","scope_desc":"Двигатель;Планер"},"geometry":{"type":"Point","coordinates":[37.639706265099491,55.829169133505332]}},
+{"type":"Feature","properties":{"fid":6,"tabel_id":"AT-0006","grade":"Инженер","scope":"AV","skill":"B2","scope_desc":"Радиоэлектронное и навигационное оборудование"},"geometry":{"type":"Point","coordinates":[37.634436700188608,55.833284232394199]}},
+{"type":"Feature","properties":{"fid":7,"tabel_id":"AT-0007","grade":"Техник","scope":"Cabbin","skill":"CAB","scope_desc":"Интерьерное оборудование"},"geometry":{"type":"Point","coordinates":[37.635886161967562,55.83128322894941]}}
+]
+}
