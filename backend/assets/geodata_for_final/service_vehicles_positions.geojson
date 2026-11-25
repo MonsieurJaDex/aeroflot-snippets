@@ -1,0 +1,10 @@
+{
+"type": "FeatureCollection",
+"name": "service_vehicles_positions",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{"type":"Feature","properties":{"fid":1,"model":"Лада Ларгус","object_id":"vehicle-01"},"geometry":{"type":"Point","coordinates":[37.634101712490981,55.833270823073455]}},
+{"type":"Feature","properties":{"fid":2,"model":"Renault Logan","object_id":"vehicle-02"},"geometry":{"type":"Point","coordinates":[37.617699111775202,55.83374465824221]}},
+{"type":"Feature","properties":{"fid":3,"model":"Самокат (для проверки приёма координат)","object_id":"vehicle-03"},"geometry":{"type":"Point","coordinates":[37.634000292714525,55.83533110068074]}}
+]
+}

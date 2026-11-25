@@ -77,6 +77,7 @@ diesel::table! {
         urgency -> Text,
         eta_seconds -> Nullable<Integer>,
         candidate_ms -> Nullable<Integer>,
+        selection_basis -> Nullable<Text>,
         sla_alerted -> Bool,
         sla_breached -> Bool,
     }

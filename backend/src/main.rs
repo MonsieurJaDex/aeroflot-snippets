@@ -240,6 +240,7 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
         .route("/defects", post(router::ops::create_defect))
         .route("/journal.csv", get(router::ops::export_journal))
         .route("/tasks/{id}/route", post(router::ops::refresh_route))
+        .route("/tasks/{id}/timer", post(router::ops::set_task_timer))
         .route("/tasks/current/accept", post(router::ops::accept_current))
         .route("/tasks/current/reject", post(router::ops::reject_current))
         .route("/tasks/current/tools", post(router::ops::pick_tools))
@@ -297,6 +298,18 @@ fn build_api_router(app_state: Arc<AppState>) -> Router {
             get(router::geo::get_transport_positions),
         )
         .route("/activeEngineers", get(router::geo::active_engineers))
+        .route(
+            "/trackFreshness",
+            get(router::geo::track_freshness),
+        )
+        .route(
+            "/pauseAgent",
+            post(router::geo::pause_agent_handler),
+        )
+        .route(
+            "/forceVehicle",
+            post(router::geo::force_vehicle_handler),
+        )
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&app_state),
             middleware::auth_middleware,
@@ -320,7 +333,11 @@ fn build_app(app_state: Arc<AppState>) -> Router {
         .nest("/api", build_api_router(Arc::clone(&app_state)))
         .merge(SwaggerUi::new("/swagger").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
+        // `permissive` opens origin, methods and headers to any caller. The
+        // private-network answer is what Chrome additionally demands before a page
+        // on a public https origin (the organiser simulator) may call a LAN
+        // address directly instead of through its CORS proxy.
+        .layer(CorsLayer::permissive().allow_private_network(true))
         .layer(CompressionLayer::new())
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,

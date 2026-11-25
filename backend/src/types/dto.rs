@@ -12,6 +12,7 @@ use crate::types::{
     map::{Point, Route},
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
@@ -131,6 +132,68 @@ pub struct PageQuery {
     /// Number of items to skip.
     #[param(minimum = 0, default = 0)]
     pub offset: Option<i64>,
+}
+
+/// Body of `POST /api/geo/pauseAgent`.
+///
+/// The organiser checklist asks for a way to stop an agent without ending its
+/// route, so the test can reproduce a halted engineer.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PauseAgentRequest {
+    /// Object a tracker reports.
+    pub obj: String,
+    /// `true` stops the agent where it stands, `false` lets it move again.
+    pub paused: bool,
+}
+
+/// Answer of `POST /api/geo/pauseAgent`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PauseAgentResponse {
+    pub obj: String,
+    pub paused: bool,
+}
+
+/// Body of `POST /api/geo/forceVehicle`.
+///
+/// The organiser checklist asks for a way to make an engineer use a vehicle even
+/// when walking would be faster, so the vehicle branch of a candidate can be
+/// demonstrated.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ForceVehicleRequest {
+    pub engineer_id: Uuid,
+    /// `true` always sends the engineer by vehicle, `false` restores the normal
+    /// comparison with walking.
+    pub forced: bool,
+}
+
+/// Answer of `POST /api/geo/forceVehicle`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ForceVehicleResponse {
+    pub engineer_id: Uuid,
+    pub forced: bool,
+}
+
+/// Query of `GET /api/geo/trackFreshness`.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct TrackFreshnessQuery {
+    /// Object a tracker reports; the same `obj` the points were sent with.
+    pub obj: String,
+}
+
+/// Freshness of an object's coordinate, as `GET /api/geo/trackFreshness` answers
+/// it. The key is present only while the tracker keeps reporting.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TrackFreshnessResponse {
+    /// Object that was asked about, echoed back.
+    pub obj: String,
+    /// `true` when Redis holds a live coordinate for the object, `false` when the
+    /// last point is older than `stale_after_secs` or was never received.
+    pub fresh: bool,
+    /// Seconds left before the coordinate expires; `0` when it already has.
+    #[schema(minimum = 0)]
+    pub expires_in_secs: i64,
 }
 
 /// Uniform JSON error body.
@@ -378,13 +441,54 @@ pub struct AssignmentCandidate {
 }
 
 /// One addend of [`AssignmentCandidate::score`].
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ScoreFactor {
     /// Stable machine name, for example `eta`, `late`, `load` or `aog_bonus`.
     pub name: String,
     /// Contribution to the score in seconds: positive is a penalty, negative a
     /// bonus.
     pub seconds: f64,
+}
+
+/// Numeric justification of the engineer a request was assigned to, stored with
+/// the task and handed to that engineer when the assignment is read or accepted.
+///
+/// The sum of [`Self::factors`] equals [`Self::score`], so the engineer sees the
+/// same numbers the dispatcher's comparison showed.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SelectionBasis {
+    /// UUID of the engineer the request was assigned to.
+    pub engineer_id: String,
+    /// Final ranking score that won; lower is better.
+    pub score: f64,
+    /// Estimated travel time in seconds at the moment of assignment.
+    #[schema(minimum = 0)]
+    pub eta_seconds: u64,
+    /// Route length in map cells.
+    #[schema(minimum = 0)]
+    pub distance: u64,
+    /// Whether the route requires a special vehicle.
+    pub uses_vehicle: bool,
+    /// Signed addends of [`Self::score`], in score order.
+    pub factors: Vec<ScoreFactor>,
+    /// Human-readable summary of the same facts.
+    pub reason: String,
+    /// True when a dispatcher named the engineer instead of taking the best row.
+    pub manual: bool,
+    /// When the assignment was made, ISO 8601 in UTC.
+    pub chosen_at: String,
+}
+
+/// Answer of `POST /api/tasks/current/accept`: the new status and the numeric
+/// justification of why this engineer was chosen for the request.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AcceptCurrentTaskResponse {
+    /// Task status after accepting, always `in_progress`.
+    pub status: String,
+    /// Why this engineer was chosen. Absent only for tasks assigned before the
+    /// field existed.
+    #[schema(nullable)]
+    pub selection: Option<SelectionBasis>,
 }
 
 /// Response payload describing the engineer's current task.

@@ -34,6 +34,9 @@ pub struct Task {
     pub urgency: String,
     pub eta_seconds: Option<i32>,
     pub candidate_ms: Option<i32>,
+    /// JSON of [`crate::types::dto::SelectionBasis`]: why this engineer was
+    /// chosen. Written once at assignment, read back when the engineer accepts.
+    pub selection_basis: Option<String>,
     pub sla_alerted: bool,
     pub sla_breached: bool,
 }

@@ -165,7 +165,8 @@ pub struct Location {
     pub mel_bonus_secs: f64,
     pub max_accuracy_m: f64,
     pub max_speed_mps: f64,
-    #[allow(dead_code)]
+    /// How long a coordinate stays fresh. A track key expires after this many
+    /// seconds without a new point, and `trackFreshness` reports it as stale.
     pub stale_after_secs: i64,
     pub zones: Vec<Zone>,
     pub objects: Vec<MapObject>,

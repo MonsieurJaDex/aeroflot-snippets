@@ -23,7 +23,9 @@ use crate::journal::JournalEvent;
 use crate::middleware::AuthUser;
 use crate::models::task::Task;
 use crate::types::config::AppState;
-use crate::types::dto::{AllRequests, ErrorResponse, PlaneRequests};
+use crate::types::dto::{
+    AcceptCurrentTaskResponse, AllRequests, ErrorResponse, PlaneRequests, SelectionBasis,
+};
 use crate::types::enums::UserRole;
 use crate::types::map::{Point, Route};
 
@@ -64,6 +66,28 @@ pub struct MelRequest {
     pub category: String,
     #[serde(default)]
     pub defer_until: Option<String>,
+}
+
+/// Body of `POST /api/tasks/{id}/timer`.
+///
+/// The organiser checklist asks for a way to shorten or lengthen a request's
+/// clock, so an SLA breach or a comfortable margin can be staged on purpose.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TaskTimerRequest {
+    /// Seconds added to the deadline: negative shortens the remaining time,
+    /// positive lengthens it.
+    pub delta_seconds: i64,
+}
+
+/// Answer of `POST /api/tasks/{id}/timer`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TaskTimerResponse {
+    pub request_id: String,
+    /// New deadline, RFC3339.
+    pub ends_at: String,
+    /// Remaining seconds from now, negative when the deadline has passed.
+    pub seconds_left: i64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -156,6 +180,7 @@ pub async fn create_request(
         urgency: payload.urgency.unwrap_or_else(|| "normal".to_owned()),
         eta_seconds: None,
         candidate_ms: None,
+        selection_basis: None,
         sla_alerted: false,
         sla_breached: false,
     };
@@ -401,6 +426,12 @@ pub async fn reassign_request(
     }
     let travel = row.eta_seconds;
     let route_json = serde_json::to_string(&row.route).expect("route serializes");
+    // ТЗ п.17: the basis stored with the task must describe the engineer who
+    // now holds it, never the one it was moved away from.
+    let basis_json = super::selection_basis_json(row, true).map_err(|e| {
+        tracing::error!(error = %e, "failed to serialize the selection basis");
+        internal_error()
+    })?;
     diesel::update(tasks::table.find(id))
         .set((
             tasks::assigned_engineer.eq(Some(engineer_id)),
@@ -412,6 +443,7 @@ pub async fn reassign_request(
             tasks::is_active.eq(true),
             tasks::waiting_part.eq(false),
             tasks::arrived_at.eq(None::<chrono::DateTime<Utc>>),
+            tasks::selection_basis.eq(Some(basis_json)),
         ))
         .execute(&mut pg_conn)
         .map_err(|_| internal_error())?;
@@ -488,6 +520,9 @@ pub async fn unassign_request(
             tasks::tools_picked.eq(false),
             tasks::arrived_at.eq(None::<chrono::DateTime<Utc>>),
             tasks::is_active.eq(true),
+            // No engineer, no justification: a stale basis would be handed to
+            // whoever accepts the request next.
+            tasks::selection_basis.eq(None::<String>),
         ))
         .execute(&mut pg_conn)
         .map_err(|_| internal_error())?;
@@ -512,7 +547,11 @@ pub async fn unassign_request(
     tag = "Tasks",
     operation_id = "acceptCurrentTask",
     security(("bearerAuth" = [])),
-    responses((status = 200, description = "Accepted")),
+    responses((
+        status = 200,
+        description = "Accepted; `selection` carries the numeric justification of the pick",
+        body = AcceptCurrentTaskResponse
+    )),
 )]
 pub async fn accept_current(
     State(app_state): State<Arc<AppState>>,
@@ -738,6 +777,65 @@ pub async fn refresh_route(
 }
 
 #[utoipa::path(
+    post,
+    path = "/api/tasks/{id}/timer",
+    tag = "Tasks",
+    operation_id = "setTaskTimer",
+    description = "Shifts the deadline of an open request: negative seconds shorten \
+                   the remaining time, positive seconds lengthen it.",
+    security(("bearerAuth" = [])),
+    params(("id" = String, Path, description = "Request id")),
+    request_body = TaskTimerRequest,
+    responses(
+        (status = 200, description = "Deadline shifted", body = TaskTimerResponse),
+        (status = 400, description = "The request is closed or the shift is zero", body = ErrorResponse),
+        (status = 403, description = "Authenticated user is not a dispatcher", body = ErrorResponse),
+        (status = 404, description = "Request was not found", body = ErrorResponse),
+    ),
+)]
+pub async fn set_task_timer(
+    State(app_state): State<Arc<AppState>>,
+    Extension(auth_user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+    ApiJson(payload): ApiJson<TaskTimerRequest>,
+) -> Result<Response<axum::body::Body>, Response<axum::body::Body>> {
+    if auth_user.role != UserRole::Dispatcher {
+        return Err(forbidden("only dispatchers can change the request timer"));
+    }
+    if payload.delta_seconds == 0 {
+        return Err(bad_request("delta_seconds must be non-zero"));
+    }
+    let mut pg_conn = app_state.db_pool.get().map_err(|_| internal_error())?;
+    let task = load_task(&mut pg_conn, id)?;
+    if !task.is_active {
+        return Err(bad_request("request is closed"));
+    }
+    let ends_at = task.ends_at + Duration::seconds(payload.delta_seconds);
+    diesel::update(tasks::table.find(id))
+        .set(tasks::ends_at.eq(ends_at))
+        .execute(&mut pg_conn)
+        .map_err(|_| internal_error())?;
+    crate::journal::record(
+        &mut pg_conn,
+        "timer_changed",
+        Some(&auth_user.id.to_string()),
+        Some(id),
+        serde_json::json!({
+            "delta_seconds": payload.delta_seconds,
+            "from": task.ends_at.to_rfc3339(),
+            "to": ends_at.to_rfc3339(),
+        }),
+        None,
+    );
+    Ok(Json(TaskTimerResponse {
+        request_id: id.to_string(),
+        ends_at: ends_at.to_rfc3339(),
+        seconds_left: (ends_at - Utc::now()).num_seconds(),
+    })
+    .into_response())
+}
+
+#[utoipa::path(
     get,
     path = "/api/alerts",
     tag = "Tasks",
@@ -944,7 +1042,18 @@ async fn transition(
         serde_json::json!({ "from": from, "to": to }),
         None,
     );
-    Ok(StatusCode::OK.into_response())
+    // The pick's justification is stored as JSON by `assign_engineer`. A task
+    // assigned before the column existed, or a row we cannot read, still
+    // accepts: the caller just gets no numbers instead of an error.
+    let selection = task
+        .selection_basis
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<SelectionBasis>(raw).ok());
+    Ok(Json(AcceptCurrentTaskResponse {
+        status: to.to_owned(),
+        selection,
+    })
+    .into_response())
 }
 
 fn load_task(
