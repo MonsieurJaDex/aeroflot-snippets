@@ -1,6 +1,5 @@
 import { apiRequest } from "./session.js";
 import { vehicleLabel } from "./catalog.js";
-import { scenarioEngineerName } from "./scenario.js";
 
 const names = new Map();
 
@@ -89,11 +88,6 @@ export function normalizeRoute(route) {
 export async function engineerName(id) {
   const key = String(id);
   if (names.has(key)) return names.get(key);
-  const scripted = scenarioEngineerName(key);
-  if (scripted) {
-    names.set(key, scripted);
-    return scripted;
-  }
   const label = `Инженер ${key.slice(0, 8)}`;
   const readName = (data) => {
     const parsed = asJson(data);
@@ -257,6 +251,10 @@ export async function refreshTaskRoute(id) {
   return apiRequest(`/api/tasks/${encodeURIComponent(id)}/route`, { method: "POST" });
 }
 
+// Telemetry/journal channel of the GPS tracker (/api/v1/track). It is NOT a writer
+// of the engineer position: that one is written only by updateEngineerPosition
+// (authorized, batch [point, unix seconds], newest stamp wins). A second writer of
+// the same point on a different time model (ISO) overwrote it and moved the stamp.
 export async function postTrackPoint({ obj, lat, lon, t = new Date().toISOString(), acc = null, spd = null }) {
   return apiRequest("/api/v1/track", {
     method: "POST",

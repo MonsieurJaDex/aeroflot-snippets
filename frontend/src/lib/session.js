@@ -1,8 +1,19 @@
-import { afterSuccess, answer404, scenarioOn } from "./scenario.js";
-
 const SESSION_KEY = "oto-session";
 const API_BASE_KEY = "oto-api-base";
 const DEFAULT_API_BASE = "http://127.0.0.1:3001";
+
+// Бэкенд режет запрос по TimeoutLayer на 10 секундах и отдаёт 408.
+// Пользователю показываем человеческую фразу, а не сырой текст ответа или код статуса.
+export const SERVER_TIMEOUT_SECONDS = 10;
+export const TIMEOUT_MESSAGE = "Сервер не успел ответить за " + SERVER_TIMEOUT_SECONDS + " секунд — повторите.";
+
+export function isTimeoutStatus(status) {
+  return status === 408 || status === 504;
+}
+
+export function isAbortError(err) {
+  return Boolean(err) && (err.name === "AbortError" || err.name === "TimeoutError" || err.code === 20);
+}
 
 export function getApiBase() {
   const host = window.location.hostname;
@@ -69,7 +80,15 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
-  } catch {
+  } catch (fetchError) {
+    // Клиентский abort (AbortController / AbortSignal.timeout) — тот же таймаут,
+    // а не «нет сети»: показываем ту же фразу, что и для 408.
+    if (isAbortError(fetchError)) {
+      const error = new Error(TIMEOUT_MESSAGE);
+      error.status = 408;
+      error.timeout = true;
+      throw error;
+    }
     const here = typeof window !== "undefined" && !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
     const error = new Error(navigator.onLine === false
       ? "Нет сети. Проверьте соединение."
@@ -89,11 +108,14 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
   }
 
   if (!res.ok) {
-    if (res.status === 404 && scenarioOn()) {
-      const mocked = answer404(path, method, body, getSession());
-      if (mocked !== undefined) return mocked;
-    }
     const text = await res.text().catch(() => "");
+    if (isTimeoutStatus(res.status) || /timed?\s?out/i.test(text)) {
+      const error = new Error(TIMEOUT_MESSAGE);
+      error.status = res.status;
+      error.timeout = true;
+      error.raw = text;
+      throw error;
+    }
     let message = text || `Ошибка запроса: ${res.status}`;
     try {
       const body = JSON.parse(text);
@@ -110,8 +132,7 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
 
   const contentType = res.headers.get("content-type") || "";
   const data = contentType.includes("application/json") ? await res.json() : await res.text();
-  if (!scenarioOn()) return data;
-  return afterSuccess(path, method, body, data, getSession());
+  return data;
 }
 
 export async function login(email, password) {
