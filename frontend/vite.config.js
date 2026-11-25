@@ -8,12 +8,19 @@ export default defineConfig({
     sourcemap: false,
   },
   server: {
-    host: "127.0.0.1",
+    host: true,
+    allowedHosts: true,
     port: 8001,
     strictPort: true,
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:3001",
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
-    host: "127.0.0.1",
+    host: true,
     port: 8001,
   },
 });

@@ -60,14 +60,15 @@ import {
   renderCanvas,
   roadHint,
 } from "../lib/apronMap.js";
+import { apronOverlayUrl } from "../lib/apronSvg.js";
 
 const GROUPS = issueGroups();
 const FIRST_ISSUE = GROUPS[0][1][0];
 const ISSUE_LABELS = new Map(GROUPS.flatMap(([, values]) => values).map((value) => [value, issueLabel(value)]));
 const LEGEND = [
   ["#0c7a56", "инженер свободен"],
-  ["#f47920", "инженер занят"],
-  ["#f47920", "спецтранспорт"],
+  ["#c5161c", "инженер занят"],
+  ["#003a70", "спецтранспорт"],
   ["#00529b", "воздушное судно"],
   ["#c5161c", "AOG"],
   ["#c5161c", "маршрут"],
@@ -90,6 +91,7 @@ function marginMinutes(seconds) {
 }
 
 const DEMO_STAND_ID = "demo-stand";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STANDS_KEY = "oto-demo-stands";
 const VEHICLE_IDS_KEY = "oto-demo-vehicle-ids";
 const CLICK_VEHICLES = ["FuelTruck", "OilCart", "MaintenanceLift", "BorescopeCart", "AvionicsTestSet"];
@@ -360,6 +362,7 @@ export default function DispatcherPage() {
   useEffect(() => {
     if (!allowed) return undefined;
     function onKey(event) {
+      if (window.matchMedia("(max-width: 860px), (pointer: coarse)").matches) return;
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault();
         const form = formRef.current;
@@ -497,7 +500,7 @@ export default function DispatcherPage() {
         attributionControl: false,
       });
       bag.map = map;
-      L.imageOverlay(renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
+      L.imageOverlay(apronOverlayUrl(tmj) || renderCanvas(tmj, grid, tilesets).toDataURL("image/png"), bounds).addTo(map);
       addPlaceLabels(map, tmj);
       map.fitBounds(bounds);
 
@@ -671,7 +674,19 @@ export default function DispatcherPage() {
         if (mode === "engineer") {
           const id = clickRef.current.engineerId;
           if (!id) return "Выберите инженера в списке";
-          await updateEngineerPosition(id, [[point, Math.floor(Date.now() / 1000)]]);
+          const sessionId = getSession()?.userId;
+          const own = Boolean(sessionId) && String(sessionId) === String(id);
+          const stamp = Math.floor(Date.now() / 1000);
+          try {
+            await updateEngineerPosition(own ? sessionId : id, [[point, stamp]]);
+          } catch (error) {
+            // 403 чужого инженера не успех: точка пишется только ответом simulate.
+            if (own || Number(error?.status) !== 403) throw error;
+            await apiRequest("/api/simulate/update_engineer_position", {
+              method: "POST",
+              body: { id, new_point: point },
+            });
+          }
           await refresh();
           return `Инженер · [${point[0]}, ${point[1]}]`;
         }
@@ -778,15 +793,54 @@ export default function DispatcherPage() {
           setPending(true);
           setResult({ type: "info", text: "Поиск свободного инженера и спецтранспорта..." });
           try {
-            // Живой assign: issue, plane_point, description.
-            const response = await apiRequest("/api/assign", {
-              method: "POST",
-              body: {
-                issue: issueValue,
-                plane_point: [Number(plane.point[0]), Number(plane.point[1])],
+            const mccItem = form.activeMcc
+              ? listMcc().find((item) => item.id === form.activeMcc)
+              : null;
+            let requestId = mccItem?.status === "unassigned" && mccItem.serverId
+              ? String(mccItem.serverId)
+              : "";
+            if (mccItem?.serverId && mccItem.status !== "unassigned" && mccItem.status !== "assigned") {
+              // Перед назначением замечание ЦПУ переводим в очередь.
+              try {
+                await queueRequest(mccItem.serverId);
+                markMccQueued(mccItem.id);
+                requestId = String(mccItem.serverId);
+              } catch (error) {
+                if (Number(error?.status) !== 404) {
+                  setResult({ type: "error", text: `Ошибка: ${assignErrorMessage(error)}` });
+                  return;
+                }
+              }
+            }
+            const planeUuid = [plane.id, mccItem?.planeUuid]
+              .map((value) => String(value || "").trim())
+              .find((value) => UUID_RE.test(value)) || "";
+            const planePoint = [Number(plane.point[0]), Number(plane.point[1])];
+            const oldBody = { issue: issueValue, plane_point: planePoint, description: text };
+            let response;
+            if (requestId && planeUuid) {
+              const nextBody = {
+                request_id: requestId,
+                classifier_text: text,
                 description: text,
-              },
-            });
+                issue: issueValue,
+                plane_uuid: planeUuid,
+              };
+              try {
+                response = await apiRequest("/api/assign", { method: "POST", body: nextBody });
+              } catch (error) {
+                if (Number(error?.status) !== 422) throw error;
+                response = await apiRequest("/api/assign", { method: "POST", body: oldBody });
+              }
+            } else {
+              try {
+                response = await apiRequest("/api/assign", { method: "POST", body: oldBody });
+              } catch (error) {
+                if (Number(error?.status) !== 422) throw error;
+                setResult({ type: "error", text: "новый сервер ждёт замечание ЦПУ (статус после очереди) и UUID борта." });
+                return;
+              }
+            }
             const gridRoute = normalizeRoute(response.route);
             const travelMin = marginMinutes(response.time ?? response.eta_seconds) ?? 0;
             // Статус «назначена» только после HTTP 200, не по клику и не по очереди.
@@ -996,6 +1050,14 @@ export default function DispatcherPage() {
     const reason = reassignReason.trim();
     if (!id || !engineerId || !reason) {
       setReassignNote("Укажите заявку, инженера и причину.");
+      return;
+    }
+    const known = listMcc().find((item) => String(item.serverId || "") === id);
+    const fromAlert = alerts.find((item) => String(item.request_id || "") === id);
+    const knownStatus = known?.status || fromAlert?.status || "";
+    if (knownStatus && knownStatus !== "in_progress") {
+      setReassignNote("Переназначить можно только задачу в работе.");
+      softBeep(320, 200);
       return;
     }
     const confirmed = window.confirm("Переназначить может только старший смены. Продолжить?");
@@ -1769,7 +1831,7 @@ export default function DispatcherPage() {
               actions.current.assign?.();
             }}
           >
-            {pending ? "Назначение…" : "Назначить инженера · Ctrl+Enter"}
+            {pending ? "Назначение…" : <>Назначить инженера <span className="hotkey-mark">· Ctrl+Enter</span></>}
           </button>
           <details className="shortcut-help">
             <summary>Горячие клавиши</summary>

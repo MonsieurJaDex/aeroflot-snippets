@@ -42,10 +42,35 @@ function confidenceLabel(value) {
 }
 
 const EMAIL_RE = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function remarkBody({ description, planeUuid, ata, note, urgency }) {
+function standPoint(planeUuid) {
+  try {
+    const rows = JSON.parse(localStorage.getItem("oto-demo-stands") || "[]");
+    if (!Array.isArray(rows)) return null;
+    const wanted = String(planeUuid || "");
+    const ordered = [
+      ...rows.filter((row) => wanted && String(row?.id) === wanted),
+      ...rows.filter((row) => String(row?.id) === "demo-stand"),
+      ...rows,
+    ];
+    for (const row of ordered) {
+      if (!Array.isArray(row?.point) || row.point.length < 2) continue;
+      const x = Number(row.point[0]);
+      const y = Number(row.point[1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      return [Math.trunc(x), Math.trunc(y)];
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function remarkBody({ description, planeUuid, ata, note, urgency, point }) {
   const body = { text: description, source: "mcc" };
-  if (planeUuid) body.plane_uuid = planeUuid;
+  if (planeUuid && UUID_RE.test(planeUuid)) body.plane_uuid = planeUuid;
+  else if (Array.isArray(point) && point.length >= 2) body.point = [Number(point[0]), Number(point[1])];
   if (ata) body.ata_chapter = ata;
   if (note) body.note = note;
   if (urgency) body.urgency = urgency;
@@ -109,8 +134,12 @@ export default function MccPage() {
     setStatus("");
     const draft = readForm();
     if (!draft.description) return;
-    if (draft.planeUuid && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(draft.planeUuid)) {
-      setError("UUID борта выглядит неверно. Оставьте пустым или вставьте полный uuid.");
+    const planeIsUuid = UUID_RE.test(draft.planeUuid);
+    const point = planeIsUuid ? null : standPoint(draft.planeUuid);
+    if (!planeIsUuid && !point && (signedIn() || draft.planeUuid)) {
+      setError(draft.planeUuid
+        ? "UUID борта выглядит неверно, клетки стоянки нет. Сервер замечание не принял."
+        : "Нужен UUID борта или клетка стоянки. Сервер замечание не принял.");
       return;
     }
     if (!signedIn()) {
@@ -131,24 +160,30 @@ export default function MccPage() {
     }
     setPending(true);
     try {
-      const created = await createRemark(remarkBody(draft));
-      const serverStatus = created?.status === "unassigned" ? "unassigned" : "new";
+      const created = await createRemark(remarkBody({ ...draft, point }));
+      const serverStatus = typeof created?.status === "string" && created.status ? created.status : "new";
       addMcc({ ...draft, serverId: created?.id || null, serverStatus });
-      if (draft.planeUuid) {
+      if (planeIsUuid) {
         localStorage.setItem("oto-last-plane", draft.planeUuid);
         setSavedPlane(draft.planeUuid);
       }
       form.reset();
-      if (draft.planeUuid) {
+      if (planeIsUuid) {
         const planeInput = form.elements.namedItem("plane");
         if (planeInput) planeInput.value = draft.planeUuid;
       }
       sessionStorage.removeItem("oto-mcc-draft");
       setDraftText("");
       setHint("");
-      setStatus("Замечание записано на сервере. Инженера не назначали.");
+      setStatus(created?.scenario
+        ? "Замечание в локальном сценарии. На сервере этой ручки нет. Инженера не назначали."
+        : "Замечание записано на сервере. Инженера не назначали.");
       setItems(freshList());
-    } catch {
+    } catch (error) {
+      if (Number(error?.status) !== 404) {
+        setError(readError(error));
+        return;
+      }
       // Живой сервер без /api/requests: замечание остаётся в очереди этого браузера.
       addMcc(draft);
       if (draft.planeUuid) {

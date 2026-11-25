@@ -1,9 +1,17 @@
+import { afterSuccess, answer404, scenarioOn } from "./scenario.js";
+
 const SESSION_KEY = "oto-session";
 const API_BASE_KEY = "oto-api-base";
 const DEFAULT_API_BASE = "http://127.0.0.1:3001";
 
 export function getApiBase() {
-  return localStorage.getItem(API_BASE_KEY) || DEFAULT_API_BASE;
+  const host = window.location.hostname;
+  const loopback = !host || host === "localhost" || host === "127.0.0.1" || host === "::1";
+  // Телефон и туннель: /api этого же сайта. Сохранённый 127.0.0.1 там — сам телефон.
+  if (!loopback) return window.location.origin;
+  const saved = localStorage.getItem(API_BASE_KEY);
+  if (saved) return saved;
+  return DEFAULT_API_BASE;
 }
 
 export function setApiBase(value) {
@@ -38,6 +46,7 @@ async function tryRefresh() {
     if (!res.ok) return false;
     const data = await res.json();
     session.accessToken = data.access_token;
+    if (data.refresh_token) session.refreshToken = data.refresh_token;
     saveSession(session);
     return true;
   } catch {
@@ -61,9 +70,12 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
+    const here = typeof window !== "undefined" && !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
     const error = new Error(navigator.onLine === false
       ? "Нет сети. Проверьте соединение."
-      : "Сервер не отвечает. Проверьте адрес API.");
+      : here
+        ? "Нет связи с сервером. Обновите страницу."
+        : "Сервер не отвечает. Проверьте адрес API.");
     error.status = 0;
     throw error;
   }
@@ -77,6 +89,10 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
   }
 
   if (!res.ok) {
+    if (res.status === 404 && scenarioOn()) {
+      const mocked = answer404(path, method, body, getSession());
+      if (mocked !== undefined) return mocked;
+    }
     const text = await res.text().catch(() => "");
     let message = text || `Ошибка запроса: ${res.status}`;
     try {
@@ -93,7 +109,9 @@ export async function apiRequest(path, { method = "GET", body, auth = true, retr
   }
 
   const contentType = res.headers.get("content-type") || "";
-  return contentType.includes("application/json") ? res.json() : res.text();
+  const data = contentType.includes("application/json") ? await res.json() : await res.text();
+  if (!scenarioOn()) return data;
+  return afterSuccess(path, method, body, data, getSession());
 }
 
 export async function login(email, password) {

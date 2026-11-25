@@ -167,16 +167,21 @@ export default function LoginPage() {
   }
 
   return (
-    <main id="app-main" className="role-page" tabIndex={-1}>
+    <main id="app-main" className="role-page gate" tabIndex={-1}>
       <NetBanner />
-      <div className="role-shell">
-        <div className="role-hero">
-          <p className="eyebrow">ОТО · ДИСПЕТЧЕРИЗАЦИЯ</p>
+      <div className="gate-split">
+        <aside className="gate-brand">
           <h1>Аэрофлот</h1>
-          <p className="role-copy">ЦПУ фиксирует замечание, начальник смены назначает, инженер выполняет. Вход по роли.</p>
-        </div>
+          <p className="gate-lead">Замечание идёт через три руки: фиксация, назначение, выход к борту.</p>
+          <ol className="gate-steps">
+            <li><span>01</span>ЦПУ записывает</li>
+            <li><span>02</span>Смена выбирает инженера</li>
+            <li><span>03</span>Инженер идёт по маршруту</li>
+          </ol>
+        </aside>
+        <div className="gate-stage">
 
-        <details className="api-config">
+        {["localhost", "127.0.0.1", "::1"].includes(window.location.hostname) ? <details className="api-config">
           <summary>Адрес сервера API</summary>
           <div className="api-config-row">
             <input value={apiBase} onChange={(event) => setApiBaseInput(event.target.value)} placeholder="http://127.0.0.1:3001" />
@@ -208,7 +213,7 @@ export default function LoginPage() {
               Проверить
             </button>
           </div>
-        </details>
+        </details> : null}
 
         {role ? (
           <section className="auth-panel">
@@ -278,24 +283,26 @@ export default function LoginPage() {
             <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Mcc")} onFocus={() => prefetchRole("Mcc")} onClick={() => openRole("Mcc")}>
               <span className="role-card-number">01</span>
               <h2>ЦПУ</h2>
-              <p>Фиксирует замечание экипажа или сотрудника и передаёт его начальнику смены. Исполнителя не назначает.</p>
-              <span>Войти как ЦПУ</span>
+              <p>Замечание экипажа или сотрудника. Исполнителя отсюда не назначают.</p>
+              <span>Войти</span>
             </button>
             <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Dispatcher")} onFocus={() => prefetchRole("Dispatcher")} onClick={() => openRole("Dispatcher")}>
               <span className="role-card-number">02</span>
               <h2>Начальник смены</h2>
-              <p>Принимает заявку от ЦПУ, назначает инженера и подтверждает снятие после статуса «в работе».</p>
-              <span>Войти как начальник смены</span>
+              <p>Назначает инженера и снимает его только после статуса «в работе».</p>
+              <span>Войти</span>
             </button>
             <button className="role-card" type="button" onMouseEnter={() => prefetchRole("Engineer")} onFocus={() => prefetchRole("Engineer")} onClick={() => openRole("Engineer")}>
               <span className="role-card-number">03</span>
               <h2>Инженер</h2>
-              <p>Принимает или отклоняет заявку, меняет статус, идёт по маршруту, ставит AOG и категорию MEL.</p>
-              <span>Войти как инженер</span>
+              <p>Принимает заявку, идёт по маршруту, ставит MEL или AOG.</p>
+              <span>Войти</span>
             </button>
           </div>
         )}
+        </div>
       </div>
     </main>
   );
 }
+

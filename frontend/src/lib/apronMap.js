@@ -71,6 +71,9 @@ function normalizeV2(data) {
     tilewidth: CELL_PX,
     tileheight: CELL_PX,
     cell_size_m: Number(data.cell_size_m) || 5,
+    origin: Number.isFinite(Number(data.origin?.lat)) && Number.isFinite(Number(data.origin?.lon))
+      ? { lat: Number(data.origin.lat), lon: Number(data.origin.lon) }
+      : null,
     paletteById,
     walkIds,
     roadIds,
@@ -110,6 +113,17 @@ function mapFromMatrix(matrix) {
     tileheight: 16,
     layers: [{ name: "дорога", type: "tilelayer", width, height, data: matrix.flat() }],
   };
+}
+
+export function gpsToCell(tmj, lat, lon) {
+  const origin = tmj?.origin;
+  const cell = Number(tmj?.cell_size_m) || 5;
+  if (!origin || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const cos = Math.max(0.2, Math.cos((origin.lat * Math.PI) / 180));
+  const x = Math.floor(((lon - origin.lon) * 111320 * cos) / cell);
+  const y = Math.floor(((origin.lat - lat) * 111320) / cell);
+  if (x < 0 || y < 0 || x >= tmj.width || y >= tmj.height) return null;
+  return [x, y];
 }
 
 export async function loadApronMap() {
