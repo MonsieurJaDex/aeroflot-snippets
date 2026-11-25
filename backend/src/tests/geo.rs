@@ -268,7 +268,7 @@ async fn ingests_track_points_for_known_objects_only() {
     );
 
     let track_key = format!("map:{}:track:e-01", ctx.active_id());
-    let stored = ctx.redis_get(&track_key).expect("track should be stored");
+    let stored = ctx.redis_lindex(&track_key, 0).expect("track should be stored");
     assert!(stored.contains("\"lat\":55.831"));
     assert!(stored.contains("\"x\":"));
 
@@ -339,6 +339,115 @@ async fn ingests_track_points_for_known_objects_only() {
         .expect("a batch answers with an array even when it holds one point");
     assert_eq!(single_in_batch.len(), 1);
     assert_eq!(single_in_batch[0]["obj"], "RA-73142");
+}
+
+/// Every point of an object is kept, not just the last one: two objects and one
+/// object reporting twice must stay independently readable, and the key must
+/// expire so a silent tracker stops counting as current.
+#[tokio::test]
+async fn keeps_every_track_point_of_each_object_under_its_own_key() {
+    let ctx = TestContext::new().await;
+    let engineer = ctx.engineer(EngineerType::AviationTechnician);
+    let dispatcher = ctx.dispatcher();
+
+    let first = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "obj": engineer.id, "lat": 55.8310, "lon": 37.6360,
+                         "t": "2026-12-03T09:14:20.000Z" })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(first["applied"], true);
+    let second = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "obj": engineer.id, "lat": 55.8320, "lon": 37.6370,
+                         "t": "2026-12-03T09:15:20.000Z" })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(second["applied"], true);
+    let other = expect_status(
+        ctx.request(
+            Method::POST,
+            "/api/v1/track",
+            None,
+            Some(json!({ "obj": "v-01", "lat": 55.8330, "lon": 37.6380,
+                         "t": "2026-12-03T09:15:20.000Z" })),
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(other["applied"], true);
+
+    let key = format!("map:{}:track:{}", ctx.active_id(), engineer.id);
+    let other_key = format!("map:{}:track:v-01", ctx.active_id());
+    // Newest first, and the older point is still there instead of being overwritten.
+    let newest = ctx.redis_lindex(&key, 0).expect("newest point");
+    let older = ctx.redis_lindex(&key, 1).expect("the first point is kept");
+    assert!(newest.contains("\"lat\":55.832"), "got {newest}");
+    assert!(older.contains("\"lat\":55.831"), "got {older}");
+    assert_eq!(ctx.redis_lindex(&key, 2), None, "only two points were sent");
+
+    // A different object writes its own key, so simultaneous movement does not mix.
+    let independent = ctx.redis_lindex(&other_key, 0).expect("other object track");
+    assert!(independent.contains("\"lat\":55.833"), "got {independent}");
+
+    // A tiny lifetime keeps the coordinate current instead of keeping it forever.
+    let ttl = ctx.redis_ttl(&key);
+    assert!(ttl > 0, "track key must expire, ttl {ttl}");
+    assert!(ttl <= 120, "ttl must be short, got {ttl}");
+    assert!(ctx.redis_ttl(&other_key) > 0, "track key must expire");
+
+    // Nobody's coordinate disappears from the answer while the key is alive.
+    let fresh = expect_status(
+        ctx.get(
+            &format!("/api/geo/trackFreshness?obj={}", engineer.id),
+            &dispatcher.token,
+        )
+        .await,
+        StatusCode::OK,
+    );
+    assert_eq!(fresh["fresh"], true);
+    assert!(
+        fresh["expires_in_secs"].as_i64().unwrap_or(0) > 0,
+        "got {fresh}"
+    );
+}
+
+/// An object nobody reports is stale rather than an error, and a blank `obj` is
+/// rejected instead of silently answered.
+#[tokio::test]
+async fn track_freshness_reports_a_missing_coordinate_as_stale() {
+    let ctx = TestContext::new().await;
+    let dispatcher = ctx.dispatcher();
+
+    let unknown = expect_status(
+        ctx.get("/api/geo/trackFreshness?obj=nobody", &dispatcher.token)
+            .await,
+        StatusCode::OK,
+    );
+    assert_eq!(unknown["fresh"], false);
+    assert_eq!(unknown["expires_in_secs"], 0);
+
+    let blank = ctx
+        .get("/api/geo/trackFreshness?obj=%20", &dispatcher.token)
+        .await;
+    assert_eq!(blank.0, StatusCode::BAD_REQUEST);
+
+    let no_param = ctx.get("/api/geo/trackFreshness", &dispatcher.token).await;
+    assert_eq!(no_param.0, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // Auth is required like every other protected route.
+    let anonymous = ctx.get("/api/geo/trackFreshness?obj=nobody", "").await;
+    assert_eq!(anonymous.0, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -494,7 +603,7 @@ async fn drops_outliers_without_losing_the_previous_point() {
         StatusCode::OK,
     );
     assert_eq!(first["applied"], true);
-    let kept = ctx.redis_get(&track_key).expect("track should be stored");
+    let kept = ctx.redis_lindex(&track_key, 0).expect("track should be stored");
 
     // contract: an accuracy coarser than `max_accuracy_m` (80 m in map2) is an
     // outlier — accepted syntactically, refused semantically, previous point kept.
@@ -516,7 +625,7 @@ async fn drops_outliers_without_losing_the_previous_point() {
     );
     assert_eq!(coarse["accepted"], true);
     assert_eq!(coarse["applied"], false);
-    assert_eq!(ctx.redis_get(&track_key).as_deref(), Some(kept.as_str()));
+    assert_eq!(ctx.redis_lindex(&track_key, 0).as_deref(), Some(kept.as_str()));
 
     // contract: jumping ~8 km in one second exceeds `max_speed_mps` (12 m/s), so
     // the point is an outlier as well.
@@ -538,7 +647,7 @@ async fn drops_outliers_without_losing_the_previous_point() {
     );
     assert_eq!(jump["accepted"], true);
     assert_eq!(jump["applied"], false);
-    assert_eq!(ctx.redis_get(&track_key).as_deref(), Some(kept.as_str()));
+    assert_eq!(ctx.redis_lindex(&track_key, 0).as_deref(), Some(kept.as_str()));
 
     // Both refusals are journalled, not silently dropped.
     assert_eq!(ctx.journal_count(), seeded + 2);
@@ -559,7 +668,7 @@ async fn ingests_gpslogger_custom_url_query() {
     assert_eq!(point["obj"], "e-01");
     assert_eq!(point["applied"], true);
     assert_eq!(point["t"], "2025-11-24T16:00:00.000Z");
-    let stored = ctx.redis_get(&track_key).expect("track should be stored");
+    let stored = ctx.redis_lindex(&track_key, 0).expect("track should be stored");
     assert!(stored.contains("\"lat\":55.8312"));
     assert!(stored.contains("\"acc\":5.0"));
     assert!(stored.contains("\"spd\":1.2"));
@@ -579,7 +688,7 @@ async fn ingests_gpslogger_custom_url_query() {
     assert_eq!(older["accepted"], true);
     assert_eq!(older["applied"], false);
     assert!(ctx
-        .redis_get(&track_key)
+        .redis_lindex(&track_key, 0)
         .expect("track should be stored")
         .contains("\"lat\":55.8312"));
 
@@ -674,7 +783,7 @@ async fn calibrated_object_reports_the_pinned_cell() {
     );
     // The raw report stays raw: the pin fixes the map cell, not the tracker.
     let stored = ctx
-        .redis_get(&format!("map:{}:track:{}", ctx.active_id(), engineer.id))
+        .redis_lindex(&format!("map:{}:track:{}", ctx.active_id(), engineer.id), 0)
         .expect("track should be stored");
     let stored: serde_json::Value = serde_json::from_str(&stored).expect("track json");
     assert_eq!(

@@ -22,6 +22,7 @@ use crate::{
         config::AppState,
         dto::{
             CalibrateObjectRequest, CalibrationEntry, CalibrationListResponse,
+            TrackFreshnessQuery, TrackFreshnessResponse,
             ClearCalibrationRequest, Coordinate, ErrorResponse, PageQuery,
             UpdateEngineerPositionRequest, UpdateTransportPositionRequest,
         },
@@ -418,6 +419,61 @@ pub async fn active_engineers(
 
     Ok(Json(ActiveEngineersResponse {
         active_engineers: ids,
+    })
+    .into_response())
+}
+
+/// Answer whether a live coordinate is stored for an object.
+///
+/// The coordinate itself lives in Redis under `map:{id}:track:{obj}` and expires
+/// `stale_after_secs` after the last reported point, so a caller that only needs
+/// "is this position current" answers that question with one boolean instead of
+/// reading and parsing the whole history.
+#[utoipa::path(
+    get,
+    path = "/api/geo/trackFreshness",
+    tag = "Geo",
+    operation_id = "getTrackFreshness",
+    description = "Say whether a live coordinate is stored for an object",
+    security(("bearerAuth" = [])),
+    params(("obj" = String, Query, description = "Object a tracker reports")),
+    responses(
+        (status = 200, description = "Freshness of the coordinate", body = TrackFreshnessResponse),
+        (status = 400, description = "Blank obj", body = ErrorResponse),
+        (status = 401, description = "Missing or invalid access token", body = ErrorResponse),
+        (status = 422, description = "obj is missing", body = ErrorResponse),
+        (status = 500, description = "Server-side error", body = ErrorResponse),
+    ),
+)]
+pub async fn track_freshness(
+    State(app_state): State<Arc<AppState>>,
+    ApiQuery(query): ApiQuery<TrackFreshnessQuery>,
+) -> Result<Response<Body>, Response<Body>> {
+    if query.obj.trim().is_empty() {
+        return Err(bad_request("obj must not be blank"));
+    }
+    let active = active_map(&app_state)?;
+    let mut redis_conn = app_state.redis_pool.get().map_err(|e| {
+        tracing::error!(error = %e, "failed to acquire redis connection");
+        internal_error()
+    })?;
+
+    let key = format!("map:{}:track:{}", active.id, query.obj);
+    let mut conn = &mut *redis_conn;
+    // The key's own lifetime is the freshness answer: it exists only while the
+    // last point is younger than `stale_after_secs`.
+    let ttl: i64 = redis::cmd("TTL")
+        .arg(&key)
+        .query(&mut conn)
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to read track ttl");
+            internal_error()
+        })?;
+
+    Ok(Json(TrackFreshnessResponse {
+        obj: query.obj,
+        fresh: ttl > 0,
+        expires_in_secs: ttl.max(0),
     })
     .into_response())
 }

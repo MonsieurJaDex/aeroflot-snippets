@@ -339,6 +339,15 @@ fn invalid_reason(sample: &TrackSample) -> Option<&'static str> {
     }
 }
 
+/// How many points one object's track keeps, newest first.
+///
+/// Every accepted point is appended, so a dispatcher watching several aircraft,
+/// vehicles and engineers moving at the same time reads each one's history
+/// instead of only its last sample. The bound keeps a long-running exercise from
+/// growing without limit; at a one-second logging interval it is under an hour and
+/// a half, at the usual GPSLogger minute it is most of a week.
+const TRACK_HISTORY_POINTS: i32 = 5000;
+
 fn apply_point(
     active: &crate::maps::ActiveMap,
     redis_conn: &mut redis::Connection,
@@ -372,7 +381,17 @@ fn apply_point(
         });
     }
     let key = format!("map:{}:track:{}", active.id, obj);
-    let previous: Option<String> = redis_conn.get(&key).unwrap_or(None);
+    // The newest point of this object decides staleness and outliers; the rest of
+    // the list is history. Objects never share a key, so one moving aircraft does
+    // not displace an engineer's samples.
+    let previous: Option<String> = {
+        let mut conn = &mut *redis_conn;
+        redis::cmd("LINDEX")
+            .arg(&key)
+            .arg(0)
+            .query(&mut conn)
+            .unwrap_or(None)
+    };
     if let Some(raw) = &previous {
         if let Ok(old) = serde_json::from_str::<serde_json::Value>(raw) {
             if let Some(old_t) = old.get("t").and_then(|value| value.as_str()) {
@@ -450,8 +469,26 @@ fn apply_point(
         "acc": acc,
         "spd": spd,
     });
-    redis_conn
-        .set(&key, stored.to_string())
+    // One round trip: append the point, cap the list and refresh the key's
+    // lifetime. The TTL is what makes a stale coordinate disappear instead of
+    // lingering: a tracker that goes silent for longer than `stale_after_secs`
+    // leaves no key behind, and `GET /api/geo/trackFreshness` says so.
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    pipe.cmd("LPUSH")
+        .arg(&key)
+        .arg(stored.to_string())
+        .ignore();
+    pipe.cmd("LTRIM")
+        .arg(&key)
+        .arg(0)
+        .arg(TRACK_HISTORY_POINTS - 1)
+        .ignore();
+    pipe.cmd("EXPIRE")
+        .arg(&key)
+        .arg(active.location.stale_after_secs.max(1))
+        .ignore();
+    pipe.query::<()>(redis_conn)
         .map_err(|_| super::internal_error())?;
     let position_id = linked.unwrap_or_else(|| Uuid::new_v5(&Uuid::NAMESPACE_OID, obj.as_bytes()));
     match kind {

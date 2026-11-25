@@ -133,6 +133,27 @@ pub struct PageQuery {
     pub offset: Option<i64>,
 }
 
+/// Query of `GET /api/geo/trackFreshness`.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct TrackFreshnessQuery {
+    /// Object a tracker reports; the same `obj` the points were sent with.
+    pub obj: String,
+}
+
+/// Freshness of an object's coordinate, as `GET /api/geo/trackFreshness` answers
+/// it. The key is present only while the tracker keeps reporting.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TrackFreshnessResponse {
+    /// Object that was asked about, echoed back.
+    pub obj: String,
+    /// `true` when Redis holds a live coordinate for the object, `false` when the
+    /// last point is older than `stale_after_secs` or was never received.
+    pub fresh: bool,
+    /// Seconds left before the coordinate expires; `0` when it already has.
+    #[schema(minimum = 0)]
+    pub expires_in_secs: i64,
+}
+
 /// Uniform JSON error body.
 #[derive(Debug, Serialize, ToSchema)]
 #[schema(description = "Error returned by every non-2xx response.")]
