@@ -676,7 +676,7 @@ export default function DispatcherPage() {
             iconSize: [28, 28],
             iconAnchor: [14, 14],
           }),
-        }).bindTooltip(label, { direction: "top" }).addTo(staffLayer);
+        }).bindTooltip(label, { permanent: true, direction: "top", className: "map-label", offset: [0, -8] }).addTo(staffLayer);
       }
 
       function stopWalk(id) {
@@ -803,6 +803,7 @@ export default function DispatcherPage() {
             continue;
           }
           const statusText = agent.busy ? "занят на задаче" : "свободен";
+          if (!Array.isArray(agent.point) || !Number.isFinite(agent.point[0]) || !Number.isFinite(agent.point[1])) continue;
           staffMarker(cellToLatLng(tmj, agent.point[0], agent.point[1]), agent.busy, `${agent.name} · ${statusText}`);
         }
         for (const [id, walk] of walks) {
@@ -816,6 +817,7 @@ export default function DispatcherPage() {
         const seen = new Set();
         for (const vehicle of fleet) {
           const id = String(vehicle.id);
+          if (!Array.isArray(vehicle.point) || !Number.isFinite(vehicle.point[0]) || !Number.isFinite(vehicle.point[1])) continue;
           seen.add(id);
           const cell = [Math.floor(vehicle.point[0]), Math.floor(vehicle.point[1])];
           const held = transportMarkers.get(id);

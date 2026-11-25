@@ -10,7 +10,7 @@ import { copyText } from "../lib/copyText.js";
 import { enqueueAction, flushActions, pendingActionCount } from "../lib/actionOutbox.js";
 import { enqueueEngineerPoint, enqueueGpsFix, flushEngineerOutbox, pendingCount } from "../lib/geoOutbox.js";
 import { cellAfterAck } from "../lib/gpsSync.js";
-import { getRoute, loadStaff, normalizeRoute, postTrackPoint, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
+import { getRoute, loadAircraft, loadStaff, normalizeRoute, postTrackPoint, refreshTaskRoute, updateEngineerPosition } from "../lib/live.js";
 import { apiRequest, clearSession, getSession, hydrateProfile } from "../lib/session.js";
 import { apronOverlayUrl } from "../lib/apronSvg.js";
 import { whenVisible } from "../lib/visibility.js";
@@ -18,6 +18,7 @@ import { CELL_METERS, expandRouteOnRoads, pointAt, totalMeters, turnHint, WALK_M
 import {
   buildTileGrid,
   buildWalkMask,
+  cellToLatLng,
   centerToLatLng,
   addPlaceLabels,
   routeSpansMap,
@@ -1153,8 +1154,28 @@ export default function WorkerPage() {
         else ensureFitted();
       });
       boxObserver.observe(map.getContainer());
+      const planeLayer = L.layerGroup().addTo(map);
+      async function showPlanes() {
+        const list = await loadAircraft();
+        if (cancelled) return;
+        planeLayer.clearLayers();
+        for (const plane of list) {
+          if (!plane.point) continue;
+          L.marker(cellToLatLng(tmj, plane.point[0], plane.point[1]), {
+            icon: L.divIcon({ className: "aircraft-marker", html: "", iconSize: [16, 16], iconAnchor: [8, 8] }),
+          }).bindTooltip(`ВС ${String(plane.id).slice(0, 8)}`, {
+            permanent: true,
+            direction: "top",
+            className: "map-label",
+            offset: [0, -6],
+          }).addTo(planeLayer);
+        }
+      }
+      showPlanes();
+      const planeTimer = window.setInterval(showPlanes, 5000);
       bag.cleanupResize = () => {
         cancelAnimationFrame(bag.fitFrame);
+        clearInterval(planeTimer);
         boxObserver.disconnect();
         window.removeEventListener("resize", onResize);
       };
